@@ -1,43 +1,11 @@
-name: Build and Deploy Cuento
+name: Dev pipeline (disabled in fork)
 
 on:
-  push:
-    branches: [ main ] # Deploy only when pushing to main
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  disabled:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-          cache: true
-
-      - name: Build Binary
-        run: |
-          GOOS=linux GOARCH=amd64 go build -o cuento-backend main.go
-
-      - name: Copy binary to Server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DROPLET_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "cuento-backend,locales/"
-          target: "/var/www/backend"
-
-      - name: Restart Service via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DROPLET_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            chown cuento:cuento /var/www/backend/cuento-backend
-            chown cuento:cuento /var/www/backend
-            chmod 755 /var/www/backend/cuento-backend
-            systemctl restart cuento-backend
+      - name: Disabled
+        run: echo "Dev pipeline is disabled in this fork. Use the release branch."
