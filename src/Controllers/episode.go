@@ -550,6 +550,11 @@ func UpdateEpisode(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	_, _ = db.Exec(
+		"UPDATE subforums SET last_post_topic_name = ? WHERE last_post_topic_id = ?",
+		req.Name, topicID,
+	)
+
 	// 6. Fetch updated episode and return
 	updatedEpisode, err := Services.GetEntity(int64(episodeID), "episode", db)
 	if err != nil {

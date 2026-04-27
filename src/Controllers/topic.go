@@ -35,12 +35,15 @@ type ViewforumRow struct {
 	LastPostId             *int                 `json:"last_post_id"`
 	NotViewed              bool                 `json:"not_viewed"`
 	LastViewedId           *int                 `json:"last_viewed_id"`
+	IsSticky               bool                 `json:"is_sticky"`
+	IsStickyFirstPost      bool                 `json:"is_sticky_first_post"`
 }
 
 type CreateTopicRequest struct {
-	SubforumId int    `json:"subforum_id" binding:"required"`
-	Title      string `json:"title" binding:"required"`
-	Content    string `json:"content" binding:"required"`
+	SubforumId        int    `json:"subforum_id" binding:"required"`
+	Title             string `json:"title" binding:"required"`
+	Content           string `json:"content" binding:"required"`
+	IsStickyFirstPost bool   `json:"is_sticky_first_post"`
 }
 
 type CreatePostRequest struct {
@@ -56,8 +59,9 @@ type UpdatePostRequest struct {
 }
 
 type UpdateTopicRequest struct {
-	Name   *string               `json:"name"`
-	Status *Entities.TopicStatus `json:"status"`
+	Name              *string               `json:"name"`
+	Status            *Entities.TopicStatus `json:"status"`
+	IsStickyFirstPost *bool                 `json:"is_sticky_first_post"`
 }
 
 type PostRow struct {
@@ -92,18 +96,20 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 
 	limit := 30
 	query := `
-		SELECT topics.id, topics.status, topics.name, topics.type, topics.date_last_post, topics.post_number, 
-		       topics.author_user_id, u.username as author_username, 
-		       topics.last_post_author_user_id, u2.username as last_post_author_username, 
+		SELECT topics.id, topics.status, topics.name, topics.type, topics.date_last_post, topics.post_number,
+		       topics.author_user_id, u.username as author_username,
+		       topics.last_post_author_user_id, u2.username as last_post_author_username,
 		       COALESCE(topics.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = topics.id)) as last_post_id,
 		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < COALESCE(topics.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = topics.id))) THEN 1 ELSE 0 END) as not_viewed,
-		       utv.post_id as last_viewed_id
-		FROM topics 
-		JOIN users u ON topics.author_user_id = u.id 
-		LEFT JOIN users u2 ON topics.last_post_author_user_id = u2.id 
+		       utv.post_id as last_viewed_id,
+		       COALESCE(topics.is_sticky, false) as is_sticky,
+		       COALESCE(topics.is_sticky_first_post, false) as is_sticky_first_post
+		FROM topics
+		JOIN users u ON topics.author_user_id = u.id
+		LEFT JOIN users u2 ON topics.last_post_author_user_id = u2.id
 		LEFT JOIN user_topic_view utv ON topics.id = utv.topic_id AND utv.user_id = ?
-		WHERE subforum_id = ? 
-		ORDER BY date_last_post DESC
+		WHERE subforum_id = ?
+		ORDER BY COALESCE(topics.is_sticky, false) DESC, date_last_post DESC
 		LIMIT ? OFFSET ?
 	`
 	rows, err := db.Query(query, userID, userID, subforum, limit, page*limit)
@@ -131,6 +137,8 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 			&topic.LastPostId,
 			&topic.NotViewed,
 			&topic.LastViewedId,
+			&topic.IsSticky,
+			&topic.IsStickyFirstPost,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan topics: " + err.Error()})
@@ -178,8 +186,8 @@ func CreateTopic(c *gin.Context, db *sql.DB) {
 	defer tx.Rollback()
 
 	// Insert Topic
-	res, err := tx.Exec("INSERT INTO topics (subforum_id, name, author_user_id, date_created, date_last_post, status, type, post_number, last_post_author_user_id) VALUES (?, ?, ?, NOW(), NOW(), 0, 0, 1, ?)",
-		req.SubforumId, req.Title, userID, userID)
+	res, err := tx.Exec("INSERT INTO topics (subforum_id, name, author_user_id, date_created, date_last_post, status, type, post_number, last_post_author_user_id, is_sticky_first_post) VALUES (?, ?, ?, NOW(), NOW(), 0, 0, 1, ?, ?)",
+		req.SubforumId, req.Title, userID, userID, req.IsStickyFirstPost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert topic: " + err.Error()})
 		return
@@ -292,8 +300,12 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		currencyJoin = "LEFT JOIN currency_user_account cua ON p.author_user_id = cua.user_id"
 	}
 
-	// 2. Construct the main query
-	query := fmt.Sprintf(`
+	// 2. Check if this topic pins the first post on every page
+	var isStickyFirstPost bool
+	_ = db.QueryRow("SELECT COALESCE(is_sticky_first_post, false) FROM topics WHERE id = ?", topicID).Scan(&isStickyFirstPost)
+
+	// 3. Construct the main query
+	baseQuery := fmt.Sprintf(`
 		SELECT
 			p.id, p.author_user_id, p.date_created, p.content, p.use_character_profile,
 			u.username, u.avatar, u.total_posts, u.total_general_posts, p.guest_name,
@@ -308,11 +320,22 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		LEFT JOIN character_profile_flattened cpf ON cp.id = cpf.entity_id
 		%s
 		WHERE p.topic_id = ? AND (p.is_deleted IS NULL OR p.is_deleted <> 1)
-		ORDER BY p.date_created ASC
-		LIMIT ? OFFSET ?
 	`, colsSelect, currencyJoin)
 
-	rows, err := db.Query(query, topicID, postsPerPage, offset)
+	var query string
+	var queryArgs []interface{}
+	if isStickyFirstPost && page > 1 {
+		query = fmt.Sprintf(
+			`(%s ORDER BY p.date_created ASC LIMIT 1) UNION ALL (%s ORDER BY p.date_created ASC LIMIT ? OFFSET ?) ORDER BY date_created ASC`,
+			baseQuery, baseQuery,
+		)
+		queryArgs = []interface{}{topicID, topicID, postsPerPage, offset}
+	} else {
+		query = fmt.Sprintf(`%s ORDER BY p.date_created ASC LIMIT ? OFFSET ?`, baseQuery)
+		queryArgs = []interface{}{topicID, postsPerPage, offset}
+	}
+
+	rows, err := db.Query(query, queryArgs...)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get posts: " + err.Error()})
 		c.Abort()
@@ -537,7 +560,7 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 	}
 
 	var topic Entities.Topic
-	query := "SELECT t.id, t.status, t.name, t.type, t.date_created, t.date_last_post, t.post_number, t.author_user_id, u.username, t.last_post_author_user_id, u2.username, t.subforum_id FROM topics t JOIN users u ON t.author_user_id = u.id LEFT JOIN users u2 ON t.last_post_author_user_id = u2.id WHERE t.id = ?"
+	query := "SELECT t.id, t.status, t.name, t.type, t.date_created, t.date_last_post, t.post_number, t.author_user_id, u.username, t.last_post_author_user_id, u2.username, t.subforum_id, COALESCE(t.is_sticky_first_post, false) FROM topics t JOIN users u ON t.author_user_id = u.id LEFT JOIN users u2 ON t.last_post_author_user_id = u2.id WHERE t.id = ?"
 	err = db.QueryRow(query, id).Scan(
 		&topic.Id,
 		&topic.Status,
@@ -551,6 +574,7 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 		&topic.LastPostAuthorUserId,
 		&topic.LastPostAuthorName,
 		&topic.SubforumId,
+		&topic.IsStickyFirstPost,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1189,6 +1213,10 @@ func UpdateTopic(c *gin.Context, db *sql.DB) {
 		setClauses = append(setClauses, "status = ?")
 		args = append(args, *req.Status)
 	}
+	if req.IsStickyFirstPost != nil {
+		setClauses = append(setClauses, "is_sticky_first_post = ?")
+		args = append(args, *req.IsStickyFirstPost)
+	}
 
 	if len(setClauses) == 0 {
 		c.JSON(http.StatusOK, gin.H{"message": "Topic updated successfully"})
@@ -1203,7 +1231,113 @@ func UpdateTopic(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	if req.Name != nil {
+		_, _ = db.Exec(
+			"UPDATE subforums SET last_post_topic_name = ? WHERE last_post_topic_id = ?",
+			*req.Name, topicID,
+		)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Topic updated successfully"})
+}
+
+func BulkUpdateTopics(c *gin.Context, db *sql.DB) {
+	var req struct {
+		TopicIDs []int                 `json:"topic_ids" binding:"required"`
+		Status   *Entities.TopicStatus `json:"status"`
+		IsSticky *bool                 `json:"is_sticky"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+	if len(req.TopicIDs) == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "topic_ids must not be empty"})
+		c.Abort()
+		return
+	}
+	if req.Status == nil && req.IsSticky == nil {
+		c.JSON(http.StatusOK, gin.H{"updated": 0})
+		return
+	}
+	if req.Status != nil && *req.Status == Entities.FullTopic {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "FullTopic status cannot be set manually"})
+		c.Abort()
+		return
+	}
+
+	userID := Services.GetUserIdFromContext(c)
+
+	placeholders := strings.Repeat("?,", len(req.TopicIDs)-1) + "?"
+	idArgs := make([]interface{}, len(req.TopicIDs))
+	for i, id := range req.TopicIDs {
+		idArgs[i] = id
+	}
+
+	// Fetch subforum IDs and validate no topic is Full
+	rows, err := db.Query(
+		fmt.Sprintf("SELECT id, subforum_id, status FROM topics WHERE id IN (%s)", placeholders),
+		idArgs...,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch topics: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	subforumSeen := make(map[int]bool)
+	for rows.Next() {
+		var tID, subforumID int
+		var status Entities.TopicStatus
+		if err := rows.Scan(&tID, &subforumID, &status); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan topic: " + err.Error()})
+			c.Abort()
+			return
+		}
+		if status == Entities.FullTopic {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: fmt.Sprintf("Topic %d is full and cannot be updated", tID)})
+			c.Abort()
+			return
+		}
+		subforumSeen[subforumID] = true
+	}
+
+	// Check edit-others permission for every subforum involved
+	for subforumID := range subforumSeen {
+		perm := fmt.Sprintf("subforum_edit_others_topic:%d", subforumID)
+		if ok, err := Services.HasPermission(userID, perm, db); err != nil || !ok {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: fmt.Sprintf("No permission to edit topics in subforum %d", subforumID)})
+			c.Abort()
+			return
+		}
+	}
+
+	var setClauses []string
+	var setArgs []interface{}
+	if req.Status != nil {
+		setClauses = append(setClauses, "status = ?")
+		setArgs = append(setArgs, *req.Status)
+	}
+	if req.IsSticky != nil {
+		setClauses = append(setClauses, "is_sticky = ?")
+		setArgs = append(setArgs, *req.IsSticky)
+	}
+
+	args := append(setArgs, idArgs...)
+	result, err := db.Exec(
+		fmt.Sprintf("UPDATE topics SET %s WHERE id IN (%s)", strings.Join(setClauses, ", "), placeholders),
+		args...,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update topics: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	updated, _ := result.RowsAffected()
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
 }
 
 func GetActiveTopics(c *gin.Context, db *sql.DB) {
@@ -1452,15 +1586,29 @@ func MoveTopics(c *gin.Context, db *sql.DB) {
 	}
 
 	placeholders := strings.Repeat("?,", len(req.TopicIDs)-1) + "?"
-	query := fmt.Sprintf("UPDATE topics SET subforum_id = ? WHERE id IN (%s)", placeholders)
 
-	args := make([]interface{}, 0, len(req.TopicIDs)+1)
-	args = append(args, req.SubforumID)
-	for _, id := range req.TopicIDs {
-		args = append(args, id)
+	// Collect source subforum IDs before moving
+	idArgs := make([]interface{}, len(req.TopicIDs))
+	for i, id := range req.TopicIDs {
+		idArgs[i] = id
+	}
+	sourceRows, err := db.Query(fmt.Sprintf("SELECT DISTINCT subforum_id FROM topics WHERE id IN (%s)", placeholders), idArgs...)
+	var sourceSubforumIDs []int
+	if err == nil {
+		defer sourceRows.Close()
+		for sourceRows.Next() {
+			var sfID int
+			if sourceRows.Scan(&sfID) == nil {
+				sourceSubforumIDs = append(sourceSubforumIDs, sfID)
+			}
+		}
 	}
 
-	result, err := db.Exec(query, args...)
+	moveArgs := make([]interface{}, 0, len(req.TopicIDs)+1)
+	moveArgs = append(moveArgs, req.SubforumID)
+	moveArgs = append(moveArgs, idArgs...)
+
+	result, err := db.Exec(fmt.Sprintf("UPDATE topics SET subforum_id = ? WHERE id IN (%s)", placeholders), moveArgs...)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to move topics: " + err.Error()})
 		c.Abort()
@@ -1469,6 +1617,17 @@ func MoveTopics(c *gin.Context, db *sql.DB) {
 
 	moved, _ := result.RowsAffected()
 	c.JSON(http.StatusOK, gin.H{"moved": moved})
+
+	affected := make(map[int]bool)
+	affected[req.SubforumID] = true
+	for _, id := range sourceSubforumIDs {
+		affected[id] = true
+	}
+	subforumIDs := make([]int, 0, len(affected))
+	for id := range affected {
+		subforumIDs = append(subforumIDs, id)
+	}
+	Events.Publish(db, Events.TopicsMoved, Events.TopicsMovedEvent{SubforumIDs: subforumIDs})
 }
 
 func GetPostById(c *gin.Context, db *sql.DB) {

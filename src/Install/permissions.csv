@@ -63,6 +63,7 @@ role_id,type,permission
 3,0,/admin/additional-navlink/list
 3,0,/admin/additional-navlink/update/:id
 3,0,/admin/additional-navlink/delete/:id
+3,0,/admin/smile/upload
 3,0,/admin/role/list
 3,0,/admin/user-list
 3,0,/admin/user/create
@@ -72,6 +73,7 @@ role_id,type,permission
 3,0,/character-claim/create
 3,0,/character-claims
 3,0,/character/accept/:id
+3,0,/character/decline/:id
 3,0,/currency/income-types
 3,0,/currency/income-types/update
 3,0,/currency/settings
@@ -82,6 +84,7 @@ role_id,type,permission
 3,0,/design-variation/list
 3,0,/design-variation/update/:id
 3,0,/faction-tree
+3,0,/faction/delete/:id
 3,0,/faction/create
 3,0,/faction/update/:id
 3,0,/factions/pending
@@ -106,6 +109,7 @@ role_id,type,permission
 3,0,/subforum/delete/:id
 3,0,/subforum/update/:id
 3,0,/template/:type/update
+3,0,/topics/bulk-update
 3,0,/topics/move
 3,0,/user/private-key-check
 3,0,/user/save-recovery-keys
@@ -119,3 +123,4 @@ role_id,type,permission
 3,0,/admin/user/roles/update
 3,0,/admin/user/roles/:id
 3,0,/admin/home
+3,0,/admin/smile/upload

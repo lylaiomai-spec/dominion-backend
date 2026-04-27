@@ -41,6 +41,7 @@ const (
 	ActiveCharacter   CharacterStatus = 0
 	InactiveCharacter CharacterStatus = 1
 	PendingCharacter  CharacterStatus = 2
+	DeclinedCharacter CharacterStatus = 3
 )
 
 type ClaimRecord struct {

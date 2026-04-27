@@ -233,6 +233,66 @@ func CreatePendingFaction(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"id": id, "name": req.Name, "faction_status": Entities.FactionPending})
 }
 
+func DeleteFaction(c *gin.Context, db *sql.DB) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid id"})
+		c.Abort()
+		return
+	}
+
+	var exists bool
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM factions WHERE id = ?)", id).Scan(&exists); err != nil || !exists {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Faction not found"})
+		c.Abort()
+		return
+	}
+
+	var childCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM factions WHERE parent_id = ?", id).Scan(&childCount); err != nil || childCount > 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusConflict, Message: "Cannot delete a faction that has children"})
+		c.Abort()
+		return
+	}
+
+	var characterCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM character_faction WHERE faction_id = ?", id).Scan(&characterCount); err != nil || characterCount > 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusConflict, Message: "Cannot delete a faction that has characters"})
+		c.Abort()
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
+		c.Abort()
+		return
+	}
+	defer tx.Rollback()
+
+	for _, table := range []string{"character_faction", "character_claim_faction", "wanted_character_faction"} {
+		if _, err := tx.Exec("DELETE FROM "+table+" WHERE faction_id = ?", id); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to remove faction references: " + err.Error()})
+			c.Abort()
+			return
+		}
+	}
+
+	if _, err := tx.Exec("DELETE FROM factions WHERE id = ?", id); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to delete faction: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Faction deleted"})
+}
+
 func GetPendingFactions(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query("SELECT id, name, parent_id, level, description, icon, show_on_profile, faction_status FROM factions WHERE faction_status = ? ORDER BY name", Entities.FactionPending)
 	if err != nil {

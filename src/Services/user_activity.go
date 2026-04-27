@@ -30,7 +30,7 @@ func (s *UserActivityStorage) AddUser(userID int, username string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.users[userID]; !exists {
+	if existing, exists := s.users[userID]; !exists {
 		s.users[userID] = &UserActivity{
 			UserID:      userID,
 			Username:    username,
@@ -39,7 +39,10 @@ func (s *UserActivityStorage) AddUser(userID int, username string) {
 			connections: 1,
 		}
 	} else {
-		s.users[userID].connections++
+		existing.connections++
+		existing.IsVisible = true
+		existing.LastActive = time.Now()
+		// CurrentPageType and CurrentPageId are intentionally preserved
 	}
 }
 
@@ -56,7 +59,8 @@ func (s *UserActivityStorage) RemoveUser(userID int) bool {
 	}
 	user.connections--
 	if user.connections <= 0 {
-		delete(s.users, userID)
+		user.connections = 0
+		user.IsVisible = false
 		return true
 	}
 	return false
@@ -74,6 +78,8 @@ func (s *UserActivityStorage) EvictInactiveUsers(timeout time.Duration) []int {
 		if user.IsVisible && user.LastActive.Before(cutoff) {
 			user.IsVisible = false
 			evicted = append(evicted, userID)
+		} else if !user.IsVisible && user.connections == 0 && user.LastActive.Before(cutoff) {
+			delete(s.users, userID)
 		}
 	}
 	return evicted

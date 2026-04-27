@@ -108,7 +108,7 @@ CREATE TABLE subforums (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     category_id INT NULL,
     name VARCHAR(255) NULL,
-    description TINYTEXT NULL,
+    description MEDIUMTEXT NULL,
     position INT NULL,
     topic_number INT NULL,
     post_number INT NULL,
@@ -134,6 +134,8 @@ CREATE TABLE topics (
     post_number INT,
     author_user_id INT NOT NULL,
     subforum_id BIGINT UNSIGNED NOT NULL,
+    is_sticky BOOLEAN DEFAULT FALSE NULL,
+    is_sticky_first_post BOOLEAN DEFAULT FALSE NULL,
     CONSTRAINT fk_topics_subforum
         FOREIGN KEY (subforum_id) REFERENCES subforums (id) ON DELETE NO ACTION ,
     CONSTRAINT fk_topics_user
@@ -671,6 +673,14 @@ create table reactions
     id        int          not null auto_increment primary key,
     url       varchar(255) not null,
     is_active boolean      not null default true
+);
+
+create table smiles
+(
+    id        int          not null auto_increment primary key,
+    text_form varchar(50)  null,
+    url       varchar(255) not null,
+    category  varchar(100) null
 );
 
 create table post_reaction

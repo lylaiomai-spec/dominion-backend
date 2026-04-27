@@ -35,6 +35,8 @@ type Topic struct {
 	LastPostAuthorUserId  int                  `json:"last_post_author_user_id"`
 	LastPostAuthorName    *string              `json:"last_post_author_name"`
 	SubforumId            int                  `json:"subforum_id"`
+	IsSticky              bool                 `json:"is_sticky"`
+	IsStickyFirstPost     bool                 `json:"is_sticky_first_post"`
 	Episode               *Episode             `json:"episode"`
 	Character             *Character           `json:"character"`
 	WantedCharacter       *WantedCharacter     `json:"wanted_character"`

@@ -76,6 +76,9 @@ func main() {
 	publicRouter.GET("/entity/fields/:entity_type", "Get field names for an entity type", func(c *gin.Context) {
 		Controllers.GetEntityFields(c, Services.DB)
 	})
+	publicRouter.GET("/smiles", "Get list of all smiles ordered by category", func(c *gin.Context) {
+		Controllers.GetSmileList(c, Services.DB)
+	})
 	publicRouter.GET("/user/profile/:userID", "Get user profile details", func(c *gin.Context) {
 		Controllers.GetUserProfile(c, Services.DB)
 	})
@@ -283,6 +286,9 @@ func main() {
 	protectedRouter.POST("/faction/update/:id", "Update faction by ID", func(c *gin.Context) {
 		Controllers.UpdateFactionById(c, Services.DB)
 	})
+	protectedRouter.GET("/faction/delete/:id", "Delete faction by ID", func(c *gin.Context) {
+		Controllers.DeleteFaction(c, Services.DB)
+	})
 	protectedRouter.GET("/global-settings", "Get all global settings", func(c *gin.Context) {
 		Controllers.GetGlobalSettings(c, Services.DB)
 	})
@@ -339,6 +345,9 @@ func main() {
 	protectedRouter.POST("/topics/move", "Move topics to a different subforum", func(c *gin.Context) {
 		Controllers.MoveTopics(c, Services.DB)
 	})
+	protectedRouter.POST("/topics/bulk-update", "Bulk update topics", func(c *gin.Context) {
+		Controllers.BulkUpdateTopics(c, Services.DB)
+	})
 	publicRouter.GET("/notifications/types", "Get list of notification types", func(c *gin.Context) {
 		Controllers.GetNotificationTypes(c)
 	})
@@ -359,6 +368,9 @@ func main() {
 	})
 	protectedRouter.POST("/character/deactivate/:id", "Deactivate a character", func(c *gin.Context) {
 		Controllers.DeactivateCharacter(c, Services.DB)
+	})
+	protectedRouter.POST("/character/decline/:id", "Decline a pending character", func(c *gin.Context) {
+		Controllers.DeclineCharacter(c, Services.DB)
 	})
 	protectedRouter.POST("/character/activate/:id", "Activate a character", func(c *gin.Context) {
 		Controllers.ActivateCharacter(c, Services.DB)
@@ -531,6 +543,9 @@ func main() {
 	})
 	protectedRouter.GET("/admin/additional-navlink/delete/:id", "Delete additional navlink by ID", func(c *gin.Context) {
 		Controllers.DeleteAdditionalNavlink(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/smile/upload", "Upload a smile image", func(c *gin.Context) {
+		Controllers.UploadSmile(c, Services.DB)
 	})
 	protectedRouter.GET("/admin/role/list", "Get list of all roles", func(c *gin.Context) {
 		Controllers.GetRoleList(c, Services.DB)

@@ -500,6 +500,11 @@ func UpdateWantedCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	_, _ = db.Exec(
+		"UPDATE subforums SET last_post_topic_name = ? WHERE last_post_topic_id = ?",
+		req.Name, topicID,
+	)
+
 	updatedEntity, err := Services.GetEntity(int64(wantedCharacterID), "wanted_character", db)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch updated wanted character: " + err.Error()})
@@ -674,7 +679,7 @@ func GetClaimAutocomplete(c *gin.Context, db *sql.DB) {
 		LEFT JOIN claim_record cr ON cr.claim_id = cc.id
 			AND cr.claim_expiration_date > NOW()
 			AND cr.id = (SELECT MAX(id) FROM claim_record WHERE claim_id = cc.id AND claim_expiration_date > NOW())
-		WHERE cc.name LIKE ? AND wcb.id IS NULL
+		WHERE cc.name LIKE ? AND wcb.id IS NULL AND cc.is_claimed IS NOT TRUE AND cr.id IS NULL
 		ORDER BY cc.name ASC LIMIT 10
 	`
 	rows, err := db.Query(query, "%"+c.Param("term")+"%")

@@ -44,12 +44,13 @@ type UserProfileResponse struct {
 }
 
 type CharacterProfileListItem struct {
-	Id            int                `json:"id"`
-	Name          string             `json:"name"`
-	TotalEpisodes int                `json:"total_episodes"`
-	TotalPosts    int                `json:"total_posts"`
-	LastPostDate  *time.Time         `json:"last_post_date"`
-	Factions      []Entities.Faction `json:"factions"`
+	Id              int                      `json:"id"`
+	Name            string                   `json:"name"`
+	TotalEpisodes   int                      `json:"total_episodes"`
+	TotalPosts      int                      `json:"total_posts"`
+	LastPostDate    *time.Time               `json:"last_post_date"`
+	CharacterStatus Entities.CharacterStatus `json:"character_status"`
+	Factions        []Entities.Faction       `json:"factions"`
 }
 
 type UpdateSettingsRequest struct {
@@ -463,7 +464,7 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 	profile.RegistrationDateLocalized = Services.LocalizeTime(profile.RegistrationDate, viewerTimezone)
 
 	// Fetch characters for this user
-	charRows, err := db.Query("SELECT id, name, total_episodes, total_posts, date_last_post FROM character_base WHERE user_id = ?", userID)
+	charRows, err := db.Query("SELECT id, name, total_episodes, total_posts, date_last_post, character_status FROM character_base WHERE user_id = ?", userID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get user characters: " + err.Error()})
 		c.Abort()
@@ -473,7 +474,7 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 
 	for charRows.Next() {
 		var char CharacterProfileListItem
-		if err := charRows.Scan(&char.Id, &char.Name, &char.TotalEpisodes, &char.TotalPosts, &char.LastPostDate); err != nil {
+		if err := charRows.Scan(&char.Id, &char.Name, &char.TotalEpisodes, &char.TotalPosts, &char.LastPostDate, &char.CharacterStatus); err != nil {
 			continue
 		}
 
@@ -1065,6 +1066,12 @@ func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
 	activeUsers := Services.ActivityStorage.GetActiveUsers()
 	result := make([]ActiveUserInfo, 0, len(activeUsers))
 
+	visibleSubforums, _ := Services.GetVisibleSubforums(forUserID, "subforum_read", db)
+	visibleSubforumSet := make(map[int]bool, len(visibleSubforums))
+	for _, id := range visibleSubforums {
+		visibleSubforumSet[id] = true
+	}
+
 	for _, u := range activeUsers {
 		info := ActiveUserInfo{
 			UserID:              u.UserID,
@@ -1080,12 +1087,9 @@ func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
 			var subforumID int
 			var topicName string
 			err := db.QueryRow("SELECT subforum_id, name FROM topics WHERE id = ?", u.CurrentPageId).Scan(&subforumID, &topicName)
-			if err == nil {
-				perm := fmt.Sprintf("subforum_read:%d", subforumID)
-				if hasPerm, err := Services.HasPermission(forUserID, perm, db); err == nil && hasPerm {
-					info.CurrentPageId = &u.CurrentPageId
-					info.CurrentPageName = &topicName
-				}
+			if err == nil && visibleSubforumSet[subforumID] {
+				info.CurrentPageId = &u.CurrentPageId
+				info.CurrentPageName = &topicName
 			}
 		default:
 			info.CurrentPageId = &u.CurrentPageId

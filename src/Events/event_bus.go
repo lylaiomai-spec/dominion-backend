@@ -22,6 +22,7 @@ const (
 	WantedCharacterCreated EventType = "WantedCharacterCreated"
 	StaticFileUploaded     EventType = "StaticFileUploaded"
 	ReactionCreated        EventType = "ReactionCreated"
+	TopicsMoved            EventType = "TopicsMoved"
 )
 
 type EventData interface{}
@@ -101,6 +102,10 @@ type DirectMessageCreatedEvent struct {
 
 type StaticFileUploadedEvent struct {
 	FileType string
+}
+
+type TopicsMovedEvent struct {
+	SubforumIDs []int // all affected subforum IDs (sources + target)
 }
 
 type ReactionCreatedEvent struct {
