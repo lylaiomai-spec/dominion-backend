@@ -23,6 +23,7 @@
   "permission.subforum_create_episode_topic": "Создавать эпизоды",
   "permission.subforum_create_character_topic": "Создавать темы персонажей",
   "permission.subforum_create_wanted_character_topic": "Создавать темы разыскиваемых персонажей",
+  "permission.subforum_create_lore_topic": "Создавать лор-темы",
   "permission.subforum_post": "Писать в форуме",
   "permission.subforum_delete_topic": "Удалять свои темы",
   "permission.subforum_delete_others_topic": "Удалять чужие темы",

@@ -29,6 +29,7 @@ type SubforumPermissions struct {
 	SubforumCreateEpisodeTopic         bool `json:"subforum_create_episode_topic"`
 	SubforumCreateCharacterTopic       bool `json:"subforum_create_character_topic"`
 	SubforumCreateWantedCharacterTopic bool `json:"subforum_create_wanted_character_topic"`
+	SubforumCreateLoreTopic            bool `json:"subforum_create_lore_topic"`
 	SubforumPost                       bool `json:"subforum_post"`
 	SubforumDeleteOwnTopic             bool `json:"subforum_delete_topic"`
 	SubforumDeleteOthersTopic          bool `json:"subforum_delete_others_topic"`

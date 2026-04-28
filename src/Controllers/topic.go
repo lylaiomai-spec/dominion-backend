@@ -37,6 +37,7 @@ type ViewforumRow struct {
 	LastViewedId           *int                 `json:"last_viewed_id"`
 	IsSticky               bool                 `json:"is_sticky"`
 	IsStickyFirstPost      bool                 `json:"is_sticky_first_post"`
+	FirstPostId            *int                 `json:"first_post_id"`
 }
 
 type CreateTopicRequest struct {
@@ -103,7 +104,8 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < COALESCE(topics.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = topics.id))) THEN 1 ELSE 0 END) as not_viewed,
 		       utv.post_id as last_viewed_id,
 		       COALESCE(topics.is_sticky, false) as is_sticky,
-		       COALESCE(topics.is_sticky_first_post, false) as is_sticky_first_post
+		       COALESCE(topics.is_sticky_first_post, false) as is_sticky_first_post,
+		       (SELECT MIN(id) FROM posts WHERE topic_id = topics.id AND (is_deleted IS NULL OR is_deleted = 0)) as first_post_id
 		FROM topics
 		JOIN users u ON topics.author_user_id = u.id
 		LEFT JOIN users u2 ON topics.last_post_author_user_id = u2.id
@@ -139,6 +141,7 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 			&topic.LastViewedId,
 			&topic.IsSticky,
 			&topic.IsStickyFirstPost,
+			&topic.FirstPostId,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan topics: " + err.Error()})

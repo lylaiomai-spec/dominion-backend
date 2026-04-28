@@ -507,6 +507,7 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 			fmt.Sprintf("subforum_create_episode_topic:%d", id):          &permissions.SubforumCreateEpisodeTopic,
 			fmt.Sprintf("subforum_create_character_topic:%d", id):        &permissions.SubforumCreateCharacterTopic,
 			fmt.Sprintf("subforum_create_wanted_character_topic:%d", id): &permissions.SubforumCreateWantedCharacterTopic,
+			fmt.Sprintf("subforum_create_lore_topic:%d", id):             &permissions.SubforumCreateLoreTopic,
 			fmt.Sprintf("subforum_post:%d", id):                          &permissions.SubforumPost,
 			fmt.Sprintf("subforum_delete_topic:%d", id):                  &permissions.SubforumDeleteOwnTopic,
 			fmt.Sprintf("subforum_delete_others_topic:%d", id):           &permissions.SubforumDeleteOthersTopic,

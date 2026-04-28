@@ -23,6 +23,8 @@ const (
 	StaticFileUploaded     EventType = "StaticFileUploaded"
 	ReactionCreated        EventType = "ReactionCreated"
 	TopicsMoved            EventType = "TopicsMoved"
+	CharacterActivated     EventType = "CharacterActivated"
+	CharacterDeactivated   EventType = "CharacterDeactivated"
 )
 
 type EventData interface{}
@@ -102,6 +104,14 @@ type DirectMessageCreatedEvent struct {
 
 type StaticFileUploadedEvent struct {
 	FileType string
+}
+
+type CharacterActivatedEvent struct {
+	CharacterID int
+}
+
+type CharacterDeactivatedEvent struct {
+	CharacterID int
 }
 
 type TopicsMovedEvent struct {

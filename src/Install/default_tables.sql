@@ -675,12 +675,31 @@ create table reactions
     is_active boolean      not null default true
 );
 
+create table smile_category
+(
+    id   int          not null auto_increment primary key,
+    name varchar(100) not null
+);
+
 create table smiles
 (
-    id        int          not null auto_increment primary key,
-    text_form varchar(50)  null,
-    url       varchar(255) not null,
-    category  varchar(100) null
+    id          int          not null auto_increment primary key,
+    text_form   varchar(50)  null,
+    url         varchar(255) not null,
+    category_id int          null,
+    constraint fk_smiles_category foreign key (category_id) references smile_category (id) on delete set null
+);
+
+create table lore_pages
+(
+    topic_id  bigint unsigned not null,
+    post_id   bigint unsigned not null,
+    name      varchar(255)    not null,
+    is_hidden boolean         not null default false,
+    position  int             not null default 0,
+    primary key (topic_id, post_id),
+    constraint fk_lore_pages_topic foreign key (topic_id) references topics (id) on delete cascade,
+    constraint fk_lore_pages_post  foreign key (post_id)  references posts (id)  on delete cascade
 );
 
 create table post_reaction

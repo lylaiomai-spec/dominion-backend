@@ -1579,6 +1579,8 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	Events.Publish(db, Events.CharacterDeactivated, Events.CharacterDeactivatedEvent{CharacterID: id})
+
 	var topicStatus Entities.TopicStatus
 	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM character_base WHERE id = ?)", id).Scan(&topicStatus)
 
@@ -1649,6 +1651,47 @@ func DeclineCharacter(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"character_status": Entities.DeclinedCharacter})
 }
 
+func PendingCharacter(c *gin.Context, db *sql.DB) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid character ID"})
+		c.Abort()
+		return
+	}
+
+	var currentStatus Entities.CharacterStatus
+	if err := db.QueryRow("SELECT character_status FROM character_base WHERE id = ?", id).Scan(&currentStatus); err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch character: " + err.Error()})
+		}
+		c.Abort()
+		return
+	}
+
+	if currentStatus != Entities.InactiveCharacter && currentStatus != Entities.DeclinedCharacter {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "Only inactive or declined characters can be moved to pending"})
+		c.Abort()
+		return
+	}
+
+	result, err := db.Exec("UPDATE character_base SET character_status = ? WHERE id = ?", Entities.PendingCharacter, id)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to set character to pending: " + err.Error()})
+		c.Abort()
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"character_status": Entities.PendingCharacter})
+}
+
 func ActivateCharacter(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1701,6 +1744,8 @@ func ActivateCharacter(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
+
+	Events.Publish(db, Events.CharacterActivated, Events.CharacterActivatedEvent{CharacterID: id})
 
 	var topicStatus Entities.TopicStatus
 	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM character_base WHERE id = ?)", id).Scan(&topicStatus)

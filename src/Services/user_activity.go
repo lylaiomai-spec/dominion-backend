@@ -35,14 +35,13 @@ func (s *UserActivityStorage) AddUser(userID int, username string) {
 			UserID:      userID,
 			Username:    username,
 			LastActive:  time.Now(),
-			IsVisible:   true,
+			IsVisible:   false,
 			connections: 1,
 		}
 	} else {
 		existing.connections++
-		existing.IsVisible = true
 		existing.LastActive = time.Now()
-		// CurrentPageType and CurrentPageId are intentionally preserved
+		// CurrentPageType, CurrentPageId and IsVisible are intentionally preserved
 	}
 }
 
@@ -135,7 +134,7 @@ func (s *UserActivityStorage) GetUsersOnPage(pageType string, pageId string) []*
 
 	usersOnPage := make([]*UserActivity, 0)
 	for _, user := range s.users {
-		if user.CurrentPageType == pageType && user.CurrentPageId == pageId {
+		if user.IsVisible && user.CurrentPageType == pageType && user.CurrentPageId == pageId {
 			usersOnPage = append(usersOnPage, user)
 		}
 	}

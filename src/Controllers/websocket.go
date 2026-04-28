@@ -58,7 +58,6 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 
 	Websockets.MainHub.Register(client)
 	Services.ActivityStorage.AddUser(userID, username)
-	BroadcastActiveUsersToHome()
 
 	// Replay missed messages if the client provides last_message_id as a query param.
 	if lastMsgIDStr := c.Query("last_message_id"); lastMsgIDStr != "" {
@@ -78,6 +77,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 			removed := Services.ActivityStorage.RemoveUser(userID)
 			if removed {
 				BroadcastActiveUsersToHome()
+				go BroadcastActiveUserActivity(db)
 			}
 			Websockets.MainHub.Unregister(client)
 			conn.Close()

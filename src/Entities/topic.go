@@ -9,6 +9,7 @@ const (
 	EpisodeTopic         TopicType = 1
 	CharacterSheetTopic  TopicType = 2
 	WantedCharacterTopic TopicType = 3
+	LoreTopic            TopicType = 4
 )
 
 type TopicStatus int

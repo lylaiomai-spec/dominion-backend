@@ -3,11 +3,15 @@ package Services
 import (
 	"fmt"
 	"html"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/frustra/bbcode"
 )
+
+var youtubeRegexp = regexp.MustCompile(`(?i)(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/)|youtu\.be/)([a-zA-Z0-9_-]{11})`)
+var audioExtRegexp = regexp.MustCompile(`(?i)\.(mp3|ogg|wav|flac|aac|m4a|opus|webm)(\?.*)?$`)
 
 func getArg(node *bbcode.BBCodeNode, key string) (string, bool) {
 	val, ok := node.GetOpeningTag().Args[key]
@@ -217,6 +221,35 @@ func GetBBCompiler() bbcode.Compiler {
 		out.Attrs["data-title"] = html.EscapeString(title)
 
 		return out, true
+	})
+
+	compiler.SetTag("audio", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		url := strings.TrimSpace(bbcode.CompileText(node))
+		if !audioExtRegexp.MatchString(url) {
+			return out, false
+		}
+		out.Name = "audio"
+		out.Attrs["src"] = html.EscapeString(url)
+		out.Attrs["controls"] = "true"
+		out.Attrs["preload"] = "metadata"
+		return out, false
+	})
+
+	compiler.SetTag("video", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		url := strings.TrimSpace(bbcode.CompileText(node))
+		matches := youtubeRegexp.FindStringSubmatch(url)
+		if len(matches) < 2 {
+			return out, false
+		}
+		videoID := html.EscapeString(matches[1])
+		out.Name = "iframe"
+		out.Attrs["src"] = "https://www.youtube.com/embed/" + videoID
+		out.Attrs["allowfullscreen"] = "true"
+		out.Attrs["frameborder"] = "0"
+		out.Attrs["allow"] = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+		return out, false
 	})
 
 	compiler.SetTag("img", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {

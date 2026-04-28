@@ -23,6 +23,7 @@
   "permission.subforum_create_episode_topic": "Create episode topic",
   "permission.subforum_create_character_topic": "Create character topic",
   "permission.subforum_create_wanted_character_topic": "Create wanted character topic",
+  "permission.subforum_create_lore_topic": "Create lore topic",
   "permission.subforum_post": "Post in subforum",
   "permission.subforum_delete_topic": "Delete own topic",
   "permission.subforum_delete_others_topic": "Delete others' topic",

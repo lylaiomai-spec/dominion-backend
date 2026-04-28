@@ -18,12 +18,7 @@ func RegisterCharacterEventHandlers() {
 			return
 		}
 
-		_, err := db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_character_number'")
-		if err != nil {
-			fmt.Printf("Error updating global character stats: %v\n", err)
-		}
-
-		_, err = db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_topic_number'")
+		_, err := db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_topic_number'")
 		if err != nil {
 			fmt.Printf("Error updating global topic stats on character created: %v\n", err)
 		}
@@ -41,9 +36,50 @@ func RegisterCharacterEventHandlers() {
 			return
 		}
 
-		_, err := db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_active_character_number'")
+		_, err := db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_character_number'")
+		if err != nil {
+			fmt.Printf("Error updating global character stats on accept: %v\n", err)
+		}
+
+		_, err = db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_active_character_number'")
 		if err != nil {
 			fmt.Printf("Error updating global active character stats: %v\n", err)
+		}
+	})
+
+	// Subscriber: Update Global Stats on Character Activated
+	Events.Subscribe(Events.CharacterActivated, func(db *sql.DB, data Events.EventData) {
+		_, ok := data.(Events.CharacterActivatedEvent)
+		if !ok {
+			return
+		}
+
+		_, err := db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_character_number'")
+		if err != nil {
+			fmt.Printf("Error updating global character stats on activate: %v\n", err)
+		}
+
+		_, err = db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_active_character_number'")
+		if err != nil {
+			fmt.Printf("Error updating global active character stats on activate: %v\n", err)
+		}
+	})
+
+	// Subscriber: Update Global Stats on Character Deactivated
+	Events.Subscribe(Events.CharacterDeactivated, func(db *sql.DB, data Events.EventData) {
+		_, ok := data.(Events.CharacterDeactivatedEvent)
+		if !ok {
+			return
+		}
+
+		_, err := db.Exec("UPDATE global_stats SET stat_value = GREATEST(stat_value - 1, 0) WHERE stat_name = 'total_character_number'")
+		if err != nil {
+			fmt.Printf("Error updating global character stats on deactivate: %v\n", err)
+		}
+
+		_, err = db.Exec("UPDATE global_stats SET stat_value = GREATEST(stat_value - 1, 0) WHERE stat_name = 'total_active_character_number'")
+		if err != nil {
+			fmt.Printf("Error updating global active character stats on deactivate: %v\n", err)
 		}
 	})
 
