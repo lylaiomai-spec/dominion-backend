@@ -233,7 +233,7 @@ func GetBBCompiler() bbcode.Compiler {
 		out.Attrs["src"] = html.EscapeString(url)
 		out.Attrs["controls"] = "true"
 		out.Attrs["preload"] = "metadata"
-		return out, false
+		return out, true
 	})
 
 	compiler.SetTag("video", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {

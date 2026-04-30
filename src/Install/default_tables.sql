@@ -12,6 +12,8 @@ create table users
     interface_font_size decimal(5,2) default 1.00 not null,
     interface_design    varchar(255) null,
     user_status        int default 0 not null,
+    archive_date       datetime     null,
+    archive_reason     varchar(512) null,
     total_posts        int default 0 not null,
     total_general_posts int default 0 not null,
     constraint users_pk_2

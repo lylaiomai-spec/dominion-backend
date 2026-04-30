@@ -118,7 +118,7 @@ func TestLogin(t *testing.T) {
 		mock.ExpectQuery("SELECT id, username, avatar, password, interface_language, interface_timezone, user_status FROM users WHERE username = ?").
 			WithArgs(creds.Username).
 			WillReturnRows(sqlmock.NewRows([]string{"id", "username", "avatar", "password", "interface_language", "interface_timezone", "user_status"}).
-				AddRow(2, "blockeduser", nil, "hashedpassword", nil, nil, 1)) // 1 = BlockedUser
+				AddRow(2, "blockeduser", nil, "hashedpassword", nil, nil, 1)) // 1 = ArchivedUser
 
 		r := gin.New()
 		r.Use(Middlewares.ErrorMiddleware())
