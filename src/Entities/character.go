@@ -15,6 +15,7 @@ type Character struct {
 	Episodes        []EpisodeListItem `json:"episodes" db:"-"`
 	CanEdit         *bool             `json:"can_edit,omitempty" db:"-"`
 	ClaimRecord     *ClaimRecord      `json:"claim_record,omitempty" db:"-"`
+	UserInfo        *UserInfo         `json:"user_info,omitempty" db:"-"`
 }
 
 type EpisodeListItem struct {
@@ -88,6 +89,7 @@ type WantedCharacter struct {
 	CustomFields          CustomFieldEntity     `json:"custom_fields" db:"-"`
 	Factions              []Faction             `json:"factions" db:"-"`
 	ClaimRecord           *ClaimRecord          `json:"claim_record,omitempty" db:"-"`
+	UserInfo              *UserInfo             `json:"user_info,omitempty" db:"-"`
 }
 
 func (w *WantedCharacter) GetBaseFields() []string {

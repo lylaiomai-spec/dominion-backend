@@ -257,7 +257,7 @@ create table episode_mask
 
 create table global_stats
 (
-    stat_name   varchar(255) null
+    stat_name varchar(255) null
         primary key,
     stat_value decimal      null,
     stat_secondary varchar(255) null
@@ -573,6 +573,7 @@ create table widget_panels
 );
 
 INSERT INTO widget_panels (`key`, content, is_hidden) VALUES ('header', NULL, false);
+INSERT INTO widget_panels (`key`, content, is_hidden) VALUES ('footer', NULL, false);
 
 CREATE TABLE static_files
 (

@@ -470,7 +470,7 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 	profile.RegistrationDateLocalized = Services.LocalizeTime(profile.RegistrationDate, viewerTimezone)
 
 	// Fetch characters for this user
-	charRows, err := db.Query("SELECT id, name, total_episodes, total_posts, date_last_post, character_status FROM character_base WHERE user_id = ?", userID)
+	charRows, err := db.Query("SELECT cb.id, cb.name, cb.total_episodes, cb.total_posts, cb.date_last_post, cb.character_status FROM character_base cb LEFT JOIN topics t ON cb.topic_id = t.id WHERE cb.user_id = ? AND (cb.topic_id IS NULL OR t.status != ?)", userID, Entities.DeletedTopic)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get user characters: " + err.Error()})
 		c.Abort()

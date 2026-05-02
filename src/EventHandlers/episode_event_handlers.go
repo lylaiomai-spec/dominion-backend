@@ -4,6 +4,7 @@ import (
 	"cuento-backend/src/Events"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 func RegisterEpisodeEventHandlers() {
@@ -38,6 +39,26 @@ func RegisterEpisodeEventHandlers() {
 		)
 		if err != nil {
 			fmt.Printf("Error updating character total_episodes: %v\n", err)
+		}
+	})
+
+	// Subscriber: Decrement total_episodes for characters when episode topics are deleted
+	Events.Subscribe(Events.EpisodeTopicsDeleted, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.EpisodeTopicsDeletedEvent)
+		if !ok || len(event.EpisodeIDs) == 0 {
+			return
+		}
+		placeholders := strings.Repeat("?,", len(event.EpisodeIDs)-1) + "?"
+		args := make([]interface{}, len(event.EpisodeIDs))
+		for i, id := range event.EpisodeIDs {
+			args[i] = id
+		}
+		_, err := db.Exec(
+			fmt.Sprintf("UPDATE character_base SET total_episodes = GREATEST(total_episodes - 1, 0) WHERE id IN (SELECT character_id FROM episode_character WHERE episode_id IN (%s))", placeholders),
+			args...,
+		)
+		if err != nil {
+			fmt.Printf("Error decrementing character total_episodes on episode topic deleted: %v\n", err)
 		}
 	})
 

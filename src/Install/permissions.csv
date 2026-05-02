@@ -124,6 +124,7 @@ role_id,type,permission
 3,0,/subforum/delete/:id
 3,0,/subforum/update/:id
 3,0,/template/:type/update
+3,0,/admin/topics/delete
 3,0,/topics/bulk-update
 3,0,/topics/move
 3,0,/user/private-key-check

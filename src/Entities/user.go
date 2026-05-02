@@ -57,6 +57,16 @@ type PublicKey struct {
 	PublicKey string `json:"public_key"`
 }
 
+type UserInfo struct {
+	UserId           int        `json:"user_id"`
+	Username         string     `json:"username"`
+	UserStatus       UserStatus `json:"user_status"`
+	DateRegistered   time.Time  `json:"date_registered"`
+	DateLastVisit    *time.Time `json:"date_last_visit"`
+	TotalPosts       int        `json:"total_posts"`
+	ActiveCharacters int        `json:"active_characters"`
+}
+
 func (u *User) HashPassword(password string) error {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 	if err != nil {

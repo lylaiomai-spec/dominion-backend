@@ -2,6 +2,7 @@ package Controllers
 
 import (
 	"cuento-backend/src/Entities"
+	"cuento-backend/src/Events"
 	"cuento-backend/src/Middlewares"
 	"cuento-backend/src/Services"
 	"cuento-backend/src/Websockets"
@@ -58,6 +59,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 
 	Websockets.MainHub.Register(client)
 	Services.ActivityStorage.AddUser(userID, username)
+	Events.Publish(db, Events.UserActivityChanged, Events.UserActivityChangedEvent{UserID: userID})
 
 	// Replay missed messages if the client provides last_message_id as a query param.
 	if lastMsgIDStr := c.Query("last_message_id"); lastMsgIDStr != "" {
@@ -76,6 +78,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 		defer func() {
 			removed := Services.ActivityStorage.RemoveUser(userID)
 			if removed {
+				Events.Publish(db, Events.UserActivityChanged, Events.UserActivityChangedEvent{UserID: userID})
 				BroadcastActiveUsersToHome()
 				go BroadcastActiveUserActivity(db)
 			}

@@ -3,6 +3,7 @@ package main
 import (
 	"cuento-backend/src/Controllers"
 	"cuento-backend/src/EventHandlers"
+	"cuento-backend/src/Events"
 	"cuento-backend/src/Features"
 	"cuento-backend/src/Middlewares"
 	"cuento-backend/src/Router"
@@ -32,6 +33,9 @@ func main() {
 		for range ticker.C {
 			evicted := Services.ActivityStorage.EvictInactiveUsers(10 * time.Minute)
 			if len(evicted) > 0 {
+				for _, userID := range evicted {
+					Events.Publish(Services.DB, Events.UserActivityChanged, Events.UserActivityChangedEvent{UserID: userID})
+				}
 				Controllers.BroadcastActiveUserActivity(Services.DB)
 				Controllers.BroadcastActiveUsersToHome()
 			}
@@ -368,6 +372,9 @@ func main() {
 	})
 	protectedRouter.POST("/topics/bulk-update", "Bulk update topics", func(c *gin.Context) {
 		Controllers.BulkUpdateTopics(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/topics/delete", "Batch delete topics (sets status to deleted)", func(c *gin.Context) {
+		Controllers.BatchDeleteTopics(c, Services.DB)
 	})
 	publicRouter.GET("/notifications/types", "Get list of notification types", func(c *gin.Context) {
 		Controllers.GetNotificationTypes(c)

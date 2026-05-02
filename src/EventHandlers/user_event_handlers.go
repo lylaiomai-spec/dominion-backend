@@ -7,6 +7,18 @@ import (
 )
 
 func RegisterUserEventHandlers() {
+	// Subscriber: Update date_last_visit when user becomes active or inactive
+	Events.Subscribe(Events.UserActivityChanged, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.UserActivityChangedEvent)
+		if !ok {
+			return
+		}
+		_, err := db.Exec("UPDATE users SET date_last_visit = NOW() WHERE id = ?", event.UserID)
+		if err != nil {
+			fmt.Printf("Error updating date_last_visit for user %d: %v\n", event.UserID, err)
+		}
+	})
+
 	// Subscriber 15: Update Global Stats on User Registered
 	Events.Subscribe(Events.UserRegistered, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.UserRegisteredEvent)

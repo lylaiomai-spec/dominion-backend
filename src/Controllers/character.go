@@ -54,6 +54,13 @@ func GetCharacter(c *gin.Context, db *sql.DB) {
 	}
 
 	if character, ok := entity.(*Entities.Character); ok {
+		var topicStatus Entities.TopicStatus
+		if err := db.QueryRow("SELECT status FROM topics WHERE id = ?", character.TopicId).Scan(&topicStatus); err == nil && topicStatus == Entities.DeletedTopic {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
+			c.Abort()
+			return
+		}
+
 		// Fetch episodes for this character
 		query := `
 			SELECT e.id, e.name, e.topic_id, t.date_last_post, u.username as last_post_author_username
@@ -61,10 +68,10 @@ func GetCharacter(c *gin.Context, db *sql.DB) {
 			JOIN episode_character ec ON e.id = ec.episode_id
 			JOIN topics t ON e.topic_id = t.id
 			LEFT JOIN users u ON t.last_post_author_user_id = u.id
-			WHERE ec.character_id = ?
+			WHERE ec.character_id = ? AND t.status != ?
 			ORDER BY t.date_last_post DESC
 		`
-		rows, err := db.Query(query, character.Id)
+		rows, err := db.Query(query, character.Id, Entities.DeletedTopic)
 		if err == nil {
 			defer rows.Close()
 			var episodes []Entities.EpisodeListItem
@@ -136,6 +143,8 @@ func GetCharacter(c *gin.Context, db *sql.DB) {
 		if err == nil {
 			character.ClaimRecord = &cr
 		}
+
+		character.UserInfo = fetchUserInfo(character.UserId, db)
 
 		c.JSON(http.StatusOK, character)
 		return
@@ -588,11 +597,12 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 			FROM character_base c
 			JOIN character_faction cf ON c.id = cf.character_id
 			JOIN factions f ON cf.faction_id = f.id
+			JOIN topics t ON t.id = c.topic_id AND t.status != ?
 			WHERE c.character_status = 0
 		)
 		SELECT id, name, faction_id FROM RankedFactions WHERE rn = 1
 	`
-	charRows, err := db.Query(charQuery)
+	charRows, err := db.Query(charQuery, Entities.DeletedTopic)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get characters: " + err.Error()})
 		c.Abort()
@@ -662,11 +672,15 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 		LEFT JOIN users u ON u.id = cr.user_id
 		LEFT JOIN character_base cb ON cb.id = cr.character_id
 		WHERE r.rn = 1
-		  AND (wc.id IS NULL OR wc.wanted_character_status = 0)
+		  AND (wc.id IS NULL OR (wc.wanted_character_status = 0 AND EXISTS (
+		      SELECT 1 FROM wanted_character_base wcb2
+		      JOIN topics t_wc ON t_wc.id = wcb2.topic_id AND t_wc.status != ?
+		      WHERE wcb2.character_claim_id = r.id AND wcb2.wanted_character_status = 0
+		  )))
 		  AND (r.show_only_with_active_claim = false OR cr.id IS NOT NULL)
 		  AND (cr.character_id IS NULL OR cb.character_status = 2)
 	`
-	claimRows, err := db.Query(claimQuery, userID, userID, guestHashes[0], guestHashes[1], guestHashes[2])
+	claimRows, err := db.Query(claimQuery, userID, userID, guestHashes[0], guestHashes[1], guestHashes[2], Entities.DeletedTopic)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get character claims: " + err.Error()})
 		c.Abort()
@@ -761,9 +775,11 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 
 func GetCharacterAutocomplete(c *gin.Context, db *sql.DB) {
 	query := `
-		SELECT id, name FROM character_base WHERE name LIKE ? AND character_status = 0 ORDER BY name ASC LIMIT 10
+		SELECT cb.id, cb.name FROM character_base cb
+		JOIN topics t ON t.id = cb.topic_id AND t.status != ?
+		WHERE cb.name LIKE ? AND cb.character_status = 0 ORDER BY cb.name ASC LIMIT 10
 	`
-	rows, err := db.Query(query, "%"+c.Param("term")+"%")
+	rows, err := db.Query(query, Entities.DeletedTopic, "%"+c.Param("term")+"%")
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get characters: " + err.Error()})
 		c.Abort()
@@ -815,8 +831,8 @@ func GetUserCharacters(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	query := "SELECT id, name FROM character_base WHERE user_id = ?"
-	rows, err := db.Query(query, userID)
+	query := "SELECT cb.id, cb.name FROM character_base cb JOIN topics t ON t.id = cb.topic_id AND t.status != ? WHERE cb.user_id = ?"
+	rows, err := db.Query(query, Entities.DeletedTopic, userID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get user characters: " + err.Error()})
 		c.Abort()

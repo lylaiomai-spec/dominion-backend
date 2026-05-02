@@ -110,11 +110,11 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 		JOIN users u ON topics.author_user_id = u.id
 		LEFT JOIN users u2 ON topics.last_post_author_user_id = u2.id
 		LEFT JOIN user_topic_view utv ON topics.id = utv.topic_id AND utv.user_id = ?
-		WHERE subforum_id = ?
+		WHERE subforum_id = ? AND topics.status != ?
 		ORDER BY COALESCE(topics.is_sticky, false) DESC, date_last_post DESC
 		LIMIT ? OFFSET ?
 	`
-	rows, err := db.Query(query, userID, userID, subforum, limit, page*limit)
+	rows, err := db.Query(query, userID, userID, subforum, Entities.DeletedTopic, limit, page*limit)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get topics: " + err.Error()})
@@ -589,6 +589,12 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	if topic.Status == Entities.DeletedTopic {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Topic not found"})
+		c.Abort()
+		return
+	}
+
 	// Check CanEdit
 	currentUserID := Services.GetUserIdFromContext(c)
 	topic.DateLastPostLocalized = Services.LocalizeTime(topic.DateLastPost, Services.GetUserTimezone(currentUserID, db))
@@ -699,6 +705,7 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 					character.ClaimRecord = &cr
 				}
 
+				character.UserInfo = fetchUserInfo(character.UserId, db)
 				topic.Character = character
 			}
 		}
@@ -719,6 +726,7 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 					wc.Factions, _ = Services.GetFactionTreeByCharacterClaim(*wc.CharacterClaimId, db)
 					wc.ClaimRecord = fetchActiveClaimRecord(*wc.CharacterClaimId, db)
 				}
+				wc.UserInfo = fetchUserInfo(wc.AuthorUserId, db)
 				topic.WantedCharacter = wc
 			}
 		}
@@ -1264,8 +1272,8 @@ func BulkUpdateTopics(c *gin.Context, db *sql.DB) {
 		c.JSON(http.StatusOK, gin.H{"updated": 0})
 		return
 	}
-	if req.Status != nil && *req.Status == Entities.FullTopic {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "FullTopic status cannot be set manually"})
+	if req.Status != nil && (*req.Status == Entities.FullTopic || *req.Status == Entities.DeletedTopic) {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "FullTopic and DeletedTopic statuses cannot be set via bulk update"})
 		c.Abort()
 		return
 	}
@@ -1301,6 +1309,11 @@ func BulkUpdateTopics(c *gin.Context, db *sql.DB) {
 		}
 		if status == Entities.FullTopic {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: fmt.Sprintf("Topic %d is full and cannot be updated", tID)})
+			c.Abort()
+			return
+		}
+		if status == Entities.DeletedTopic {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: fmt.Sprintf("Topic %d is deleted and cannot be updated", tID)})
 			c.Abort()
 			return
 		}
@@ -1430,6 +1443,8 @@ func GetActiveTopics(c *gin.Context, db *sql.DB) {
 	}
 
 	query += " AND t.date_last_post >= DATE_SUB(NOW(), INTERVAL 10 DAY)"
+	query += " AND t.status != ?"
+	args = append(args, Entities.DeletedTopic)
 
 	query += " ORDER BY t.date_last_post DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
@@ -1547,6 +1562,8 @@ func GetActiveTopicCount(c *gin.Context, db *sql.DB) {
 	}
 
 	query += " AND t.date_last_post >= DATE_SUB(NOW(), INTERVAL 10 DAY)"
+	query += " AND t.status != ?"
+	args = append(args, Entities.DeletedTopic)
 
 	var count int
 	err = db.QueryRow(query, args...).Scan(&count)
@@ -1631,6 +1648,84 @@ func MoveTopics(c *gin.Context, db *sql.DB) {
 		subforumIDs = append(subforumIDs, id)
 	}
 	Events.Publish(db, Events.TopicsMoved, Events.TopicsMovedEvent{SubforumIDs: subforumIDs})
+}
+
+func BatchDeleteTopics(c *gin.Context, db *sql.DB) {
+	var req struct {
+		TopicIDs []int `json:"topic_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+	if len(req.TopicIDs) == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "topic_ids must not be empty"})
+		c.Abort()
+		return
+	}
+
+	placeholders := strings.Repeat("?,", len(req.TopicIDs)-1) + "?"
+	idArgs := make([]interface{}, len(req.TopicIDs))
+	for i, id := range req.TopicIDs {
+		idArgs[i] = id
+	}
+
+	// Collect subforum IDs and episode IDs before deleting for stats and character update
+	sourceRows, err := db.Query(
+		fmt.Sprintf("SELECT DISTINCT subforum_id FROM topics WHERE id IN (%s)", placeholders),
+		idArgs...,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch topic subforums: " + err.Error()})
+		c.Abort()
+		return
+	}
+	var subforumIDs []int
+	for sourceRows.Next() {
+		var sfID int
+		if sourceRows.Scan(&sfID) == nil {
+			subforumIDs = append(subforumIDs, sfID)
+		}
+	}
+	sourceRows.Close()
+
+	episodeArgs := append(append([]interface{}{}, idArgs...), Entities.EpisodeTopic)
+	epRows, _ := db.Query(
+		fmt.Sprintf("SELECT e.id FROM episode_base e JOIN topics t ON t.id = e.topic_id WHERE t.id IN (%s) AND t.type = ?", placeholders),
+		episodeArgs...,
+	)
+	var episodeIDs []int
+	if epRows != nil {
+		for epRows.Next() {
+			var epID int
+			if epRows.Scan(&epID) == nil {
+				episodeIDs = append(episodeIDs, epID)
+			}
+		}
+		epRows.Close()
+	}
+
+	deleteArgs := append([]interface{}{Entities.DeletedTopic}, idArgs...)
+	result, err := db.Exec(
+		fmt.Sprintf("UPDATE topics SET status = ? WHERE id IN (%s)", placeholders),
+		deleteArgs...,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to delete topics: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	deleted, _ := result.RowsAffected()
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
+
+	if len(subforumIDs) > 0 {
+		Events.Publish(db, Events.TopicsDeleted, Events.TopicsDeletedEvent{SubforumIDs: subforumIDs})
+	}
+	if len(episodeIDs) > 0 {
+		Events.Publish(db, Events.EpisodeTopicsDeleted, Events.EpisodeTopicsDeletedEvent{EpisodeIDs: episodeIDs})
+	}
 }
 
 func GetPostById(c *gin.Context, db *sql.DB) {

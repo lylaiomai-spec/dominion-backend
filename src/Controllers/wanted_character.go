@@ -45,17 +45,18 @@ func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
 	}
 
 	baseWhere := `
-		FROM wanted_character_base
-		WHERE is_claimed = false AND (is_deleted IS NULL OR is_deleted = false) AND wanted_character_status = 0`
+		FROM wanted_character_base wcb
+		JOIN topics t_wc ON t_wc.id = wcb.topic_id AND t_wc.status != ?
+		WHERE wcb.is_claimed = false AND (wcb.is_deleted IS NULL OR wcb.is_deleted = false) AND wcb.wanted_character_status = 0`
 
-	var args []interface{}
+	args := []interface{}{Entities.DeletedTopic}
 	if len(req.FactionIDs) > 0 {
 		placeholders := make([]string, len(req.FactionIDs))
 		for i, id := range req.FactionIDs {
 			placeholders[i] = "?"
 			args = append(args, id)
 		}
-		baseWhere += " AND character_claim_id IN (SELECT character_claim_id FROM character_claim_faction WHERE faction_id IN (" + strings.Join(placeholders, ",") + "))"
+		baseWhere += " AND wcb.character_claim_id IN (SELECT character_claim_id FROM character_claim_faction WHERE faction_id IN (" + strings.Join(placeholders, ",") + "))"
 	}
 
 	var totalCount int
@@ -73,8 +74,8 @@ func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
 	offset := (page - 1) * limit
 	totalPages := (totalCount + limit - 1) / limit
 
-	query := "SELECT id, name, is_claimed, author_user_id, date_created, character_claim_id, is_deleted, topic_id" +
-		baseWhere + " ORDER BY date_created DESC LIMIT ? OFFSET ?"
+	query := "SELECT wcb.id, wcb.name, wcb.is_claimed, wcb.author_user_id, wcb.date_created, wcb.character_claim_id, wcb.is_deleted, wcb.topic_id" +
+		baseWhere + " ORDER BY wcb.date_created DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
 	rows, err := db.Query(query, args...)
@@ -108,6 +109,7 @@ func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
 		} else {
 			wc.Factions = []Entities.Faction{}
 		}
+		wc.UserInfo = fetchUserInfo(wc.AuthorUserId, db)
 	}
 
 	if list == nil {
@@ -149,11 +151,12 @@ func GetWantedCharacterTreeList(c *gin.Context, db *sql.DB) {
 		SELECT r.id, r.name, r.faction_id, wc.topic_id
 		FROM RankedFactions r
 		JOIN wanted_character_base wc ON wc.character_claim_id = r.id
+		JOIN topics t_wc ON t_wc.id = wc.topic_id AND t_wc.status != ?
 		WHERE r.rn = 1
 		  AND wc.is_claimed = false
 		  AND (wc.is_deleted IS NULL OR wc.is_deleted = false)
 		  AND wc.wanted_character_status = 0
-	`)
+	`, Entities.DeletedTopic)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get wanted characters: " + err.Error()})
 		c.Abort()
@@ -207,12 +210,13 @@ func GetWantedCharacterTreeList(c *gin.Context, db *sql.DB) {
 		SELECT cc.id, cc.name, wc.topic_id
 		FROM character_claim cc
 		JOIN wanted_character_base wc ON wc.character_claim_id = cc.id
+		JOIN topics t_wc ON t_wc.id = wc.topic_id AND t_wc.status != ?
 		WHERE cc.is_claimed IS NOT TRUE
 		AND wc.is_claimed = false
 		AND (wc.is_deleted IS NULL OR wc.is_deleted = false)
 		AND wc.wanted_character_status = 0
 		AND cc.id NOT IN (SELECT character_claim_id FROM character_claim_faction)
-	`)
+	`, Entities.DeletedTopic)
 	if err == nil {
 		defer noFactionRows.Close()
 		for noFactionRows.Next() {
@@ -251,6 +255,13 @@ func GetWantedCharacter(c *gin.Context, db *sql.DB) {
 	}
 
 	if wc, ok := entity.(*Entities.WantedCharacter); ok {
+		var topicStatus Entities.TopicStatus
+		if err := db.QueryRow("SELECT status FROM topics WHERE id = ?", wc.TopicId).Scan(&topicStatus); err == nil && topicStatus == Entities.DeletedTopic {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Wanted character not found"})
+			c.Abort()
+			return
+		}
+
 		if wc.CharacterClaimId != nil {
 			wc.Factions, _ = Services.GetFactionTreeByCharacterClaim(*wc.CharacterClaimId, db)
 			wc.ClaimRecord = fetchActiveClaimRecord(*wc.CharacterClaimId, db)
@@ -654,6 +665,7 @@ func GetWantedCharacterAutocomplete(c *gin.Context, db *sql.DB) {
 	query := `
 		SELECT wcb.id, wcb.name, cr.user_id, cr.guest_hash, cr.claim_expiration_date
 		FROM wanted_character_base wcb
+		JOIN topics t_wc ON t_wc.id = wcb.topic_id AND t_wc.status != ?
 		LEFT JOIN character_claim cc ON cc.id = wcb.character_claim_id
 		LEFT JOIN claim_record cr ON cr.claim_id = cc.id
 			AND cr.claim_expiration_date > NOW()
@@ -661,7 +673,7 @@ func GetWantedCharacterAutocomplete(c *gin.Context, db *sql.DB) {
 		WHERE wcb.name LIKE ? AND (wcb.is_deleted IS NULL OR wcb.is_deleted = false) AND wcb.wanted_character_status = 0
 		ORDER BY wcb.name ASC LIMIT 10
 	`
-	rows, err := db.Query(query, "%"+c.Param("term")+"%")
+	rows, err := db.Query(query, Entities.DeletedTopic, "%"+c.Param("term")+"%")
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get wanted characters: " + err.Error()})
 		c.Abort()
@@ -690,6 +702,25 @@ func GetClaimAutocomplete(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 	c.JSON(http.StatusOK, scanClaimAutocompleteRows(c, rows, "Failed to scan claim: "))
+}
+
+func fetchUserInfo(userId int, db *sql.DB) *Entities.UserInfo {
+	var info Entities.UserInfo
+	err := db.QueryRow(`
+		SELECT u.id, u.username, u.user_status, u.date_registered, u.date_last_visit, u.total_posts,
+		       COUNT(cb.id)
+		FROM users u
+		LEFT JOIN character_base cb ON cb.user_id = u.id AND cb.character_status = ?
+		WHERE u.id = ?
+		GROUP BY u.id, u.username, u.user_status, u.date_registered, u.date_last_visit, u.total_posts
+	`, Entities.ActiveCharacter, userId).Scan(
+		&info.UserId, &info.Username, &info.UserStatus,
+		&info.DateRegistered, &info.DateLastVisit, &info.TotalPosts, &info.ActiveCharacters,
+	)
+	if err != nil {
+		return nil
+	}
+	return &info
 }
 
 func fetchActiveClaimRecord(characterClaimId int, db *sql.DB) *Entities.ClaimRecord {

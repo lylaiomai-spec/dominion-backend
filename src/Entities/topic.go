@@ -18,6 +18,7 @@ const (
 	ActiveTopic   TopicStatus = 0
 	InactiveTopic TopicStatus = 1
 	FullTopic     TopicStatus = 2
+	DeletedTopic  TopicStatus = 3
 )
 
 const TopicPostCap = 1000

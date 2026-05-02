@@ -249,8 +249,9 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 		FROM episode_base e
 		JOIN topics t ON e.topic_id = t.id
 		JOIN subforums s ON t.subforum_id = s.id
-		WHERE 1=1`
+		WHERE t.status != ?`
 	var args []interface{}
+	args = append(args, Entities.DeletedTopic)
 
 	placeholders := make([]string, len(allowedSubforumIDs))
 	for i, id := range allowedSubforumIDs {
@@ -329,6 +330,13 @@ func GetEpisode(c *gin.Context, db *sql.DB) {
 	}
 
 	if episode, ok := entity.(*Entities.Episode); ok {
+		var topicStatus Entities.TopicStatus
+		if err := db.QueryRow("SELECT status FROM topics WHERE id = ?", episode.Topic_Id).Scan(&topicStatus); err == nil && topicStatus == Entities.DeletedTopic {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Episode not found"})
+			c.Abort()
+			return
+		}
+
 		// Fetch characters for the episode
 		charRows, err := db.Query("SELECT cb.id, cb.name FROM character_base cb JOIN episode_character ec ON cb.id = ec.character_id WHERE ec.episode_id = ?", episode.Id)
 		if err == nil {
