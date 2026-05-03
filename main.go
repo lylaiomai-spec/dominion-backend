@@ -65,6 +65,9 @@ func main() {
 	publicRouter.POST("/refresh", "Refresh access token", func(c *gin.Context) {
 		Controllers.RefreshToken(c, Services.DB)
 	})
+	publicRouter.GET("/global-settings", "Get all global settings", func(c *gin.Context) {
+		Controllers.GetGlobalSettings(c, Services.DB)
+	})
 	publicRouter.GET("/currency/settings", "Get currency settings", func(c *gin.Context) {
 		Features.GetCurrencySettingsHandler(c, Services.DB)
 	})
@@ -292,9 +295,6 @@ func main() {
 	})
 	protectedRouter.GET("/faction/delete/:id", "Delete faction by ID", func(c *gin.Context) {
 		Controllers.DeleteFaction(c, Services.DB)
-	})
-	protectedRouter.GET("/global-settings", "Get all global settings", func(c *gin.Context) {
-		Controllers.GetGlobalSettings(c, Services.DB)
 	})
 	protectedRouter.POST("/global-settings/update", "Update global settings", func(c *gin.Context) {
 		Controllers.UpdateGlobalSettings(c, Services.DB)
