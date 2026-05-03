@@ -850,9 +850,12 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 	var topicNameForNotif string
 	_ = db.QueryRow("SELECT name FROM topics WHERE id = ?", req.TopicID).Scan(&topicNameForNotif)
 
-	// Handle Mentions — format is @<username>\u200A
-	re := regexp.MustCompile(`@([^\x{200A}]+)\x{200A}`)
-	matches := re.FindAllStringSubmatch(req.Content, -1)
+	// Handle Mentions — format is @<username>\u200A or [quote={username}]
+	mentionRe := regexp.MustCompile(`@([^\x{200A}]+)\x{200A}`)
+	quoteRe := regexp.MustCompile(`\[quote=([^\]]+)\]`)
+	mentionMatches := mentionRe.FindAllStringSubmatch(req.Content, -1)
+	quoteMatches := quoteRe.FindAllStringSubmatch(req.Content, -1)
+	matches := append(mentionMatches, quoteMatches...)
 
 	if len(matches) > 0 {
 		seen := make(map[string]bool)
