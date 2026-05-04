@@ -29,5 +29,6 @@ type Post struct {
 	UserProfile          *UserProfile      `json:"user_profile"`
 	UseCharacterProfile  bool              `json:"use_character_profile"`
 	CanEdit              *bool             `json:"can_edit,omitempty" db:"-"`
+	CanDelete            *bool             `json:"can_delete,omitempty" db:"-"`
 	Reactions            []PostReaction    `json:"reactions"`
 }

@@ -30,5 +30,7 @@
   "permission.subforum_edit_others_post": "Edit others' post",
   "permission.subforum_edit_own_post": "Edit own post",
   "permission.subforum_edit_others_topic": "Edit others' topic",
-  "permission.subforum_edit_own_topic": "Edit own topic"
+  "permission.subforum_edit_own_topic": "Edit own topic",
+  "permission.subforum_delete_own_post": "Delete own post",
+  "permission.subforum_delete_others_post": "Delete others' post"
 }

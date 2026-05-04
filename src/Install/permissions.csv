@@ -42,6 +42,7 @@ role_id,type,permission
 2,0,/post/:id
 2,0,/post/create
 2,0,/post/preview
+2,0,/post/delete/:id
 2,0,/post/update/:id
 2,0,/template/:type/get
 2,0,/topic/create
@@ -136,6 +137,7 @@ role_id,type,permission
 3,0,/widget/:id/update
 3,0,/widget/create
 3,0,/widget/list
+3,0,/admin/user/update/:id
 3,0,/admin/user/ban/:id
 3,0,/admin/user/reactivate/:id
 3,0,/admin/user/roles/update

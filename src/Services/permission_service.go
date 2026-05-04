@@ -30,6 +30,8 @@ var SubforumPermissions = map[string]string{
 	"subforum_edit_own_post":                 "permission.subforum_edit_own_post",
 	"subforum_edit_others_topic":             "permission.subforum_edit_others_topic",
 	"subforum_edit_own_topic":                "permission.subforum_edit_own_topic",
+	"subforum_delete_own_post":               "permission.subforum_delete_own_post",
+	"subforum_delete_others_post":            "permission.subforum_delete_others_post",
 }
 
 type PermissionMatrixObject struct {
@@ -399,6 +401,8 @@ func GetSubforumPermissions(userID int, subforumID int, db *sql.DB) (*Entities.S
 		fmt.Sprintf("subforum_delete_others_topic:%d", subforumID):           &permissions.SubforumDeleteOthersTopic,
 		fmt.Sprintf("subforum_edit_others_post:%d", subforumID):              &permissions.SubforumEditOthersPost,
 		fmt.Sprintf("subforum_edit_own_post:%d", subforumID):                 &permissions.SubforumEditOwnPost,
+		fmt.Sprintf("subforum_delete_own_post:%d", subforumID):               &permissions.SubforumDeleteOwnPost,
+		fmt.Sprintf("subforum_delete_others_post:%d", subforumID):            &permissions.SubforumDeleteOthersPost,
 	}
 
 	var permStrings []string

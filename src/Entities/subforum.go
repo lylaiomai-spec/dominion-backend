@@ -37,4 +37,6 @@ type SubforumPermissions struct {
 	SubforumEditOthersTopic            bool `json:"subforum_edit_others_topic"`
 	SubforumEditOthersPost             bool `json:"subforum_edit_others_post"`
 	SubforumEditOwnPost                bool `json:"subforum_edit_own_post"`
+	SubforumDeleteOwnPost              bool `json:"subforum_delete_own_post"`
+	SubforumDeleteOthersPost           bool `json:"subforum_delete_others_post"`
 }

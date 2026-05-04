@@ -428,6 +428,23 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		}
 		post.CanEdit = &canEdit
 
+		// Check CanDelete
+		canDelete := false
+		if currentUserID != 0 {
+			if currentUserID == post.AuthorUserId {
+				permission := fmt.Sprintf("subforum_delete_own_post:%d", subforumID)
+				if hasPerm, err := Services.HasPermission(currentUserID, permission, db); err == nil && hasPerm {
+					canDelete = true
+				}
+			} else {
+				permission := fmt.Sprintf("subforum_delete_others_post:%d", subforumID)
+				if hasPerm, err := Services.HasPermission(currentUserID, permission, db); err == nil && hasPerm {
+					canDelete = true
+				}
+			}
+		}
+		post.CanDelete = &canDelete
+
 		if post.UseCharacterProfile {
 			var charProfile Entities.CharacterProfile
 			if id, ok := rowMap["character_profile_id"]; ok {
@@ -1129,6 +1146,80 @@ func UpdatePost(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, updatedPost)
+}
+
+func DeletePost(c *gin.Context, db *sql.DB) {
+	postID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid post ID"})
+		c.Abort()
+		return
+	}
+
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
+		c.Abort()
+		return
+	}
+
+	// 1. Fetch post details to check ownership and subforum
+	var authorUserID int
+	var subforumID int
+	var topicID int64
+	err = db.QueryRow(`
+		SELECT p.author_user_id, t.subforum_id, p.topic_id
+		FROM posts p
+		JOIN topics t ON p.topic_id = t.id
+		WHERE p.id = ? AND (p.is_deleted IS NULL OR p.is_deleted <> 1)
+	`, postID).Scan(&authorUserID, &subforumID, &topicID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Post not found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch post details: " + err.Error()})
+		}
+		c.Abort()
+		return
+	}
+
+	// 2. Check permissions
+	canDelete := false
+	if userID == authorUserID {
+		permission := fmt.Sprintf("subforum_delete_own_post:%d", subforumID)
+		if hasPerm, err := Services.HasPermission(userID, permission, db); err == nil && hasPerm {
+			canDelete = true
+		}
+	} else {
+		permission := fmt.Sprintf("subforum_delete_others_post:%d", subforumID)
+		if hasPerm, err := Services.HasPermission(userID, permission, db); err == nil && hasPerm {
+			canDelete = true
+		}
+	}
+
+	if !canDelete {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "You do not have permission to delete this post"})
+		c.Abort()
+		return
+	}
+
+	// 3. Soft-delete the post
+	_, err = db.Exec("UPDATE posts SET is_deleted = 1 WHERE id = ?", postID)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to delete post: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	// 4. Broadcast deletion event
+	Events.Publish(db, Events.PostCreated, Events.PostCreatedEvent{
+		Type:       "post_deleted",
+		TopicID:    topicID,
+		SubforumID: subforumID,
+		Post:       Entities.Post{Id: postID},
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Post deleted successfully"})
 }
 
 func UpdateTopic(c *gin.Context, db *sql.DB) {

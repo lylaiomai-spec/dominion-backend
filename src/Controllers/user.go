@@ -1431,6 +1431,62 @@ func BanUser(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"user_status": Entities.ArchivedUser})
 }
 
+type AdminUpdateUserRequest struct {
+	Username *string `json:"username"`
+	Avatar   *string `json:"avatar"`
+}
+
+func AdminUpdateUser(c *gin.Context, db *sql.DB) {
+	userID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid user ID"})
+		c.Abort()
+		return
+	}
+
+	var req AdminUpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	var updates []string
+	var args []interface{}
+
+	if req.Username != nil {
+		updates = append(updates, "username = ?")
+		args = append(args, *req.Username)
+	}
+	if req.Avatar != nil {
+		updates = append(updates, "avatar = ?")
+		args = append(args, *req.Avatar)
+	}
+
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"message": "No changes to update"})
+		return
+	}
+
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = ?", strings.Join(updates, ", "))
+	args = append(args, userID)
+
+	result, err := db.Exec(query, args...)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update user: " + err.Error()})
+		c.Abort()
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "User not found"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
+}
+
 func UserAutocomplete(c *gin.Context, db *sql.DB) {
 	term := c.Param("term")
 

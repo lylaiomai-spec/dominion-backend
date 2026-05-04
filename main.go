@@ -337,6 +337,9 @@ func main() {
 	protectedRouter.POST("/post/update/:id", "Update post by ID", func(c *gin.Context) {
 		Controllers.UpdatePost(c, Services.DB)
 	})
+	protectedRouter.POST("/post/delete/:id", "Soft-delete a post by ID", func(c *gin.Context) {
+		Controllers.DeletePost(c, Services.DB)
+	})
 	protectedRouter.POST("/character-profile/update/:id", "Update character profile by ID", func(c *gin.Context) {
 		Controllers.CharacterProfileUpdate(c, Services.DB)
 	})
@@ -435,6 +438,9 @@ func main() {
 	})
 	protectedRouter.POST("/admin/user/create", "Create a new user account (admin)", func(c *gin.Context) {
 		Controllers.CreateUser(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/user/update/:id", "Update user account (username, avatar) by ID", func(c *gin.Context) {
+		Controllers.AdminUpdateUser(c, Services.DB)
 	})
 	protectedRouter.POST("/mask/create", "Create a new mask", func(c *gin.Context) {
 		Controllers.CreateMask(c, Services.DB)

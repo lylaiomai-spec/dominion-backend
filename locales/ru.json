@@ -30,5 +30,7 @@
   "permission.subforum_edit_others_post": "Редактировать чужие посты",
   "permission.subforum_edit_own_post": "Редактировать свои посты",
   "permission.subforum_edit_others_topic": "Редактировать чужие темы",
-  "permission.subforum_edit_own_topic": "Редактировать свои темы"
+  "permission.subforum_edit_own_topic": "Редактировать свои темы",
+  "permission.subforum_delete_own_post": "Удалять свои посты",
+  "permission.subforum_delete_others_post": "Удалять чужие посты"
 }
