@@ -143,4 +143,10 @@ role_id,type,permission
 3,0,/admin/user/roles/update
 3,0,/admin/user/roles/:id
 3,0,/admin/home
+1,0,/search
+1,0,/search/count
+2,0,/search
+2,0,/search/count
+3,0,/admin/sonic/cursors
+3,0,/admin/sonic/catchup/:bucket
 3,0,/admin/smile/upload

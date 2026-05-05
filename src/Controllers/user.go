@@ -1240,6 +1240,22 @@ func WipeOutMyUser(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	// Collect general post IDs before deleting so we can remove them from Sonic after commit.
+	var deletedGeneralPostIDs []int
+	gpRows, err := db.Query(
+		"SELECT id FROM posts WHERE author_user_id = ? AND topic_id IN (SELECT id FROM topics WHERE type = ?)",
+		userID, Entities.GeneralTopic,
+	)
+	if err == nil {
+		for gpRows.Next() {
+			var pid int
+			if gpRows.Scan(&pid) == nil {
+				deletedGeneralPostIDs = append(deletedGeneralPostIDs, pid)
+			}
+		}
+		gpRows.Close()
+	}
+
 	// Delete posts in general topics
 	if _, err := tx.Exec(
 		"DELETE FROM posts WHERE author_user_id = ? AND topic_id IN (SELECT id FROM topics WHERE type = ?)",
@@ -1306,6 +1322,10 @@ func WipeOutMyUser(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User account wiped"})
+
+	if len(deletedGeneralPostIDs) > 0 {
+		Events.Publish(db, Events.UserWiped, Events.UserWipedEvent{DeletedGeneralPostIDs: deletedGeneralPostIDs})
+	}
 }
 
 func ArchiveAccount(c *gin.Context, db *sql.DB) {

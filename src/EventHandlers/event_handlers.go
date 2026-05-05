@@ -15,4 +15,5 @@ func RegisterEventHandlers(db *sql.DB) {
 	RegisterWantedCharacterEventHandlers()
 	RegisterStaticFileEventHandlers()
 	RegisterReactionEventHandlers()
+	RegisterSonicEventHandlers()
 }

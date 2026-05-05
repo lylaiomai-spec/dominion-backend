@@ -5,11 +5,15 @@ services:
       - "8080:8080"
     depends_on:
       - db
+      - sonic
     environment:
       - DB_HOST=db
       - DB_USER=user
       - DB_PASSWORD=password
       - DB_NAME=cuento
+      - SONIC_HOST=sonic
+      - SONIC_PORT=1491
+      - SONIC_PASSWORD=SecretPassword
 
   db:
     image: mariadb:latest
@@ -23,6 +27,15 @@ services:
       - "3306:3306"
     volumes:
       - db_data:/var/lib/mysql
+
+  sonic:
+    image: valeriansaliou/sonic:latest
+    restart: unless-stopped
+    ports:
+      - "1491:1491"
+    volumes:
+      - ./sonic.cfg:/etc/sonic.cfg
+      - sonic_data:/var/lib/sonic/store
 
   caddy:
     image: caddy:latest
@@ -42,3 +55,4 @@ volumes:
   db_data:
   caddy_data:
   caddy_config:
+  sonic_data:

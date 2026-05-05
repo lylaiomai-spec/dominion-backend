@@ -28,6 +28,7 @@ const (
 	EpisodeTopicsDeleted   EventType = "EpisodeTopicsDeleted"
 	CharacterActivated     EventType = "CharacterActivated"
 	CharacterDeactivated   EventType = "CharacterDeactivated"
+	UserWiped              EventType = "UserWiped"
 )
 
 type EventData interface{}
@@ -126,11 +127,16 @@ type TopicsMovedEvent struct {
 }
 
 type TopicsDeletedEvent struct {
+	TopicIDs    []int
 	SubforumIDs []int // subforums that had topics deleted
 }
 
 type EpisodeTopicsDeletedEvent struct {
 	EpisodeIDs []int // episode IDs whose topics were deleted
+}
+
+type UserWipedEvent struct {
+	DeletedGeneralPostIDs []int
 }
 
 type ReactionCreatedEvent struct {

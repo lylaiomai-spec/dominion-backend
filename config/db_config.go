@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type DBConfig struct {
@@ -33,4 +34,8 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func parseInt(s string) (int, error) {
+	return strconv.Atoi(s)
 }

@@ -18,6 +18,7 @@ import (
 
 func main() {
 	Services.InitDB()
+	Services.InitSonic()
 	if err := Services.InitI18n("locales"); err != nil {
 		panic("failed to load i18n bundles: " + err.Error())
 	}
@@ -56,6 +57,9 @@ func main() {
 	publicRouter := Router.NewCustomRouter(r.Group("/"))
 
 	// User routes (Public)
+	publicRouter.GET("/search/buckets", "Get list of available search buckets", func(c *gin.Context) {
+		Controllers.GetSonicBuckets(c)
+	})
 	publicRouter.POST("/register", "Register a new user account", func(c *gin.Context) {
 		Controllers.Register(c, Services.DB)
 	})
@@ -139,6 +143,12 @@ func main() {
 	})
 	optionalAuthRouter.GET("/active-users/activity", "Get full activity info for active users", func(c *gin.Context) {
 		Controllers.GetActiveUserActivity(c, Services.DB)
+	})
+	optionalAuthRouter.GET("/search", "Search across buckets", func(c *gin.Context) {
+		Controllers.Search(c, Services.DB)
+	})
+	optionalAuthRouter.GET("/search/count", "Get result count for a search query", func(c *gin.Context) {
+		Controllers.SearchCount(c, Services.DB)
 	})
 	optionalAuthRouter.GET("/ping", "Health check endpoint", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -619,6 +629,12 @@ func main() {
 	})
 	protectedRouter.GET("/admin/home", "Get admin home categories (all, including empty)", func(c *gin.Context) {
 		Controllers.GetAdminHomeCategories(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/sonic/cursors", "Get Sonic ingest cursors for all buckets", func(c *gin.Context) {
+		Controllers.GetSonicCursors(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/sonic/catchup/:bucket", "Catch up Sonic ingestion for a specific bucket", func(c *gin.Context) {
+		Controllers.CatchUpSonicBucket(c, Services.DB)
 	})
 	protectedRouter.GET("/admin/user/roles/:id", "Get user roles", func(c *gin.Context) {
 		Controllers.GetUserRoles(c, Services.DB)

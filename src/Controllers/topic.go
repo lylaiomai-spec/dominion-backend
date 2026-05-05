@@ -1815,7 +1815,7 @@ func BatchDeleteTopics(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 
 	if len(subforumIDs) > 0 {
-		Events.Publish(db, Events.TopicsDeleted, Events.TopicsDeletedEvent{SubforumIDs: subforumIDs})
+		Events.Publish(db, Events.TopicsDeleted, Events.TopicsDeletedEvent{TopicIDs: req.TopicIDs, SubforumIDs: subforumIDs})
 	}
 	if len(episodeIDs) > 0 {
 		Events.Publish(db, Events.EpisodeTopicsDeleted, Events.EpisodeTopicsDeletedEvent{EpisodeIDs: episodeIDs})

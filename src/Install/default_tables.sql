@@ -716,3 +716,11 @@ create table post_reaction
     constraint fk_post_reaction_reaction foreign key (reaction_id) references reactions (id) on delete cascade,
     constraint fk_post_reaction_user     foreign key (user_id)     references users (id)     on delete cascade
 );
+
+create table sonic_ingest_cursor
+(
+    bucket        varchar(64) not null,
+    last_id       bigint      not null,
+    date_ingested datetime    not null default current_timestamp,
+    primary key (bucket)
+);
