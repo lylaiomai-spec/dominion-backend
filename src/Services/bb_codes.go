@@ -249,7 +249,7 @@ func GetBBCompiler() bbcode.Compiler {
 		out.Attrs["allowfullscreen"] = "true"
 		out.Attrs["frameborder"] = "0"
 		out.Attrs["allow"] = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-		return out, false
+		return out, true
 	})
 
 	compiler.SetTag("img", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {

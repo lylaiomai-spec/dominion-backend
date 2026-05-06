@@ -135,7 +135,7 @@ CREATE TABLE topics (
     last_post_author_user_id INT NULL,
     post_number INT,
     author_user_id INT NOT NULL,
-    subforum_id BIGINT UNSIGNED NOT NULL,
+    subforum_id BIGINT UNSIGNED NULL,
     is_sticky BOOLEAN DEFAULT FALSE NULL,
     is_sticky_first_post BOOLEAN DEFAULT FALSE NULL,
     CONSTRAINT fk_topics_subforum

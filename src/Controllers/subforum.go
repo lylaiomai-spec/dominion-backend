@@ -472,6 +472,13 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 	// Determine User Roles
 	var roleIDs []int
 	userID := Services.GetUserIdFromContext(c)
+
+	if hasPerm, err := Services.HasPermission(userID, fmt.Sprintf("subforum_read:%d", id), db); err != nil || !hasPerm {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Subforum not found"})
+		c.Abort()
+		return
+	}
+
 	if dateLastPost != nil {
 		localized := Services.LocalizeTime(*dateLastPost, Services.GetUserTimezone(userID, db))
 		subforum.DateLastPostLocalized = &localized
