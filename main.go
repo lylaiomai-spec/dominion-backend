@@ -24,6 +24,10 @@ func main() {
 	}
 	EventHandlers.RegisterEventHandlers(Services.DB)
 
+	// Start health monitor (RAM stats every 30s, one log file per day, 30-day retention)
+	Controllers.InitHealthBroadcaster()
+	Services.InitHealthMonitor()
+
 	// Start WebSocket Hub
 	go Websockets.MainHub.Run()
 
@@ -95,6 +99,12 @@ func main() {
 	})
 	publicRouter.GET("/user/list", "Get list of active users and their characters", func(c *gin.Context) {
 		Controllers.GetUserList(c, Services.DB)
+	})
+	publicRouter.GET("/user/recent", "Get users active in the past 24 hours", func(c *gin.Context) {
+		Controllers.GetRecentActiveUsers(c, Services.DB)
+	})
+	publicRouter.GET("/character/recent", "Get characters of users active in the past 24 hours", func(c *gin.Context) {
+		Controllers.GetRecentActiveCharacters(c, Services.DB)
 	})
 	publicRouter.GET("/user/autocomplete/:term", "Get users matching search term", func(c *gin.Context) {
 		Controllers.UserAutocomplete(c, Services.DB)
@@ -629,6 +639,9 @@ func main() {
 	})
 	protectedRouter.GET("/admin/home", "Get admin home categories (all, including empty)", func(c *gin.Context) {
 		Controllers.GetAdminHomeCategories(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/health", "Get RAM and CPU health data", func(c *gin.Context) {
+		Controllers.GetHealthData(c)
 	})
 	protectedRouter.GET("/admin/sonic/cursors", "Get Sonic ingest cursors for all buckets", func(c *gin.Context) {
 		Controllers.GetSonicCursors(c, Services.DB)

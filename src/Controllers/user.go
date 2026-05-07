@@ -710,6 +710,59 @@ func GetUserList(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, users)
 }
 
+func GetRecentActiveUsers(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT id, username FROM users
+		WHERE user_status = 0 AND id > 1
+		AND date_last_visit >= NOW() - INTERVAL 24 HOUR
+		ORDER BY username ASC
+	`)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch recent users: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	users := []Entities.ShortUser{}
+	for rows.Next() {
+		var u Entities.ShortUser
+		if err := rows.Scan(&u.Id, &u.Username); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+
+	c.JSON(http.StatusOK, users)
+}
+
+func GetRecentActiveCharacters(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT c.id, c.name FROM character_base c
+		JOIN users u ON u.id = c.user_id
+		WHERE c.character_status = 0 AND u.user_status = 0 AND u.id > 1
+		AND u.date_last_visit >= NOW() - INTERVAL 24 HOUR
+		ORDER BY c.name ASC
+	`)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch recent characters: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	characters := []Entities.ShortCharacter{}
+	for rows.Next() {
+		var ch Entities.ShortCharacter
+		if err := rows.Scan(&ch.Id, &ch.Name); err != nil {
+			continue
+		}
+		characters = append(characters, ch)
+	}
+
+	c.JSON(http.StatusOK, characters)
+}
+
 type SaveKeysPrivateKeyItem struct {
 	PrivateKey string `json:"private_key" binding:"required"`
 	IV         string `json:"iv" binding:"required"`

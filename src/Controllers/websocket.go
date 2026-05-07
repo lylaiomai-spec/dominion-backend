@@ -82,6 +82,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 				BroadcastActiveUsersToHome()
 				go BroadcastActiveUserActivity(db)
 			}
+			Services.UnsubscribeHealth(userID)
 			Websockets.MainHub.Unregister(client)
 			conn.Close()
 		}()
@@ -149,6 +150,10 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 						"UPDATE direct_chat_users SET last_read_message_id = ? WHERE direct_chat_id = ? AND user_id = ?",
 						msg.LastViewedMessageId, msg.ChatId, userID,
 					)
+				} else if msg.Type == "health_subscribe" {
+					Services.SubscribeHealth(userID)
+				} else if msg.Type == "health_unsubscribe" {
+					Services.UnsubscribeHealth(userID)
 				} else if msg.Type == "replay" && msg.LastMessageId != nil {
 					for _, m := range Websockets.MainHub.GetMissedMessages(userID, *msg.LastMessageId) {
 						select {
