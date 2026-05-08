@@ -60,6 +60,7 @@ role_id,type,permission
 2,0,/user/private-key
 2,0,/user/public-key/:userID
 2,0,/user/save-keys
+2,0,/user/absence
 2,0,/user/archive
 2,0,/user/settings/update
 2,0,/users/page/:page_type/:page_id
@@ -148,6 +149,15 @@ role_id,type,permission
 2,0,/search
 2,0,/search/count
 3,0,/admin/health
+3,0,/admin/user/:user_id/absence
+3,0,/admin/character/immunity
+2,0,/characters/archiving-warnings
 3,0,/admin/sonic/cursors
 3,0,/admin/sonic/catchup/:bucket
 3,0,/admin/smile/upload
+3,0,/character-claim/delete/:id
+3,0,/admin/character-list
+3,0,/admin/character/:id/protection-history
+3,2,show_admin_page
+3,2,show_add_immunity_button
+3,2,show_character_sheet_admin_block

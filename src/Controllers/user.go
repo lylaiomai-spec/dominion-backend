@@ -63,6 +63,7 @@ type UpdateSettingsRequest struct {
 	FontSize        *float64       `json:"interface_font_size"`
 	Password        *string        `json:"password"`
 	InterfaceDesign NullableString `json:"interface_design"`
+	Signature       NullableString `json:"signature"`
 }
 
 type CreateUserRequest struct {
@@ -208,8 +209,8 @@ func Login(c *gin.Context, db *sql.DB) {
 	}
 
 	var user Entities.User
-	query := "SELECT id, username, avatar, password, interface_language, interface_timezone, interface_font_size, user_status, interface_design, archive_reason FROM users WHERE username = ?"
-	err := db.QueryRow(query, creds.Username).Scan(&user.Id, &user.Username, &user.Avatar, &user.Password, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.InterfaceDesign, &user.ArchiveReason)
+	query := "SELECT id, username, avatar, password, interface_language, interface_timezone, interface_font_size, user_status, interface_design, archive_reason, signature FROM users WHERE username = ?"
+	err := db.QueryRow(query, creds.Username).Scan(&user.Id, &user.Username, &user.Avatar, &user.Password, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.InterfaceDesign, &user.ArchiveReason, &user.Signature)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Invalid credentials"})
@@ -254,6 +255,7 @@ func Login(c *gin.Context, db *sql.DB) {
 			c.Abort()
 			return
 		}
+		role.Permissions = Services.GetRoleFrontendPermissions(role.Id, db)
 		user.Roles = append(user.Roles, role)
 	}
 
@@ -346,8 +348,8 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 
 	// Fetch user details
 	var user Entities.User
-	query := "SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design FROM users WHERE id = ?"
-	err = db.QueryRow(query, claims.UserID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign)
+	query := "SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature FROM users WHERE id = ?"
+	err = db.QueryRow(query, claims.UserID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch user details"})
 		c.Abort()
@@ -373,6 +375,7 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 		for rows.Next() {
 			var role Entities.Role
 			if err := rows.Scan(&role.Id, &role.Name); err == nil {
+				role.Permissions = Services.GetRoleFrontendPermissions(role.Id, db)
 				user.Roles = append(user.Roles, role)
 			}
 		}
@@ -557,6 +560,10 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 		updates = append(updates, "interface_design = ?")
 		args = append(args, req.InterfaceDesign.Value)
 	}
+	if req.Signature.IsSet {
+		updates = append(updates, "signature = ?")
+		args = append(args, req.Signature.Value)
+	}
 	if req.Password != nil {
 		// Hash the password before updating
 		dummyUser := Entities.User{}
@@ -586,7 +593,7 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 
 	// Fetch updated user details
 	var user Entities.User
-	err = db.QueryRow("SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design FROM users WHERE id = ?", userID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign)
+	err = db.QueryRow("SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature FROM users WHERE id = ?", userID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch updated user details"})
 		c.Abort()
@@ -606,6 +613,7 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 		for rows.Next() {
 			var role Entities.Role
 			if err := rows.Scan(&role.Id, &role.Name); err == nil {
+				role.Permissions = Services.GetRoleFrontendPermissions(role.Id, db)
 				user.Roles = append(user.Roles, role)
 			}
 		}
@@ -1252,6 +1260,7 @@ func UpdateUserRoles(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	Services.NotifyUserRefresh(req.UserID, db)
 	c.JSON(http.StatusOK, gin.H{"message": "User roles updated"})
 }
 
@@ -1501,6 +1510,7 @@ func BanUser(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	Services.NotifyUserRefresh(userID, db)
 	c.JSON(http.StatusOK, gin.H{"user_status": Entities.ArchivedUser})
 }
 
@@ -1557,6 +1567,7 @@ func AdminUpdateUser(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	Services.NotifyUserRefresh(userID, db)
 	c.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
 }
 

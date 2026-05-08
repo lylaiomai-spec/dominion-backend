@@ -341,7 +341,8 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		SELECT
 			p.id, p.author_user_id, p.date_created, p.content, p.use_character_profile,
 			u.username, u.avatar, u.total_posts, u.total_general_posts, p.guest_name,
-			cp.id as character_profile_id, cp.character_id, cb.name as character_name, cp.avatar as character_avatar, cp.mask_name, cp.is_mask,
+			cp.id as character_profile_id, cp.character_id, cb.name as character_name, cp.avatar as character_avatar, cp.mask_name, cp.is_mask, cp.signature as character_signature,
+			u.signature as user_signature,
 			t.subforum_id, t.type as topic_type
 			%s
 		FROM posts p
@@ -497,6 +498,12 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 				isMaskBool, _ := strconv.ParseBool(isMask.(string))
 				charProfile.IsMask = &isMaskBool
 			}
+			if sig, ok := rowMap["character_signature"]; ok {
+				sigStr := sig.(string)
+				sigHtml := Services.ParseBBCode(sigStr)
+				charProfile.Signature = &sigStr
+				charProfile.SignatureHtml = &sigHtml
+			}
 
 			// Populate custom fields
 			customFields := make(map[string]Entities.CustomFieldValue)
@@ -513,6 +520,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			charProfile.CustomFields.CustomFields = customFields
 			charProfile.CustomFields.FieldConfig = customConfig // Add this line
+			charProfile.Factions = []Entities.Faction{}
 			post.CharacterProfile = &charProfile
 		} else {
 			var userProfile Entities.UserProfile
@@ -535,9 +543,54 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 				amount, _ := strconv.Atoi(v.(string))
 				userProfile.CurrencyAmount = &amount
 			}
+			if sig, ok := rowMap["user_signature"]; ok {
+				sigStr := sig.(string)
+				sigHtml := Services.ParseBBCode(sigStr)
+				userProfile.Signature = &sigStr
+				userProfile.SignatureHtml = &sigHtml
+			}
 			post.UserProfile = &userProfile
 		}
 		posts = append(posts, post)
+	}
+
+	// Batch-fetch factions for character profiles
+	var charIDs []interface{}
+	charIDToPostIdxs := make(map[int][]int)
+	for i, p := range posts {
+		if p.CharacterProfile != nil && p.CharacterProfile.CharacterId != nil {
+			cid := *p.CharacterProfile.CharacterId
+			if _, seen := charIDToPostIdxs[cid]; !seen {
+				charIDs = append(charIDs, cid)
+			}
+			charIDToPostIdxs[cid] = append(charIDToPostIdxs[cid], i)
+		}
+	}
+	if len(charIDs) > 0 {
+		factionPlaceholders := make([]string, len(charIDs))
+		for i := range charIDs {
+			factionPlaceholders[i] = "?"
+		}
+		factionRows, err := db.Query(fmt.Sprintf(`
+			SELECT cf.character_id, f.id, f.name, f.parent_id, f.level, f.description, f.icon, f.faction_status
+			FROM character_faction cf
+			JOIN factions f ON f.id = cf.faction_id
+			WHERE f.show_on_profile = true AND cf.character_id IN (%s)
+			ORDER BY f.level ASC
+		`, strings.Join(factionPlaceholders, ",")), charIDs...)
+		if err == nil {
+			defer factionRows.Close()
+			for factionRows.Next() {
+				var cid int
+				var f Entities.Faction
+				if err := factionRows.Scan(&cid, &f.Id, &f.Name, &f.ParentId, &f.Level, &f.Description, &f.Icon, &f.FactionStatus); err != nil {
+					continue
+				}
+				for _, idx := range charIDToPostIdxs[cid] {
+					posts[idx].CharacterProfile.Factions = append(posts[idx].CharacterProfile.Factions, f)
+				}
+			}
+		}
 	}
 
 	if len(posts) > 0 {

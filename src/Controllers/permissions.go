@@ -32,10 +32,18 @@ func GetPermissionMatrix(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	frontendMatrix, err := Services.GetFrontendPermissionMatrix(db, lang)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get frontend permissions: " + err.Error()})
+		c.Abort()
+		return
+	}
+
 	// Use the numeric PermissionType as the key
 	response := map[Services.PermissionType]interface{}{
 		Services.EndpointPermission: endpointMatrix,
 		Services.SubforumPermission: subforumMatrix,
+		Services.FrontendPermission: frontendMatrix,
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -65,6 +73,20 @@ func UpdatePermissionMatrix(c *gin.Context, db *sql.DB) {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update permissions: " + err.Error()})
 		c.Abort()
 		return
+	}
+
+	// Notify all users who have any role assigned — their frontend permissions may have changed.
+	rows, err := db.Query("SELECT DISTINCT user_id FROM user_role")
+	if err == nil {
+		defer rows.Close()
+		var userIDs []int
+		for rows.Next() {
+			var id int
+			if rows.Scan(&id) == nil {
+				userIDs = append(userIDs, id)
+			}
+		}
+		Services.NotifyUsersRefresh(userIDs, db)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Permissions updated successfully"})

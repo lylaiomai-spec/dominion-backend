@@ -62,6 +62,17 @@ type NotificationSystem struct {
 	TopicId int `json:"topic_id"`
 }
 
+type NotificationAutoArchiving struct {
+	CharacterId   int    `json:"character_id"`
+	CharacterName string `json:"character_name"`
+	DaysLeft      *int   `json:"days_left,omitempty"`
+}
+
+type AutoArchivingNotification struct {
+	NotificationBase
+	Data NotificationAutoArchiving `json:"data"`
+}
+
 type NotificationAccountUpdate struct {
 	IncomeTypeKey string  `json:"income_type_key"`
 	Amount        int     `json:"amount"`

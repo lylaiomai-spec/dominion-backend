@@ -26,7 +26,11 @@ func main() {
 
 	// Start health monitor (RAM stats every 30s, one log file per day, 30-day retention)
 	Controllers.InitHealthBroadcaster()
+	Controllers.InitUserRefreshCallbacks()
 	Services.InitHealthMonitor()
+
+	// Start archiving warning notifier (checks daily, sends notifications at 10/5/3/2/1 days before archiving)
+	Services.StartArchivingNotifier(Services.DB)
 
 	// Start WebSocket Hub
 	go Websockets.MainHub.Run()
@@ -100,6 +104,10 @@ func main() {
 	publicRouter.GET("/user/list", "Get list of active users and their characters", func(c *gin.Context) {
 		Controllers.GetUserList(c, Services.DB)
 	})
+	publicRouter.GET("/absent-users", "Get currently absent users with their return date", func(c *gin.Context) {
+		Controllers.GetAbsentUsers(c, Services.DB)
+	})
+
 	publicRouter.GET("/user/recent", "Get users active in the past 24 hours", func(c *gin.Context) {
 		Controllers.GetRecentActiveUsers(c, Services.DB)
 	})
@@ -325,6 +333,9 @@ func main() {
 	protectedRouter.POST("/character-claim/create", "Create a new character claim", func(c *gin.Context) {
 		Controllers.CreateCharacterClaim(c, Services.DB)
 	})
+	protectedRouter.POST("/character-claim/delete/:id", "Delete a character claim", func(c *gin.Context) {
+		Controllers.DeleteCharacterClaim(c, Services.DB)
+	})
 
 	// Character Template routes
 	protectedRouter.GET("/template/:type/get", "Get character template by type", func(c *gin.Context) {
@@ -444,6 +455,15 @@ func main() {
 	protectedRouter.POST("/user/settings/update", "Update user settings", func(c *gin.Context) {
 		Controllers.UpdateSettings(c, Services.DB)
 	})
+	protectedRouter.POST("/user/absence", "Create an absence record for the current user", func(c *gin.Context) {
+		Controllers.CreateAbsence(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/user/:user_id/absence", "Create an absence record for any user (admin)", func(c *gin.Context) {
+		Controllers.AdminCreateAbsence(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/character/immunity", "Add auto-archiving immunity for a character (admin)", func(c *gin.Context) {
+		Controllers.AdminAddImmunity(c, Services.DB)
+	})
 	protectedRouter.POST("/user/archive", "Archive the current user's account and deactivate all their characters", func(c *gin.Context) {
 		Controllers.ArchiveAccount(c, Services.DB)
 	})
@@ -453,8 +473,17 @@ func main() {
 	protectedRouter.POST("/admin/user/reactivate/:id", "Reactivate an archived user by ID", func(c *gin.Context) {
 		Controllers.ReactivateUser(c, Services.DB)
 	})
+	protectedRouter.GET("/characters/archiving-warnings", "Get active characters approaching auto-archiving threshold", func(c *gin.Context) {
+		Controllers.GetArchivingWarnings(c, Services.DB)
+	})
 	protectedRouter.GET("/admin/user-list", "Get full user list for admin panel", func(c *gin.Context) {
 		Controllers.GetAdminUserList(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/character-list", "Get full character list for admin panel", func(c *gin.Context) {
+		Controllers.GetAdminCharacterList(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/character/:id/protection-history", "Get absences and immunities for a character", func(c *gin.Context) {
+		Controllers.GetCharacterProtectionHistory(c, Services.DB)
 	})
 	protectedRouter.POST("/admin/user/create", "Create a new user account (admin)", func(c *gin.Context) {
 		Controllers.CreateUser(c, Services.DB)

@@ -266,6 +266,13 @@ func (h *Hub) BroadcastToUsers(userIDs []int, message interface{}) {
 	}
 }
 
+// IsUserConnected returns true if the user has at least one active WebSocket connection.
+func (h *Hub) IsUserConnected(userID int) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients[userID]) > 0
+}
+
 // CloseUserConnections forcefully closes all WebSocket connections for a user.
 // The read loop detects the error and runs its cleanup defer (RemoveUser, Unregister).
 func (h *Hub) CloseUserConnections(userID int) {

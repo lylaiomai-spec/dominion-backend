@@ -14,7 +14,15 @@ type PermissionType int
 const (
 	EndpointPermission PermissionType = 0
 	SubforumPermission PermissionType = 1
+	FrontendPermission PermissionType = 2
 )
+
+// FrontendPermissions is the authoritative static list of all frontend permission keys.
+var FrontendPermissions = map[string]string{
+	"show_admin_page":                  "permission.show_admin_page",
+	"show_add_immunity_button":         "permission.show_add_immunity_button",
+	"show_character_sheet_admin_block": "permission.show_character_sheet_admin_block",
+}
 
 var SubforumPermissions = map[string]string{
 	"subforum_read":                          "permission.subforum_read",
@@ -106,6 +114,92 @@ func GetEndpointPermissionMatrix(db *sql.DB, lang string) (PermissionMatrixObjec
 		Matrix:          permissionMatrix,
 		PermissionOrder: permissionOrder,
 	}, nil
+}
+
+func GetFrontendPermissionMatrix(db *sql.DB, lang string) (PermissionMatrixObject, error) {
+	roleRows, err := db.Query("SELECT id, name FROM roles")
+	if err != nil {
+		return PermissionMatrixObject{}, err
+	}
+	defer roleRows.Close()
+
+	roleMap := make(map[int]string)
+	for roleRows.Next() {
+		var role Entities.Role
+		if err := roleRows.Scan(&role.Id, &role.Name); err != nil {
+			return PermissionMatrixObject{}, err
+		}
+		roleMap[role.Id] = role.Name
+	}
+
+	permRows, err := db.Query("SELECT role_id, permission FROM role_permission WHERE type = 2")
+	if err != nil {
+		return PermissionMatrixObject{}, err
+	}
+	defer permRows.Close()
+
+	existingPerms := make(map[string]map[int]bool)
+	for permRows.Next() {
+		var roleID int
+		var permission string
+		if err := permRows.Scan(&roleID, &permission); err != nil {
+			continue
+		}
+		if _, ok := roleMap[roleID]; ok {
+			if _, ok := existingPerms[permission]; !ok {
+				existingPerms[permission] = make(map[int]bool)
+			}
+			existingPerms[permission][roleID] = true
+		}
+	}
+
+	permissionMatrix := make(map[string]map[int]bool)
+	permissionsMap := make(map[string]string)
+	permissionOrder := make([]string, 0, len(FrontendPermissions))
+
+	localizer := NewLocalizer(lang)
+	for permKey, permDef := range FrontendPermissions {
+		permissionOrder = append(permissionOrder, permKey)
+		permissionsMap[permKey] = T(localizer, permDef)
+		permissionMatrix[permKey] = make(map[int]bool)
+		for roleID := range roleMap {
+			if rolesWithPerm, ok := existingPerms[permKey]; ok {
+				permissionMatrix[permKey][roleID] = rolesWithPerm[roleID]
+			} else {
+				permissionMatrix[permKey][roleID] = false
+			}
+		}
+	}
+
+	return PermissionMatrixObject{
+		Roles:           roleMap,
+		Permissions:     permissionsMap,
+		Matrix:          permissionMatrix,
+		PermissionOrder: permissionOrder,
+	}, nil
+}
+
+// GetRoleFrontendPermissions returns the list of frontend permission keys granted to a given role.
+func GetRoleFrontendPermissions(roleID int, db *sql.DB) []string {
+	rows, err := db.Query(
+		"SELECT permission FROM role_permission WHERE type = 2 AND role_id = ?",
+		roleID,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var perms []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err == nil {
+			if _, valid := FrontendPermissions[p]; valid {
+				perms = append(perms, p)
+			}
+		}
+	}
+	return perms
 }
 
 func GetSubforumPermissionMatrix(db *sql.DB, lang string) (PermissionMatrixObject, error) {

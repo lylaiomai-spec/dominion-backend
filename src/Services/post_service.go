@@ -46,7 +46,8 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 		SELECT
 			p.id, p.topic_id, p.author_user_id, p.date_created, p.content, p.use_character_profile,
 			u.username, u.avatar, u.total_posts, u.total_general_posts,
-			cp.id as character_profile_id, cp.character_id, cb.name as character_name, cp.avatar as character_avatar, cp.mask_name, cp.is_mask
+			cp.id as character_profile_id, cp.character_id, cb.name as character_name, cp.avatar as character_avatar, cp.mask_name, cp.is_mask, cp.signature as character_signature,
+			u.signature as user_signature
 			%s
 		FROM posts p
 		LEFT JOIN users u ON p.author_user_id = u.id
@@ -150,6 +151,12 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 			isMaskBool, _ := strconv.ParseBool(isMask.(string))
 			charProfile.IsMask = &isMaskBool
 		}
+		if sig, ok := rowMap["character_signature"]; ok {
+			sigStr := sig.(string)
+			sigHtml := ParseBBCode(sigStr)
+			charProfile.Signature = &sigStr
+			charProfile.SignatureHtml = &sigHtml
+		}
 
 		customFields := make(map[string]Entities.CustomFieldValue)
 		for _, field := range customConfig {
@@ -165,6 +172,25 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 		}
 		charProfile.CustomFields.CustomFields = customFields
 		charProfile.CustomFields.FieldConfig = customConfig
+		charProfile.Factions = []Entities.Faction{}
+		if charProfile.CharacterId != nil {
+			factionRows, err := db.Query(`
+				SELECT f.id, f.name, f.parent_id, f.level, f.description, f.icon, f.faction_status
+				FROM character_faction cf
+				JOIN factions f ON f.id = cf.faction_id
+				WHERE f.show_on_profile = true AND cf.character_id = ?
+				ORDER BY f.level ASC
+			`, *charProfile.CharacterId)
+			if err == nil {
+				defer factionRows.Close()
+				for factionRows.Next() {
+					var f Entities.Faction
+					if err := factionRows.Scan(&f.Id, &f.Name, &f.ParentId, &f.Level, &f.Description, &f.Icon, &f.FactionStatus); err == nil {
+						charProfile.Factions = append(charProfile.Factions, f)
+					}
+				}
+			}
+		}
 		post.CharacterProfile = &charProfile
 	} else {
 		var userProfile Entities.UserProfile
@@ -184,6 +210,12 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 		if v, ok := rowMap["currency_amount"]; ok {
 			amount, _ := strconv.Atoi(v.(string))
 			userProfile.CurrencyAmount = &amount
+		}
+		if sig, ok := rowMap["user_signature"]; ok {
+			sigStr := sig.(string)
+			sigHtml := ParseBBCode(sigStr)
+			userProfile.Signature = &sigStr
+			userProfile.SignatureHtml = &sigHtml
 		}
 		post.UserProfile = &userProfile
 	}

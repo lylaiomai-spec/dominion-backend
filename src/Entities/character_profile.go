@@ -10,10 +10,13 @@ type CharacterProfile struct {
 	CanEdit       *bool             `json:"can_edit,omitempty" db:"-"`
 	UserId        *int              `json:"user_id"`
 	IsMask        *bool             `json:"is_mask"`
+	Signature     *string           `json:"signature"`
+	SignatureHtml *string           `json:"signature_html"`
+	Factions      []Faction         `json:"factions"`
 }
 
 func (cp *CharacterProfile) GetBaseFields() []string {
-	return []string{"character_id", "avatar", "is_mask", "user_id", "mask_name"}
+	return []string{"character_id", "avatar", "is_mask", "user_id", "mask_name", "signature"}
 }
 
 type ShortMask struct {

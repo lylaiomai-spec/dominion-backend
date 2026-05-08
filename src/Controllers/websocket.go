@@ -25,6 +25,17 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+func InitUserRefreshCallbacks() {
+	Services.SetUserRefreshSender(func(userID int) {
+		Websockets.MainHub.SendNotification(userID, map[string]interface{}{
+			"type": "user_refresh_required",
+		})
+	})
+	Services.SetUserConnectedChecker(func(userID int) bool {
+		return Websockets.MainHub.IsUserConnected(userID)
+	})
+}
+
 func HandleWebSocket(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 	if userID == 0 {
@@ -60,6 +71,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 	Websockets.MainHub.Register(client)
 	Services.ActivityStorage.AddUser(userID, username)
 	Events.Publish(db, Events.UserActivityChanged, Events.UserActivityChangedEvent{UserID: userID})
+	Services.DrainUserRefreshQueue(userID, db)
 
 	// Replay missed messages if the client provides last_message_id as a query param.
 	if lastMsgIDStr := c.Query("last_message_id"); lastMsgIDStr != "" {
