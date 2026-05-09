@@ -25,6 +25,7 @@ type BoardInfo struct {
 	AutoArchivingShowPageLink      string              `json:"auto_archiving_show_page_link"`
 	AutoArchivingEnabled           string              `json:"auto_archiving_enabled"`
 	AutoArchivingDays              int                 `json:"auto_archiving_days"`
+	Features                       map[string]int      `json:"features"`
 }
 
 func GetBoard(c *gin.Context, db *sql.DB) {
@@ -106,6 +107,23 @@ func GetBoard(c *gin.Context, db *sql.DB) {
 				boardInfo.LastRegisteredUser = &Entities.ShortUser{
 					Id:       int(value.Int64),
 					Username: secondary.String,
+				}
+			}
+		}
+	}
+
+	boardInfo.Features = map[string]int{}
+	featureRows, err := db.Query("SELECT `key`, is_active FROM features")
+	if err == nil {
+		defer featureRows.Close()
+		for featureRows.Next() {
+			var key string
+			var isActive bool
+			if featureRows.Scan(&key, &isActive) == nil {
+				if isActive {
+					boardInfo.Features[key] = 1
+				} else {
+					boardInfo.Features[key] = 0
 				}
 			}
 		}

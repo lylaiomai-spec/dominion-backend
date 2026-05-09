@@ -84,6 +84,8 @@ func runAutoArchiving(db *sql.DB) {
 			continue
 		}
 
+		_, _ = db.Exec("UPDATE global_stats SET stat_value = GREATEST(stat_value - 1, 0) WHERE stat_name = 'total_character_number'")
+
 		Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
 			UserID:  ch.userID,
 			Type:    "auto_archiving",

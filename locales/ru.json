@@ -18,6 +18,9 @@
   "currency_income_1000_game_posts.name": "1000 игровых постов",
   "currency_income_1000_game_posts.description": "Валюта за достижение 1000 игровых постов",
 
+  "currency_spend_auto_archiving_immunity.name": "Иммунитет от авто-архивации",
+  "currency_spend_auto_archiving_immunity.description": "Потратить валюту для предоставления персонажу иммунитета от авто-архивации",
+
   "permission.subforum_read": "Просматривать форум",
   "permission.subforum_create_general_topic": "Создавать общие темы",
   "permission.subforum_create_episode_topic": "Создавать эпизоды",

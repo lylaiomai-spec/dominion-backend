@@ -282,7 +282,6 @@ create table global_stats
 
 INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_user_number', 0);
 INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_character_number', 0);
-INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_active_character_number', 0);
 INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_episode_number', 0);
 INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_topic_number', 0);
 INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_post_number', 0);
@@ -650,6 +649,15 @@ INSERT INTO currency_income_types (`key`, amount, is_active) VALUES ('currency_i
 INSERT INTO currency_income_types (`key`, amount, is_active) VALUES ('currency_income_100_game_posts', 1, false);
 INSERT INTO currency_income_types (`key`, amount, is_active) VALUES ('currency_income_500_game_posts', 1, false);
 INSERT INTO currency_income_types (`key`, amount, is_active) VALUES ('currency_income_1000_game_posts', 1, false);
+
+CREATE TABLE currency_spend_types
+(
+    `key`     varchar(255) not null primary key,
+    amount    int          not null default 0,
+    is_active boolean      not null default false
+);
+
+INSERT INTO currency_spend_types (`key`, amount, is_active) VALUES ('currency_spend_auto_archiving_immunity', 1, false);
 
 CREATE TABLE currency_settings
 (

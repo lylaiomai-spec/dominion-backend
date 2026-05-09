@@ -41,10 +41,6 @@ func RegisterCharacterEventHandlers() {
 			fmt.Printf("Error updating global character stats on accept: %v\n", err)
 		}
 
-		_, err = db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_active_character_number'")
-		if err != nil {
-			fmt.Printf("Error updating global active character stats: %v\n", err)
-		}
 	})
 
 	// Subscriber: Update Global Stats on Character Activated
@@ -59,10 +55,6 @@ func RegisterCharacterEventHandlers() {
 			fmt.Printf("Error updating global character stats on activate: %v\n", err)
 		}
 
-		_, err = db.Exec("UPDATE global_stats SET stat_value = stat_value + 1 WHERE stat_name = 'total_active_character_number'")
-		if err != nil {
-			fmt.Printf("Error updating global active character stats on activate: %v\n", err)
-		}
 	})
 
 	// Subscriber: Update Global Stats on Character Deactivated
@@ -77,10 +69,6 @@ func RegisterCharacterEventHandlers() {
 			fmt.Printf("Error updating global character stats on deactivate: %v\n", err)
 		}
 
-		_, err = db.Exec("UPDATE global_stats SET stat_value = GREATEST(stat_value - 1, 0) WHERE stat_name = 'total_active_character_number'")
-		if err != nil {
-			fmt.Printf("Error updating global active character stats on deactivate: %v\n", err)
-		}
 	})
 
 	// Subscriber 13: Post Welcome Message on Character Accepted

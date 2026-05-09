@@ -16,6 +16,8 @@ role_id,type,permission
 2,0,/character/update/:id
 2,0,/currency/user/:user_id/transactions
 2,0,/currency/user/amount
+2,0,/currency/active-income-types
+2,0,/currency/active-spend-types
 2,0,/direct-chat/:chatID
 2,0,/direct-chat/:chatID/messages
 2,0,/direct-chat/:chatID/messages/:messageID/after
@@ -93,6 +95,8 @@ role_id,type,permission
 3,0,/character/pending/:id
 3,0,/currency/income-types
 3,0,/currency/income-types/update
+3,0,/currency/spend-types
+3,0,/currency/spend-types/update
 3,0,/currency/settings
 3,0,/currency/settings/update
 3,0,/currency/user/:user_id/transactions/add

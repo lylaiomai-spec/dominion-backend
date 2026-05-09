@@ -495,6 +495,8 @@ func GetSubforumPermissions(userID int, subforumID int, db *sql.DB) (*Entities.S
 		fmt.Sprintf("subforum_delete_others_topic:%d", subforumID):           &permissions.SubforumDeleteOthersTopic,
 		fmt.Sprintf("subforum_edit_others_post:%d", subforumID):              &permissions.SubforumEditOthersPost,
 		fmt.Sprintf("subforum_edit_own_post:%d", subforumID):                 &permissions.SubforumEditOwnPost,
+		fmt.Sprintf("subforum_edit_own_topic:%d", subforumID):                &permissions.SubforumEditOwnTopic,
+		fmt.Sprintf("subforum_edit_others_topic:%d", subforumID):             &permissions.SubforumEditOthersTopic,
 		fmt.Sprintf("subforum_delete_own_post:%d", subforumID):               &permissions.SubforumDeleteOwnPost,
 		fmt.Sprintf("subforum_delete_others_post:%d", subforumID):            &permissions.SubforumDeleteOthersPost,
 	}

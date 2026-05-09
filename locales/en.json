@@ -18,6 +18,9 @@
   "currency_income_1000_game_posts.name": "1000 game posts",
   "currency_income_1000_game_posts.description": "Currency for reaching 1000 game posts",
 
+  "currency_spend_auto_archiving_immunity.name": "Auto-archiving immunity",
+  "currency_spend_auto_archiving_immunity.description": "Spend currency to grant a character immunity from auto-archiving",
+
   "permission.subforum_read": "View subforum",
   "permission.subforum_create_general_topic": "Create general topic",
   "permission.subforum_create_episode_topic": "Create episode topic",

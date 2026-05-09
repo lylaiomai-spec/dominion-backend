@@ -117,6 +117,98 @@ func (CurrencyIncomeType) GetIncomeTypes(db *sql.DB, lang string) []CurrencyInco
 	return result
 }
 
+type CurrencySpendType struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Amount      int    `json:"amount"`
+	IsActive    bool   `json:"is_active"`
+}
+
+var currencySpendTypeMeta = map[string]struct{ Name, Description string }{
+	"currency_spend_auto_archiving_immunity": {Name: "currency_spend_auto_archiving_immunity.name", Description: "currency_spend_auto_archiving_immunity.description"},
+}
+
+func (CurrencySpendType) GetSpendTypes(db *sql.DB, lang string) []CurrencySpendType {
+	rows, err := db.Query("SELECT `key`, amount, is_active FROM currency_spend_types")
+	if err != nil {
+		return []CurrencySpendType{}
+	}
+	defer rows.Close()
+
+	localizer := Services.NewLocalizer(lang)
+
+	var result []CurrencySpendType
+	for rows.Next() {
+		var t CurrencySpendType
+		if err := rows.Scan(&t.Key, &t.Amount, &t.IsActive); err != nil {
+			continue
+		}
+		if meta, ok := currencySpendTypeMeta[t.Key]; ok {
+			t.Name = Services.T(localizer, meta.Name)
+			t.Description = Services.T(localizer, meta.Description)
+		}
+		result = append(result, t)
+	}
+	return result
+}
+
+func GetCurrencySpendTypesHandler(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	lang := Services.GetUserLanguage(userID, db)
+	c.JSON(http.StatusOK, CurrencySpendType{}.GetSpendTypes(db, lang))
+}
+
+func GetActiveCurrencySpendTypesHandler(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	lang := Services.GetUserLanguage(userID, db)
+
+	rows, err := db.Query("SELECT `key`, amount FROM currency_spend_types WHERE is_active = true")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get spend types"})
+		return
+	}
+	defer rows.Close()
+
+	localizer := Services.NewLocalizer(lang)
+	result := []CurrencySpendType{}
+	for rows.Next() {
+		var t CurrencySpendType
+		if err := rows.Scan(&t.Key, &t.Amount); err != nil {
+			continue
+		}
+		t.IsActive = true
+		if meta, ok := currencySpendTypeMeta[t.Key]; ok {
+			t.Name = Services.T(localizer, meta.Name)
+			t.Description = Services.T(localizer, meta.Description)
+		}
+		result = append(result, t)
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func UpdateCurrencySpendTypesHandler(c *gin.Context, db *sql.DB) {
+	var req []struct {
+		Key      string `json:"key" binding:"required"`
+		Amount   int    `json:"amount"`
+		IsActive bool   `json:"is_active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+	for _, item := range req {
+		if _, err := db.Exec(
+			"UPDATE currency_spend_types SET amount = ?, is_active = ? WHERE `key` = ?",
+			item.Amount, item.IsActive, item.Key,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update spend type: " + item.Key})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Spend types updated"})
+}
+
 func IsCurrencyActive(db *sql.DB) bool {
 	var isActive bool
 	if err := db.QueryRow("SELECT is_active FROM features WHERE `key` = 'currency'").Scan(&isActive); err != nil {
@@ -129,6 +221,34 @@ func GetCurrencyIncomeTypesHandler(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 	lang := Services.GetUserLanguage(userID, db)
 	c.JSON(http.StatusOK, CurrencyIncomeType{}.GetIncomeTypes(db, lang))
+}
+
+func GetActiveCurrencyIncomeTypesHandler(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	lang := Services.GetUserLanguage(userID, db)
+
+	rows, err := db.Query("SELECT `key`, amount FROM currency_income_types WHERE is_active = true")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get income types"})
+		return
+	}
+	defer rows.Close()
+
+	localizer := Services.NewLocalizer(lang)
+	result := []CurrencyIncomeType{}
+	for rows.Next() {
+		var t CurrencyIncomeType
+		if err := rows.Scan(&t.Key, &t.Amount); err != nil {
+			continue
+		}
+		t.IsActive = true
+		if meta, ok := currencyIncomeTypeMeta[t.Key]; ok {
+			t.Name = Services.T(localizer, meta.Name)
+			t.Description = Services.T(localizer, meta.Description)
+		}
+		result = append(result, t)
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func GetCurrencySettingsHandler(c *gin.Context, db *sql.DB) {

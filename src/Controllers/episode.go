@@ -31,20 +31,23 @@ type UpdateEpisodeRequest struct {
 }
 
 type GetEpisodesRequest struct {
-	SubforumIDs  []int `json:"subforum_ids"`
-	CharacterIDs []int `json:"character_ids"`
-	FactionIDs   []int `json:"faction_ids"`
-	Page         int   `json:"page"`
+	SubforumIDs  []int    `json:"subforum_ids"`
+	CharacterIDs []int    `json:"character_ids"`
+	FactionIDs   []int    `json:"faction_ids"`
+	Page         int      `json:"page"`
+	Order        []string `json:"order"`
 }
 
 type EpisodeListItem struct {
-	Id           int    `json:"id"`
-	Name         string `json:"name"`
-	TopicId      int    `json:"topic_id"`
-	SubforumId   int    `json:"subforum_id"`
-	SubforumName string `json:"subforum_name"`
-	TopicStatus  int    `json:"topic_status"`
-	LastPostDate string `json:"last_post_date"`
+	Id           int                       `json:"id"`
+	Name         string                    `json:"name"`
+	TopicId      int                       `json:"topic_id"`
+	SubforumId   int                       `json:"subforum_id"`
+	SubforumName string                    `json:"subforum_name"`
+	TopicStatus  int                       `json:"topic_status"`
+	LastPostDate string                    `json:"last_post_date"`
+	CustomFields map[string]interface{}    `json:"custom_fields"`
+	Characters   []Entities.ShortCharacter `json:"characters"`
 }
 
 func CreateEpisode(c *gin.Context, db *sql.DB) {
@@ -225,7 +228,6 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// If the request specifies subforums, intersect with visible ones; otherwise use all visible.
 	allowedSubforumIDs := visibleSubforumIDs
 	if len(req.SubforumIDs) > 0 {
 		visibleMap := make(map[int]bool, len(visibleSubforumIDs))
@@ -245,11 +247,68 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	query := `SELECT e.id, e.name, e.topic_id, t.subforum_id, s.name, t.status, t.date_last_post
+	// Fetch field config and filter out image/long_text content field types
+	fieldConfig, _ := Services.GetFieldConfig("episode", db)
+	var allowedFields []Entities.CustomFieldConfig
+	for _, f := range fieldConfig {
+		if f.ContentFieldType != "image" && f.ContentFieldType != "long_text" && f.ContentFieldType != "cropped_image" {
+			allowedFields = append(allowedFields, f)
+		}
+	}
+
+	// Build whitelist of sortable columns: base fields + allowed custom fields
+	baseColumnMap := map[string]string{
+		"id":             "e.id",
+		"name":           "e.name",
+		"topic_id":       "e.topic_id",
+		"subforum_id":    "t.subforum_id",
+		"subforum_name":  "s.name",
+		"topic_status":   "t.status",
+		"last_post_date": "t.date_last_post",
+	}
+	for _, f := range allowedFields {
+		baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName
+	}
+
+	// Build ORDER BY clause
+	var orderClauses []string
+	for _, o := range req.Order {
+		desc := false
+		field := o
+		if strings.HasPrefix(o, "-") {
+			desc = true
+			field = o[1:]
+		}
+		if col, ok := baseColumnMap[field]; ok {
+			dir := "ASC"
+			if desc {
+				dir = "DESC"
+			}
+			orderClauses = append(orderClauses, col+" "+dir)
+		}
+	}
+	orderBy := "t.date_last_post DESC"
+	if len(orderClauses) > 0 {
+		orderBy = strings.Join(orderClauses, ", ")
+	}
+
+	// Build custom field SELECT columns
+	var customSelects []string
+	for _, f := range allowedFields {
+		customSelects = append(customSelects, "ef."+f.MachineFieldName)
+	}
+	customColSQL := ""
+	if len(customSelects) > 0 {
+		customColSQL = ", " + strings.Join(customSelects, ", ")
+	}
+
+	query := fmt.Sprintf(`SELECT e.id, e.name, e.topic_id, t.subforum_id, s.name, t.status, t.date_last_post%s
 		FROM episode_base e
 		JOIN topics t ON e.topic_id = t.id
 		JOIN subforums s ON t.subforum_id = s.id
-		WHERE t.status != ?`
+		LEFT JOIN episode_flattened ef ON ef.entity_id = e.id
+		WHERE t.status != ?`, customColSQL)
+
 	var args []interface{}
 	args = append(args, Entities.DeletedTopic)
 
@@ -261,21 +320,21 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 	query += " AND t.subforum_id IN (" + strings.Join(placeholders, ",") + ")"
 
 	if len(req.CharacterIDs) > 0 {
-		placeholders := make([]string, len(req.CharacterIDs))
+		ph := make([]string, len(req.CharacterIDs))
 		for i, id := range req.CharacterIDs {
-			placeholders[i] = "?"
+			ph[i] = "?"
 			args = append(args, id)
 		}
-		query += " AND EXISTS (SELECT 1 FROM episode_character ec WHERE ec.episode_id = e.id AND ec.character_id IN (" + strings.Join(placeholders, ",") + "))"
+		query += " AND EXISTS (SELECT 1 FROM episode_character ec WHERE ec.episode_id = e.id AND ec.character_id IN (" + strings.Join(ph, ",") + "))"
 	}
 
 	if len(req.FactionIDs) > 0 {
-		placeholders := make([]string, len(req.FactionIDs))
+		ph := make([]string, len(req.FactionIDs))
 		for i, id := range req.FactionIDs {
-			placeholders[i] = "?"
+			ph[i] = "?"
 			args = append(args, id)
 		}
-		query += " AND EXISTS (SELECT 1 FROM episode_character ec JOIN character_faction cf ON ec.character_id = cf.character_id WHERE ec.episode_id = e.id AND cf.faction_id IN (" + strings.Join(placeholders, ",") + "))"
+		query += " AND EXISTS (SELECT 1 FROM episode_character ec JOIN character_faction cf ON ec.character_id = cf.character_id WHERE ec.episode_id = e.id AND cf.faction_id IN (" + strings.Join(ph, ",") + "))"
 	}
 
 	limit := 20
@@ -285,7 +344,7 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 	}
 	offset := (page - 1) * limit
 
-	query += " ORDER BY t.date_last_post DESC LIMIT ? OFFSET ?"
+	query += fmt.Sprintf(" ORDER BY %s LIMIT ? OFFSET ?", orderBy)
 	args = append(args, limit, offset)
 
 	rows, err := db.Query(query, args...)
@@ -296,15 +355,63 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	var episodes []EpisodeListItem = []EpisodeListItem{}
+	episodes := []EpisodeListItem{}
 	for rows.Next() {
 		var ep EpisodeListItem
-		if err := rows.Scan(&ep.Id, &ep.Name, &ep.TopicId, &ep.SubforumId, &ep.SubforumName, &ep.TopicStatus, &ep.LastPostDate); err != nil {
+		ep.CustomFields = map[string]interface{}{}
+		ep.Characters = []Entities.ShortCharacter{}
+
+		// Scan base fields + custom fields using RawBytes
+		customDests := make([]interface{}, len(allowedFields))
+		rawVals := make([]*sql.RawBytes, len(allowedFields))
+		for i := range allowedFields {
+			rawVals[i] = new(sql.RawBytes)
+			customDests[i] = rawVals[i]
+		}
+		scanDests := []interface{}{&ep.Id, &ep.Name, &ep.TopicId, &ep.SubforumId, &ep.SubforumName, &ep.TopicStatus, &ep.LastPostDate}
+		scanDests = append(scanDests, customDests...)
+
+		if err := rows.Scan(scanDests...); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan episode: " + err.Error()})
 			c.Abort()
 			return
 		}
+
+		for i, f := range allowedFields {
+			if rawVals[i] != nil && *rawVals[i] != nil {
+				ep.CustomFields[f.MachineFieldName] = string(*rawVals[i])
+			}
+		}
+
 		episodes = append(episodes, ep)
+	}
+
+	// Batch-fetch characters for all episodes
+	if len(episodes) > 0 {
+		epIDs := make([]interface{}, len(episodes))
+		epPH := make([]string, len(episodes))
+		epIdx := make(map[int]int, len(episodes))
+		for i, ep := range episodes {
+			epIDs[i] = ep.Id
+			epPH[i] = "?"
+			epIdx[ep.Id] = i
+		}
+		charRows, err := db.Query(fmt.Sprintf(
+			"SELECT ec.episode_id, cb.id, cb.name FROM episode_character ec JOIN character_base cb ON ec.character_id = cb.id WHERE ec.episode_id IN (%s) ORDER BY cb.name ASC",
+			strings.Join(epPH, ","),
+		), epIDs...)
+		if err == nil {
+			defer charRows.Close()
+			for charRows.Next() {
+				var epID int
+				var ch Entities.ShortCharacter
+				if charRows.Scan(&epID, &ch.Id, &ch.Name) == nil {
+					if idx, ok := epIdx[epID]; ok {
+						episodes[idx].Characters = append(episodes[idx].Characters, ch)
+					}
+				}
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, episodes)
