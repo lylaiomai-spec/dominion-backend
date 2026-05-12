@@ -165,3 +165,7 @@ role_id,type,permission
 3,2,show_admin_page
 3,2,show_add_immunity_button
 3,2,show_character_sheet_admin_block
+3,0,/admin/design-draft/list
+3,0,/admin/design-draft/get/:id
+3,0,/admin/design-draft/create
+3,0,/admin/design-draft/update/:id

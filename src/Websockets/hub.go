@@ -266,6 +266,27 @@ func (h *Hub) BroadcastToUsers(userIDs []int, message interface{}) {
 	}
 }
 
+// SendToClients sends a message to a specific set of clients (individual connections).
+func (h *Hub) SendToClients(clients []any, message interface{}) {
+	if len(clients) == 0 {
+		return
+	}
+	msgID := atomic.AddInt64(&globalMsgID, 1)
+	payload := enrichMessage(message, msgID)
+
+	for _, c := range clients {
+		if client, ok := c.(*Client); ok {
+			func() {
+				defer func() { recover() }()
+				select {
+				case client.Send <- payload:
+				default:
+				}
+			}()
+		}
+	}
+}
+
 // IsUserConnected returns true if the user has at least one active WebSocket connection.
 func (h *Hub) IsUserConnected(userID int) bool {
 	h.mu.RLock()

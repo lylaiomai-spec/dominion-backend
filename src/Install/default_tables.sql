@@ -777,6 +777,18 @@ CREATE TABLE pending_user_refresh
     CONSTRAINT fk_pending_user_refresh_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
+CREATE TABLE design_drafts
+(
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    name             VARCHAR(32)  NOT NULL,
+    session_key      VARCHAR(12)  NOT NULL,
+    date_created     DATETIME     NOT NULL,
+    date_last_changed DATETIME    NOT NULL,
+    main_css         TEXT         NULL,
+    custom_style_css TEXT         NULL,
+    CONSTRAINT design_drafts_session_key_unique UNIQUE (session_key)
+);
+
 CREATE TABLE absent_users
 (
     id                  INT AUTO_INCREMENT PRIMARY KEY,

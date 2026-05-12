@@ -95,6 +95,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 				go BroadcastActiveUserActivity(db)
 			}
 			Services.UnsubscribeHealth(userID)
+			Services.UnsubscribeClientFromAllDrafts(client)
 			Websockets.MainHub.Unregister(client)
 			conn.Close()
 		}()
@@ -120,6 +121,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 				LastViewedMessageId *int        `json:"last_viewed_message_id"`
 				LastMessageId       *int64      `json:"last_message_id"`
 				PanelName           string      `json:"panel_name"`
+				DraftId             string      `json:"draft_id"`
 			}
 			if err := json.Unmarshal(p, &msg); err == nil {
 				if msg.Type == "page_change" {
@@ -166,6 +168,8 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 					Services.SubscribeHealth(userID)
 				} else if msg.Type == "health_unsubscribe" {
 					Services.UnsubscribeHealth(userID)
+				} else if msg.Type == "draft_mode" && msg.DraftId != "" {
+					Services.SubscribeDraft(msg.DraftId, client)
 				} else if msg.Type == "replay" && msg.LastMessageId != nil {
 					for _, m := range Websockets.MainHub.GetMissedMessages(userID, *msg.LastMessageId) {
 						select {
