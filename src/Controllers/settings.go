@@ -2,6 +2,7 @@ package Controllers
 
 import (
 	"cuento-backend/src/Entities"
+	"cuento-backend/src/MCP"
 	"cuento-backend/src/Middlewares"
 	"database/sql"
 	"net/http"
@@ -65,6 +66,14 @@ func UpdateGlobalSettings(c *gin.Context, db *sql.DB) {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
 		c.Abort()
 		return
+	}
+
+	aiSettings := map[string]bool{"ai_api_key": true, "ai_name": true, "ai_model": true}
+	for _, s := range req {
+		if aiSettings[s.SettingName] {
+			MCP.ReinitializeAgent(db)
+			break
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated"})

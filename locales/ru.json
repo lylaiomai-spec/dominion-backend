@@ -35,5 +35,9 @@
   "permission.subforum_edit_others_topic": "Редактировать чужие темы",
   "permission.subforum_edit_own_topic": "Редактировать свои темы",
   "permission.subforum_delete_own_post": "Удалять свои посты",
-  "permission.subforum_delete_others_post": "Удалять чужие посты"
+  "permission.subforum_delete_others_post": "Удалять чужие посты",
+  "permission.show_admin_page": "Показывать страницу администратора",
+  "permission.show_add_immunity_button": "Показывать кнопку добавления иммунитета",
+  "permission.show_character_sheet_admin_block": "Показывать админ-блок анкеты персонажа",
+  "permission.show_ai_chat_navlink": "Показывать ссылку на AI-чат"
 }

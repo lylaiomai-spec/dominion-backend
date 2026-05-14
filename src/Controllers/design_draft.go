@@ -3,6 +3,7 @@ package Controllers
 import (
 	"crypto/rand"
 	"cuento-backend/src/Entities"
+	"cuento-backend/src/Events"
 	"cuento-backend/src/Middlewares"
 	"cuento-backend/src/Services"
 	"cuento-backend/src/Websockets"
@@ -236,6 +237,44 @@ func UpdateDesignDraft(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Design draft updated"})
+}
+
+func PublishDesignDraft(c *gin.Context, db *sql.DB) {
+	id := c.Param("id")
+
+	var draft Entities.DesignDraft
+	err := db.QueryRow(
+		"SELECT id, name, session_key, main_css, custom_style_css FROM design_drafts WHERE id = ?",
+		id,
+	).Scan(&draft.Id, &draft.Name, &draft.SessionKey, &draft.MainCss, &draft.CustomStyleCss)
+	if err == sql.ErrNoRows {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Design draft not found"})
+		c.Abort()
+		return
+	}
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch design draft: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	publicDir := "./../frontend"
+
+	if err := publishCssFile(db, publicDir, "main_style.css", draft.MainCss); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to publish main_style.css: " + err.Error()})
+		c.Abort()
+		return
+	}
+	Events.Publish(db, Events.StaticFileUploaded, Events.StaticFileUploadedEvent{FileType: "main_style.css"})
+
+	if err := publishCssFile(db, publicDir, "custom_style.css", draft.CustomStyleCss); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to publish custom_style.css: " + err.Error()})
+		c.Abort()
+		return
+	}
+	Events.Publish(db, Events.StaticFileUploaded, Events.StaticFileUploadedEvent{FileType: "custom_style.css"})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Design draft published"})
 }
 
 func notifyDraftSubscribers(sessionKey string) {

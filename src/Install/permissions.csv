@@ -165,7 +165,13 @@ role_id,type,permission
 3,2,show_admin_page
 3,2,show_add_immunity_button
 3,2,show_character_sheet_admin_block
+3,2,show_ai_chat_navlink
+3,0,/ai-chat/message
+3,0,/ai-chat/history
+3,0,/ai-chat/models
+3,0,/ai-chat/clear
 3,0,/admin/design-draft/list
 3,0,/admin/design-draft/get/:id
 3,0,/admin/design-draft/create
 3,0,/admin/design-draft/update/:id
+3,0,/admin/design-draft/publish/:id

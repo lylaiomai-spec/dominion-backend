@@ -22,21 +22,10 @@ type SonicCursorItem struct {
 	CurrentMaxId int64      `json:"current_max_id"`
 }
 
-var allBuckets = []string{
-	Services.SonicBucketGamePosts,
-	Services.SonicBucketGeneralPosts,
-	Services.SonicBucketLorePosts,
-	Services.SonicBucketCharacters,
-	Services.SonicBucketWantedPosts,
-	Services.SonicBucketEpisodes,
-}
+var allBuckets = Services.AllSonicBuckets
 
 // entityBuckets maps bucket name to the entity base table name for flattened ingestion.
-var entityBuckets = map[string]string{
-	Services.SonicBucketCharacters:  "character",
-	Services.SonicBucketWantedPosts: "wanted_character",
-	Services.SonicBucketEpisodes:    "episode",
-}
+var entityBuckets = Services.EntityBuckets
 
 func GetSonicBuckets(c *gin.Context) {
 	c.JSON(http.StatusOK, allBuckets)

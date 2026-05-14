@@ -35,5 +35,9 @@
   "permission.subforum_edit_others_topic": "Edit others' topic",
   "permission.subforum_edit_own_topic": "Edit own topic",
   "permission.subforum_delete_own_post": "Delete own post",
-  "permission.subforum_delete_others_post": "Delete others' post"
+  "permission.subforum_delete_others_post": "Delete others' post",
+  "permission.show_admin_page": "Show admin page",
+  "permission.show_add_immunity_button": "Show add immunity button",
+  "permission.show_character_sheet_admin_block": "Show character sheet admin block",
+  "permission.show_ai_chat_navlink": "Show AI chat navigation link"
 }

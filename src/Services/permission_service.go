@@ -22,6 +22,7 @@ var FrontendPermissions = map[string]string{
 	"show_admin_page":                  "permission.show_admin_page",
 	"show_add_immunity_button":         "permission.show_add_immunity_button",
 	"show_character_sheet_admin_block": "permission.show_character_sheet_admin_block",
+	"show_ai_chat_navlink":             "permission.show_ai_chat_navlink",
 }
 
 var SubforumPermissions = map[string]string{
