@@ -3,6 +3,7 @@ package MCP
 import (
 	"context"
 	"cuento-backend/src/Entities"
+	"cuento-backend/src/Services"
 	"cuento-backend/src/Websockets"
 	"database/sql"
 	"encoding/json"
@@ -26,6 +27,10 @@ func notifyWorker() {
 	default:
 	}
 }
+
+// NotifyWorker is the exported equivalent, used by Services to wake the worker
+// when a non-chat task (e.g. embedding) is enqueued.
+func NotifyWorker() { notifyWorker() }
 
 // StartQueueWorker starts the background AI task processor.
 // It resets any tasks stuck in 'processing' from a previous run, then
@@ -94,15 +99,21 @@ func processNextTask(db *sql.DB) (bool, error) {
 		return false, nil // queue empty
 	}
 
-	var taskID, userID int
+	var taskID int
+	var userID sql.NullInt64
+	var taskType string
 	err = db.QueryRow(
-		`SELECT id, user_id FROM ai_task_queue WHERE status = 'processing' ORDER BY date_started DESC LIMIT 1`,
-	).Scan(&taskID, &userID)
+		`SELECT id, user_id, COALESCE(type, 'chat') FROM ai_task_queue WHERE status = 'processing' ORDER BY date_started DESC LIMIT 1`,
+	).Scan(&taskID, &userID, &taskType)
 	if err != nil {
 		return false, fmt.Errorf("fetching claimed task: %w", err)
 	}
 
-	executeTask(db, taskID, userID)
+	if taskType == "embedding" {
+		executeEmbeddingQueueTask(db, taskID)
+	} else {
+		executeTask(db, taskID, int(userID.Int64))
+	}
 	return true, nil
 }
 
@@ -147,6 +158,8 @@ func executeTask(db *sql.DB, taskID, userID int) {
 		log.Printf("AI queue: task %d rate-limited (attempt %d/%d), retrying in 30s", taskID, attempt+1, maxRetries)
 		time.Sleep(30 * time.Second)
 	}
+
+	replyText = Services.MarkdownToHTML(replyText)
 
 	// Serialize sources.
 	var sourcesJSON []byte
@@ -320,6 +333,31 @@ func notifyQueuePositions(db *sql.DB, completedTaskID int) {
 	for _, sub := range snapshot {
 		sendQueuePosition(db, sub)
 	}
+}
+
+// executeEmbeddingQueueTask processes one embedding task from ai_task_queue.
+func executeEmbeddingQueueTask(db *sql.DB, taskID int) {
+	var payloadStr string
+	if err := db.QueryRow(`SELECT COALESCE(payload, '{}') FROM ai_task_queue WHERE id = ?`, taskID).Scan(&payloadStr); err != nil {
+		markFailed(db, taskID, 0, "failed to read payload: "+err.Error())
+		return
+	}
+
+	var payload struct {
+		Bucket   string `json:"bucket"`
+		EntityID int64  `json:"entity_id"`
+	}
+	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil || payload.Bucket == "" {
+		markFailed(db, taskID, 0, "invalid embedding payload")
+		return
+	}
+
+	if err := Services.ExecuteEmbeddingTask(payload.Bucket, payload.EntityID, db); err != nil {
+		markFailed(db, taskID, 0, err.Error())
+		return
+	}
+
+	_, _ = db.Exec(`UPDATE ai_task_queue SET status = 'done', date_completed = NOW() WHERE id = ?`, taskID)
 }
 
 // sendQueuePosition queries the current position of a subscriber's task and

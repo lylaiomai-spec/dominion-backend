@@ -1175,7 +1175,9 @@ func AcceptCharacter(c *gin.Context, db *sql.DB) {
 	var name string
 	var avatar *string
 	var topicID int
-	err = tx.QueryRow("SELECT user_id, name, avatar, topic_id FROM character_base WHERE id = ?", id).Scan(&userID, &name, &avatar, &topicID)
+	var subforumID int
+	err = tx.QueryRow(`SELECT cb.user_id, cb.name, cb.avatar, cb.topic_id, COALESCE(t.subforum_id, 0)
+		FROM character_base cb JOIN topics t ON cb.topic_id = t.id WHERE cb.id = ?`, id).Scan(&userID, &name, &avatar, &topicID, &subforumID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
 		c.Abort()
@@ -1230,6 +1232,7 @@ func AcceptCharacter(c *gin.Context, db *sql.DB) {
 		CharacterName: name,
 		UserID:        userID,
 		TopicID:       topicID,
+		SubforumID:    subforumID,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Character accepted", "profile_id": profileID})
@@ -1889,7 +1892,7 @@ func CustomFieldList(c *gin.Context, db *sql.DB) {
 	}
 
 	query := fmt.Sprintf(
-		"SELECT DISTINCT `%s` FROM character_flattened WHERE `%s` IS NOT NULL AND `%s` != '' ORDER BY `%s` ASC",
+		"SELECT cf.`%s`, cb.id, cb.name FROM character_flattened cf JOIN character_base cb ON cb.id = cf.entity_id WHERE cf.`%s` IS NOT NULL AND cf.`%s` != '' ORDER BY cf.`%s` ASC",
 		machineName, machineName, machineName, machineName,
 	)
 	rows, err := db.Query(query)
@@ -1900,13 +1903,26 @@ func CustomFieldList(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	values := []string{}
+	type FieldValue struct {
+		Value      string                     `json:"value"`
+		Characters []*Entities.ShortCharacter `json:"characters"`
+	}
+
+	var values []FieldValue
+	indexByValue := map[string]int{}
 	for rows.Next() {
 		var val string
-		if err := rows.Scan(&val); err != nil {
+		var charID int
+		var charName string
+		if err := rows.Scan(&val, &charID, &charName); err != nil {
 			continue
 		}
-		values = append(values, val)
+		if idx, exists := indexByValue[val]; exists {
+			values[idx].Characters = append(values[idx].Characters, &Entities.ShortCharacter{Id: charID, Name: charName})
+		} else {
+			indexByValue[val] = len(values)
+			values = append(values, FieldValue{Value: val, Characters: []*Entities.ShortCharacter{{Id: charID, Name: charName}}})
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"human_field_name": matched.HumanFieldName, "values": values})

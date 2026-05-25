@@ -125,6 +125,18 @@ VALUES ('ai_name', '');
 INSERT INTO global_settings (setting_name, setting_value)
 VALUES ('ai_model', '');
 
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('github_token', '');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('github_owner', '');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('github_repo', '');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('github_branch', '');
+
 CREATE TABLE categories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NULL,
@@ -759,6 +771,14 @@ create table sonic_ingest_cursor
     primary key (bucket)
 );
 
+create table qdrant_ingest_cursor
+(
+    bucket        varchar(64) not null,
+    last_id       bigint      not null,
+    date_ingested datetime    not null default current_timestamp,
+    primary key (bucket)
+);
+
 CREATE TABLE auto_archiving_immunity
 (
     id           INT AUTO_INCREMENT PRIMARY KEY,
@@ -821,15 +841,45 @@ create table ai_chat_messages
 
 create table ai_task_queue
 (
-    id             int                                        not null auto_increment primary key,
-    user_id        int                                        not null,
-    status         enum('pending', 'processing', 'done', 'failed') not null default 'pending',
-    retries        int                                        not null default 0,
-    error          text                                       null,
-    date_created   datetime                                   not null default current_timestamp,
-    date_started   datetime                                   null,
-    date_completed datetime                                   null,
+    id             int                                              not null auto_increment primary key,
+    type           varchar(32)                                      not null default 'chat',
+    user_id        int                                              null,
+    payload        json                                             null,
+    status         enum ('pending', 'processing', 'done', 'failed') not null default 'pending',
+    retries        int                                              not null default 0,
+    error          text                                             null,
+    date_created   datetime                                         not null default current_timestamp,
+    date_started   datetime                                         null,
+    date_completed datetime                                         null,
     index idx_ai_task_queue_status (status, date_created),
     index idx_ai_task_queue_user (user_id),
     constraint fk_ai_task_queue_user foreign key (user_id) references users (id) on delete cascade
+);
+
+create table vector_search_bucket_subforum
+(
+    subforum_id bigint unsigned not null,
+    bucket      varchar(64)    not null,
+    primary key (subforum_id, bucket),
+    constraint fk_vsbs_subforum foreign key (subforum_id) references subforums (id) on delete cascade
+);
+
+create table mask_stats
+(
+    id             bigint unsigned not null auto_increment primary key,
+    user_id        int             not null,
+    total_episodes int             not null default 0,
+    total_posts    int             not null default 0,
+    date_last_post datetime        null,
+    unique key uq_mask_stats_user (user_id),
+    constraint fk_mask_stats_user foreign key (user_id) references users (id) on delete cascade
+);
+
+create table faction_settings
+(
+    id               int          auto_increment primary key,
+    level            int          not null,
+    human_name       varchar(255) not null,
+    parent_faction_id int         null,
+    constraint fk_faction_settings_parent foreign key (parent_faction_id) references factions (id)
 );

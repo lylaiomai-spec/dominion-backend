@@ -363,6 +363,8 @@ func GetFactionTreeByCharacterClaim(claimID int, db *sql.DB) ([]Entities.Faction
 		result = append(result, tree...)
 	}
 
+	FillFactionSettingNames(result, db)
+
 	return result, nil
 }
 
@@ -420,6 +422,8 @@ func GetFactionTreeByCharacter(characterID int, db *sql.DB) ([]Entities.Faction,
 	for _, tree := range trees {
 		result = append(result, tree...)
 	}
+
+	FillFactionSettingNames(result, db)
 
 	return result, nil
 }

@@ -36,8 +36,7 @@ func registerSearchTools(s *server.MCPServer, db *sql.DB) {
 
 	registerTool(s,
 		mcp.NewTool("search_content",
-			mcp.WithDescription("Search forum content using a keyword or phrase. "+
-				"Queries Sonic for matching IDs, then fetches full content from the database. "+
+			mcp.WithDescription("Search forum content using semantic (vector) search when available, falling back to keyword search. "+
 				"Results are filtered by the user's subforum visibility permissions. "+bucketsDesc),
 			mcp.WithNumber("user_id",
 				mcp.Required(),
@@ -63,7 +62,7 @@ func registerSearchTools(s *server.MCPServer, db *sql.DB) {
 		),
 		ToolDefinition{
 			Name: "search_content",
-			Description: "Search forum content using a keyword or phrase. " +
+			Description: "Search forum content using semantic (vector) search when available, falling back to keyword search. " +
 				"Results are filtered by the user's subforum visibility permissions. " + bucketsDesc,
 			Schema: schemaObject(
 				[]string{"user_id", "query"},
@@ -119,7 +118,13 @@ func executeSearchContent(ctx context.Context, args map[string]any, db *sql.DB) 
 
 	var output []bucketSearchResult
 	for _, bucket := range buckets {
-		items, err := Services.SearchInBucket(bucket, query, limit, filterSubforum, filterTopicType, visibleSet, db)
+		var items []Services.SearchResultItem
+		var err error
+		if Services.QdrantAvailable() {
+			items, err = Services.QdrantSearchInBucket(bucket, query, limit, filterSubforum, filterTopicType, visibleSet, db)
+		} else {
+			items, err = Services.SearchInBucket(bucket, query, limit, filterSubforum, filterTopicType, visibleSet, db)
+		}
 		if err != nil || len(items) == 0 {
 			continue
 		}

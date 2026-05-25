@@ -189,6 +189,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 						charProfile.Factions = append(charProfile.Factions, f)
 					}
 				}
+				FillFactionSettingNames(charProfile.Factions, db)
 			}
 		}
 		post.CharacterProfile = &charProfile

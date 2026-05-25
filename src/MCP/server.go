@@ -77,14 +77,8 @@ func ListAvailableModels(db *sql.DB) ([]string, error) {
 	}
 }
 
-// openAIBaseURLs maps provider names to their base URLs.
-// Empty string means use the default OpenAI endpoint.
-var openAIBaseURLs = map[string]string{
-	"openai":   "",
-	"deepseek": "https://api.deepseek.com/v1",
-	"groq":     "https://api.groq.com/openai/v1",
-	"mistral":  "https://api.mistral.ai/v1",
-}
+// openAIBaseURLs re-exports the provider→base URL map from Services.
+var openAIBaseURLs = Services.OpenAIBaseURLs
 
 // defaultModels maps provider names to sensible default model names.
 var defaultModels = map[string]string{
@@ -132,12 +126,7 @@ func buildAgent(db *sql.DB) (*AIAgent, error) {
 		return NewAIAgent(client), nil
 
 	case "openai", "deepseek", "groq", "mistral":
-		baseURL := openAIBaseURLs[aiName]
-		client, err := NewOpenAICompatClient(apiKey, aiModel, baseURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create %s client: %w", aiName, err)
-		}
-		return NewAIAgent(client), nil
+		return NewAIAgent(&OpenAICompatClient{client: Services.OpenAIClient, model: aiModel}), nil
 
 	default:
 		return nil, fmt.Errorf("unknown ai_name: %s (supported: gemini, claude, openai, deepseek, groq, mistral)", aiName)

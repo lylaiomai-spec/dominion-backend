@@ -296,7 +296,7 @@ func SearchInBucket(bucket, query string, limit, filterSubforum, filterTopicType
 			sid := strconv.FormatInt(id, 10)
 			contentMap[sid] = SearchResultItem{
 				ID:        sid,
-				Content:   extractMatchingParagraphs(doc, query),
+				Content:   doc,
 				TopicID:   &topicID,
 				TopicName: topicName,
 				TopicType: &topicType,

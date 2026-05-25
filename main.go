@@ -21,6 +21,8 @@ import (
 func main() {
 	Services.InitDB()
 	Services.InitSonic()
+	Services.InitQdrant(Services.DB)
+	Services.QueueNotifyFunc = MCP.NotifyWorker
 	if err := Services.InitI18n("locales"); err != nil {
 		panic("failed to load i18n bundles: " + err.Error())
 	}
@@ -45,6 +47,15 @@ func main() {
 	}()
 
 	// Evict users inactive for more than 10 minutes from the activity list
+	// Clean up stale guest fingerprints every 5 minutes
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			Services.GuestActivity.Cleanup()
+		}
+	}()
+
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
@@ -63,12 +74,13 @@ func main() {
 	r := gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
-	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Screen-Resolution", "Sec-CH-UA"}
 	r.Use(cors.New(config))
 
 	// Apply error middleware globally
 	r.Use(Middlewares.ErrorMiddleware())
 	r.Use(Middlewares.FeatureFlagsMiddleware(Services.DB))
+	r.Use(Middlewares.GuestTrackingMiddleware())
 
 	// Public routes
 	publicRouter := Router.NewCustomRouter(r.Group("/"))
@@ -144,6 +156,9 @@ func main() {
 	})
 	publicRouter.GET("/character-profile/get/:id", "Get character profile details by ID", func(c *gin.Context) {
 		Controllers.GetCharacterProfile(c, Services.DB)
+	})
+	publicRouter.GET("/wanted-character/field-list/:machine_name", "Get distinct values of a string wanted character custom field", func(c *gin.Context) {
+		Controllers.WantedCustomFieldList(c, Services.DB)
 	})
 	publicRouter.POST("/wanted-character/list", "Get list of unclaimed wanted characters", func(c *gin.Context) {
 		Controllers.GetWantedCharacterList(c, Services.DB)
@@ -232,6 +247,9 @@ func main() {
 	})
 	optionalAuthRouter.POST("/episodes/get", "Get episode list", func(c *gin.Context) {
 		Controllers.GetEpisodes(c, Services.DB)
+	})
+	optionalAuthRouter.POST("/episodes/get-by-mask", "Get episode list for a mask", func(c *gin.Context) {
+		Controllers.GetEpisodesByMask(c, Services.DB)
 	})
 	optionalAuthRouter.GET("/subforum/get/:id", "Get subforum details by ID", func(c *gin.Context) {
 		Controllers.GetSubforum(c, Services.DB)
@@ -714,11 +732,44 @@ func main() {
 	protectedRouter.GET("/admin/health", "Get RAM and CPU health data", func(c *gin.Context) {
 		Controllers.GetHealthData(c)
 	})
+	protectedRouter.GET("/admin/frontend-templates/components", "List customizable frontend components", func(c *gin.Context) {
+		Controllers.GetFrontendComponents(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/frontend-templates/components/*name", "Get the custom template for a frontend component", func(c *gin.Context) {
+		Controllers.GetFrontendComponentTemplate(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/frontend-templates/components-default/*name", "Get the default template for a frontend component", func(c *gin.Context) {
+		Controllers.GetFrontendComponentDefaultTemplate(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/frontend-templates/component/update", "Commit an update to a custom frontend component template", func(c *gin.Context) {
+		Controllers.UpdateFrontendComponentTemplate(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/frontend-templates/env/update", "Update and commit the frontend environment file", func(c *gin.Context) {
+		Controllers.UpdateFrontendEnv(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/github/commit", "Commit files to the frontend GitHub repository", func(c *gin.Context) {
+		Controllers.CommitFrontendTemplates(c, Services.DB)
+	})
 	protectedRouter.GET("/admin/sonic/cursors", "Get Sonic ingest cursors for all buckets", func(c *gin.Context) {
 		Controllers.GetSonicCursors(c, Services.DB)
 	})
 	protectedRouter.POST("/admin/sonic/catchup/:bucket", "Catch up Sonic ingestion for a specific bucket", func(c *gin.Context) {
 		Controllers.CatchUpSonicBucket(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/qdrant/cursors", "Get Qdrant ingest cursors for all buckets", func(c *gin.Context) {
+		Controllers.GetQdrantCursors(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/qdrant/status", "Get Qdrant vector counts per collection", func(c *gin.Context) {
+		Controllers.GetQdrantCollectionStatus(c)
+	})
+	protectedRouter.POST("/admin/qdrant/catchup/:bucket", "Re-embed and upsert all content for a Qdrant bucket", func(c *gin.Context) {
+		Controllers.QdrantCatchUpBucket(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/qdrant/subforum-matrix", "Get vector search subforum×bucket matrix", func(c *gin.Context) {
+		Controllers.GetVectorSearchMatrix(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/qdrant/subforum-matrix/update", "Replace all vector search subforum+bucket entries", func(c *gin.Context) {
+		Controllers.UpdateVectorSearchMatrix(c, Services.DB)
 	})
 	protectedRouter.GET("/admin/user/roles/:id", "Get user roles", func(c *gin.Context) {
 		Controllers.GetUserRoles(c, Services.DB)
@@ -739,6 +790,20 @@ func main() {
 	})
 	protectedRouter.POST("/ai-chat/clear", "Clear AI chat context for the current user", func(c *gin.Context) {
 		MCP.ClearAIContext(c, Services.DB)
+	})
+
+	// Fraction settings routes
+	protectedRouter.GET("/admin/faction-settings/list", "Get list of all faction settings ordered by level", func(c *gin.Context) {
+		Controllers.GetFactionSettings(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/faction-setting/create", "Create a new faction setting", func(c *gin.Context) {
+		Controllers.CreateFactionSetting(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/faction-setting/update/:id", "Update faction setting by ID", func(c *gin.Context) {
+		Controllers.UpdateFactionSetting(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/faction-setting/delete/:id", "Delete faction setting by ID", func(c *gin.Context) {
+		Controllers.DeleteFactionSetting(c, Services.DB)
 	})
 
 	// WebSocket route with special authentication

@@ -130,10 +130,15 @@ func readSystemMem() (systemMemStats, error) {
 
 	total := fields["MemTotal"]
 	available := fields["MemAvailable"]
+	free := fields["MemFree"]
+	buffers := fields["Buffers"]
+	cached := fields["Cached"]
+	sReclaimable := fields["SReclaimable"]
+	used := total - free - buffers - cached - sReclaimable
 	return systemMemStats{
 		Total:     total,
 		Available: available,
-		Used:      total - available,
+		Used:      used,
 	}, nil
 }
 

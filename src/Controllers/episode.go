@@ -38,6 +38,12 @@ type GetEpisodesRequest struct {
 	Order        []string `json:"order"`
 }
 
+type GetEpisodesByMaskRequest struct {
+	MaskID int      `json:"mask_id" binding:"required"`
+	Page   int      `json:"page"`
+	Order  []string `json:"order"`
+}
+
 type EpisodeListItem struct {
 	Id           int                       `json:"id"`
 	Name         string                    `json:"name"`
@@ -170,6 +176,7 @@ func CreateEpisode(c *gin.Context, db *sql.DB) {
 		SubforumID: req.SubforumID,
 		TopicID:    topicID,
 		TopicName:  req.Name,
+		UserID:     userID,
 	})
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Episode created successfully", "episode_id": createdEpisode.Id, "topic_id": topicID})
@@ -417,6 +424,175 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, episodes)
 }
 
+func GetEpisodesByMask(c *gin.Context, db *sql.DB) {
+	var req GetEpisodesByMaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	userID := Services.GetUserIdFromContext(c)
+
+	visibleSubforumIDs, err := Services.GetVisibleSubforums(userID, "subforum_read", db)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to determine visible subforums: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if len(visibleSubforumIDs) == 0 {
+		c.JSON(http.StatusOK, []EpisodeListItem{})
+		return
+	}
+
+	fieldConfig, _ := Services.GetFieldConfig("episode", db)
+	var allowedFields []Entities.CustomFieldConfig
+	for _, f := range fieldConfig {
+		if f.ContentFieldType != "image" && f.ContentFieldType != "long_text" && f.ContentFieldType != "cropped_image" {
+			allowedFields = append(allowedFields, f)
+		}
+	}
+
+	baseColumnMap := map[string]string{
+		"id":             "e.id",
+		"name":           "e.name",
+		"topic_id":       "e.topic_id",
+		"subforum_id":    "t.subforum_id",
+		"subforum_name":  "s.name",
+		"topic_status":   "t.status",
+		"last_post_date": "t.date_last_post",
+	}
+	for _, f := range allowedFields {
+		baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName
+	}
+
+	var orderClauses []string
+	for _, o := range req.Order {
+		desc := false
+		field := o
+		if strings.HasPrefix(o, "-") {
+			desc = true
+			field = o[1:]
+		}
+		if col, ok := baseColumnMap[field]; ok {
+			dir := "ASC"
+			if desc {
+				dir = "DESC"
+			}
+			orderClauses = append(orderClauses, col+" "+dir)
+		}
+	}
+	orderBy := "t.date_last_post DESC"
+	if len(orderClauses) > 0 {
+		orderBy = strings.Join(orderClauses, ", ")
+	}
+
+	var customSelects []string
+	for _, f := range allowedFields {
+		customSelects = append(customSelects, "ef."+f.MachineFieldName)
+	}
+	customColSQL := ""
+	if len(customSelects) > 0 {
+		customColSQL = ", " + strings.Join(customSelects, ", ")
+	}
+
+	subforumPH := make([]string, len(visibleSubforumIDs))
+	var args []interface{}
+	args = append(args, Entities.DeletedTopic)
+	args = append(args, req.MaskID)
+	for i, id := range visibleSubforumIDs {
+		subforumPH[i] = "?"
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`SELECT e.id, e.name, e.topic_id, t.subforum_id, s.name, t.status, t.date_last_post%s
+		FROM episode_base e
+		JOIN topics t ON e.topic_id = t.id
+		JOIN subforums s ON t.subforum_id = s.id
+		LEFT JOIN episode_flattened ef ON ef.entity_id = e.id
+		WHERE t.status != ?
+		AND EXISTS (SELECT 1 FROM episode_mask em WHERE em.episode_id = e.id AND em.mask_id = ?)
+		AND t.subforum_id IN (%s)`, customColSQL, strings.Join(subforumPH, ","))
+
+	limit := 20
+	page := req.Page
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+
+	query += fmt.Sprintf(" ORDER BY %s LIMIT ? OFFSET ?", orderBy)
+	args = append(args, limit, offset)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get episodes: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	episodes := []EpisodeListItem{}
+	for rows.Next() {
+		var ep EpisodeListItem
+		ep.CustomFields = map[string]interface{}{}
+		ep.Characters = []Entities.ShortCharacter{}
+
+		customDests := make([]interface{}, len(allowedFields))
+		rawVals := make([]*sql.RawBytes, len(allowedFields))
+		for i := range allowedFields {
+			rawVals[i] = new(sql.RawBytes)
+			customDests[i] = rawVals[i]
+		}
+		scanDests := []interface{}{&ep.Id, &ep.Name, &ep.TopicId, &ep.SubforumId, &ep.SubforumName, &ep.TopicStatus, &ep.LastPostDate}
+		scanDests = append(scanDests, customDests...)
+
+		if err := rows.Scan(scanDests...); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan episode: " + err.Error()})
+			c.Abort()
+			return
+		}
+
+		for i, f := range allowedFields {
+			if rawVals[i] != nil && *rawVals[i] != nil {
+				ep.CustomFields[f.MachineFieldName] = string(*rawVals[i])
+			}
+		}
+
+		episodes = append(episodes, ep)
+	}
+
+	if len(episodes) > 0 {
+		epIDs := make([]interface{}, len(episodes))
+		epPH := make([]string, len(episodes))
+		epIdx := make(map[int]int, len(episodes))
+		for i, ep := range episodes {
+			epIDs[i] = ep.Id
+			epPH[i] = "?"
+			epIdx[ep.Id] = i
+		}
+		charRows, err := db.Query(fmt.Sprintf(
+			"SELECT ec.episode_id, cb.id, cb.name FROM episode_character ec JOIN character_base cb ON ec.character_id = cb.id WHERE ec.episode_id IN (%s) ORDER BY cb.name ASC",
+			strings.Join(epPH, ","),
+		), epIDs...)
+		if err == nil {
+			defer charRows.Close()
+			for charRows.Next() {
+				var epID int
+				var ch Entities.ShortCharacter
+				if charRows.Scan(&epID, &ch.Id, &ch.Name) == nil {
+					if idx, ok := epIdx[epID]; ok {
+						episodes[idx].Characters = append(episodes[idx].Characters, ch)
+					}
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, episodes)
+}
+
 func GetEpisode(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -580,6 +756,49 @@ func UpdateEpisode(c *gin.Context, db *sql.DB) {
 	}
 	defer tx.Rollback()
 
+	// Capture previous character IDs before relations are wiped
+	var prevCharacterIDs []int
+	if prevCharRows, err2 := db.Query(`SELECT character_id FROM episode_character WHERE episode_id = ?`, episodeID); err2 == nil {
+		defer prevCharRows.Close()
+		for prevCharRows.Next() {
+			var cid int
+			if prevCharRows.Scan(&cid) == nil {
+				prevCharacterIDs = append(prevCharacterIDs, cid)
+			}
+		}
+	}
+
+	// Capture previous mask owner user IDs before relations are wiped
+	var prevMaskUserIDs []int
+	if prevRows, err2 := db.Query(`SELECT DISTINCT cpb.user_id FROM character_profile_base cpb JOIN episode_mask em ON em.mask_id = cpb.id WHERE em.episode_id = ?`, episodeID); err2 == nil {
+		defer prevRows.Close()
+		for prevRows.Next() {
+			var uid int
+			if prevRows.Scan(&uid) == nil {
+				prevMaskUserIDs = append(prevMaskUserIDs, uid)
+			}
+		}
+	}
+
+	// Resolve new mask owner user IDs from requested mask IDs
+	var newMaskUserIDs []int
+	if len(req.MaskIds) > 0 {
+		placeholders := strings.Repeat("?,", len(req.MaskIds)-1) + "?"
+		args := make([]interface{}, len(req.MaskIds))
+		for i, id := range req.MaskIds {
+			args[i] = id
+		}
+		if newRows, err2 := db.Query(fmt.Sprintf("SELECT DISTINCT user_id FROM character_profile_base WHERE id IN (%s)", placeholders), args...); err2 == nil {
+			defer newRows.Close()
+			for newRows.Next() {
+				var uid int
+				if newRows.Scan(&uid) == nil {
+					newMaskUserIDs = append(newMaskUserIDs, uid)
+				}
+			}
+		}
+	}
+
 	// 3. Update Topic Name
 	_, err = tx.Exec("UPDATE topics SET name = ? WHERE id = ?", req.Name, topicID)
 	if err != nil {
@@ -677,6 +896,16 @@ func UpdateEpisode(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
+
+	Events.Publish(db, Events.EpisodeUpdated, Events.EpisodeUpdatedEvent{
+		EpisodeID:        int64(episodeID),
+		SubforumID:       subforumID,
+		UserID:           userID,
+		PrevMaskUserIDs:  prevMaskUserIDs,
+		NewMaskUserIDs:   newMaskUserIDs,
+		PrevCharacterIDs: prevCharacterIDs,
+		NewCharacterIDs:  req.CharacterIDs,
+	})
 
 	c.JSON(http.StatusOK, updatedEpisode)
 }

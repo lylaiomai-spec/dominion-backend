@@ -40,10 +40,20 @@ type UserProfileResponse struct {
 	TotalPosts                int                        `json:"total_posts"`
 	TotalGeneralPosts         int                        `json:"total_general_posts"`
 	Characters                []CharacterProfileListItem `json:"characters"`
+	Masks                     []MaskProfileListItem      `json:"masks"`
 	CurrencyAmount            *int                       `json:"currency_amount"`
 	UserStatus                Entities.UserStatus        `json:"user_status"`
 	ArchiveDate               *time.Time                 `json:"archive_date"`
 	ArchiveReason             *string                    `json:"archive_reason"`
+}
+
+type MaskProfileListItem struct {
+	Id            int        `json:"id"`
+	Name          *string    `json:"name"`
+	Avatar        *string    `json:"avatar"`
+	TotalEpisodes int        `json:"total_episodes"`
+	TotalPosts    int        `json:"total_posts"`
+	DateLastPost  *time.Time `json:"date_last_post"`
 }
 
 type CharacterProfileListItem struct {
@@ -506,6 +516,32 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 
 	if profile.Characters == nil {
 		profile.Characters = []CharacterProfileListItem{}
+	}
+
+	// Fetch masks and their stats for this user
+	maskRows, err := db.Query(`
+		SELECT cpb.id, cpb.mask_name, cpb.avatar, COALESCE(ms.total_episodes, 0), COALESCE(ms.total_posts, 0), ms.date_last_post
+		FROM character_profile_base cpb
+		LEFT JOIN mask_stats ms ON ms.user_id = cpb.user_id
+		WHERE cpb.user_id = ? AND cpb.is_mask = 1 AND (cpb.is_archived IS NULL OR cpb.is_archived = 0)
+	`, userID)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get user masks: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer maskRows.Close()
+
+	for maskRows.Next() {
+		var mask MaskProfileListItem
+		if err := maskRows.Scan(&mask.Id, &mask.Name, &mask.Avatar, &mask.TotalEpisodes, &mask.TotalPosts, &mask.DateLastPost); err != nil {
+			continue
+		}
+		profile.Masks = append(profile.Masks, mask)
+	}
+
+	if profile.Masks == nil {
+		profile.Masks = []MaskProfileListItem{}
 	}
 
 	if Features.IsCurrencyActive(db) {

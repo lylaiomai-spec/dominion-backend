@@ -39,5 +39,7 @@
   "permission.show_admin_page": "Показывать страницу администратора",
   "permission.show_add_immunity_button": "Показывать кнопку добавления иммунитета",
   "permission.show_character_sheet_admin_block": "Показывать админ-блок анкеты персонажа",
-  "permission.show_ai_chat_navlink": "Показывать ссылку на AI-чат"
+  "permission.show_ai_chat_navlink": "Показывать ссылку на AI-чат",
+
+  "frontend_component.src_app_components_header.description": "Верхняя часть страницы от заголовка до разделителя"
 }

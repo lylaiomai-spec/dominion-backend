@@ -189,7 +189,10 @@ func GetActiveUsers(c *gin.Context) {
 	for _, u := range activeUsers {
 		shortUsers = append(shortUsers, Entities.ShortUser{Id: u.UserID, Username: u.Username})
 	}
-	c.JSON(http.StatusOK, shortUsers)
+	c.JSON(http.StatusOK, gin.H{
+		"guests": Services.GuestActivity.Count(),
+		"users":  shortUsers,
+	})
 }
 
 func BroadcastActiveUsersToHome() {

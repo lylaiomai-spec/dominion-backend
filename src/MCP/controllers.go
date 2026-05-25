@@ -87,8 +87,7 @@ func GetAvailableModels(c *gin.Context, db *sql.DB) {
 func GetAIChatHistory(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 	if userID == 0 {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
-		c.Abort()
+		c.JSON(http.StatusOK, []any{})
 		return
 	}
 

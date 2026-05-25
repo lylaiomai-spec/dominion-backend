@@ -28,15 +28,17 @@ require (
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/arch v0.23.0 // indirect
-	golang.org/x/crypto v0.47.0
-	golang.org/x/net v0.49.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/crypto v0.50.0
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/anthropics/anthropic-sdk-go v1.43.0
+	github.com/expectedsh/go-sonic v0.0.0-20210827144320-d31eb03ae288
 	github.com/frustra/bbcode v0.0.0-20201127003707-6ef347fbe1c8
 	github.com/gin-contrib/cors v1.7.6
 	github.com/go-sql-driver/mysql v1.9.3
@@ -44,27 +46,29 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/mark3labs/mcp-go v0.50.0
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
+	github.com/openai/openai-go v1.12.0
+	github.com/qdrant/go-client v1.18.1
 	google.golang.org/genai v1.51.0
 )
 
 require (
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.9.3 // indirect
-	cloud.google.com/go/compute/metadata v0.5.0 // indirect
+	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/anthropics/anthropic-sdk-go v1.43.0 // indirect
+	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
-	github.com/expectedsh/go-sonic v0.0.0-20210827144320-d31eb03ae288 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/openai/openai-go v1.12.0 // indirect
+	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
@@ -74,9 +78,10 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	github.com/yuin/goldmark v1.8.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
-	google.golang.org/grpc v1.66.2 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260427160629-7cedc36a6bc4 // indirect
+	google.golang.org/grpc v1.80.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

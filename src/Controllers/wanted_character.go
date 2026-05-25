@@ -7,6 +7,7 @@ import (
 	"cuento-backend/src/Middlewares"
 	"cuento-backend/src/Services"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -960,4 +961,85 @@ func CreateNewRoleClaim(c *gin.Context, db *sql.DB) {
 		"guest_hash":            guestHash,
 		"claim_expiration_date": expirationDate,
 	})
+}
+
+func WantedCustomFieldList(c *gin.Context, db *sql.DB) {
+	machineName := c.Param("machine_name")
+
+	var configJSON string
+	err := db.QueryRow("SELECT config FROM custom_field_config WHERE entity_type = 'wanted_character'").Scan(&configJSON)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "No wanted character field config found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to load field config: " + err.Error()})
+		}
+		c.Abort()
+		return
+	}
+
+	var fieldConfigs []Entities.CustomFieldConfig
+	if err := json.Unmarshal([]byte(configJSON), &fieldConfigs); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to parse field config: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	var matched *Entities.CustomFieldConfig
+	for i := range fieldConfigs {
+		if fieldConfigs[i].MachineFieldName == machineName {
+			matched = &fieldConfigs[i]
+			break
+		}
+	}
+	if matched == nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Custom field not found"})
+		c.Abort()
+		return
+	}
+	if matched.FieldType != "string" {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Field is not of type string"})
+		c.Abort()
+		return
+	}
+
+	query := fmt.Sprintf(
+		"SELECT wf.`%s`, wb.name, wb.topic_id FROM wanted_character_flattened wf JOIN wanted_character_base wb ON wb.id = wf.entity_id WHERE wf.`%s` IS NOT NULL AND wf.`%s` != '' ORDER BY wf.`%s` ASC",
+		machineName, machineName, machineName, machineName,
+	)
+	rows, err := db.Query(query)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field values: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	type WantedCharacterRef struct {
+		Name    string `json:"name"`
+		TopicId *int   `json:"topic_id"`
+	}
+	type FieldValue struct {
+		Value      string               `json:"value"`
+		Characters []WantedCharacterRef `json:"characters"`
+	}
+
+	var values []FieldValue
+	indexByValue := map[string]int{}
+	for rows.Next() {
+		var val string
+		var charName string
+		var topicId *int
+		if err := rows.Scan(&val, &charName, &topicId); err != nil {
+			continue
+		}
+		if idx, exists := indexByValue[val]; exists {
+			values[idx].Characters = append(values[idx].Characters, WantedCharacterRef{Name: charName, TopicId: topicId})
+		} else {
+			indexByValue[val] = len(values)
+			values = append(values, FieldValue{Value: val, Characters: []WantedCharacterRef{{Name: charName, TopicId: topicId}}})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"human_field_name": matched.HumanFieldName, "values": values})
 }

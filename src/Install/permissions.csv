@@ -158,6 +158,11 @@ role_id,type,permission
 2,0,/characters/archiving-warnings
 3,0,/admin/sonic/cursors
 3,0,/admin/sonic/catchup/:bucket
+3,0,/admin/qdrant/cursors
+3,0,/admin/qdrant/catchup/:bucket
+3,0,/admin/qdrant/status
+3,0,/admin/qdrant/subforum-matrix
+3,0,/admin/qdrant/subforum-matrix/update
 3,0,/admin/smile/upload
 3,0,/character-claim/delete/:id
 3,0,/admin/character-list
@@ -175,3 +180,13 @@ role_id,type,permission
 3,0,/admin/design-draft/create
 3,0,/admin/design-draft/update/:id
 3,0,/admin/design-draft/publish/:id
+3,0,/admin/frontend-templates/components
+3,0,/admin/frontend-templates/components/*name
+3,0,/admin/frontend-templates/components-default/*name
+3,0,/admin/frontend-templates/component/update
+3,0,/admin/frontend-templates/env/update
+3,0,/admin/github/commit
+3,0,/admin/faction-settings/list
+3,0,/admin/faction-setting/create
+3,0,/admin/faction-setting/update/:id
+3,0,/admin/faction-setting/delete/:id

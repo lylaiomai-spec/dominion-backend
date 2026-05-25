@@ -1307,7 +1307,7 @@ func DeletePost(c *gin.Context, db *sql.DB) {
 		Type:       "post_deleted",
 		TopicID:    topicID,
 		SubforumID: subforumID,
-		Post:       Entities.Post{Id: postID},
+		Post:       Entities.Post{Id: postID, AuthorUserId: authorUserID},
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Post deleted successfully"})
