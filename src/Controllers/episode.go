@@ -15,17 +15,27 @@ import (
 )
 
 type CreateEpisodeRequest struct {
-	SubforumID   int                    `json:"subforum_id" binding:"required"`
-	Name         string                 `json:"name" binding:"required"`
-	CharacterIDs []int                  `json:"character_ids"`
-	MaskIds      []int                  `json:"mask_ids"`
-	CustomFields map[string]interface{} `json:"custom_fields"`
+	SubforumID     int                    `json:"subforum_id" binding:"required"`
+	Name           string                 `json:"name" binding:"required"`
+	CharacterIDs   []int                  `json:"character_ids"`
+	MaskIds        []int                  `json:"mask_ids"`
+	WarningIds     []int                  `json:"warning_ids"`
+	RatingSet      bool                   `json:"rating_set"`
+	RatingLanguage int                    `json:"rating_language"`
+	RatingViolence int                    `json:"rating_violence"`
+	RatingSex      int                    `json:"rating_sex"`
+	CustomFields   map[string]interface{} `json:"custom_fields"`
 }
 
 type UpdateEpisodeRequest struct {
 	Name           string                 `json:"name" binding:"required"`
 	CharacterIDs   []int                  `json:"character_ids"`
 	MaskIds        []int                  `json:"mask_ids"`
+	WarningIds     []int                  `json:"warning_ids"`
+	RatingSet      *bool                  `json:"rating_set"`
+	RatingLanguage *int                   `json:"rating_language"`
+	RatingViolence *int                   `json:"rating_violence"`
+	RatingSex      *int                   `json:"rating_sex"`
 	CustomFields   map[string]interface{} `json:"custom_fields"`
 	OpenToEveryone *bool                  `json:"open_to_everyone"`
 }
@@ -103,8 +113,12 @@ func CreateEpisode(c *gin.Context, db *sql.DB) {
 	}
 
 	episode := Entities.Episode{
-		Topic_Id: int(topicID),
-		Name:     req.Name,
+		Topic_Id:       int(topicID),
+		Name:           req.Name,
+		RatingSet:      req.RatingSet,
+		RatingLanguage: req.RatingLanguage,
+		RatingViolence: req.RatingViolence,
+		RatingSex:      req.RatingSex,
 		CustomFields: Entities.CustomFieldEntity{
 			CustomFields: cfMap,
 		},
@@ -158,6 +172,26 @@ func CreateEpisode(c *gin.Context, db *sql.DB) {
 			_, err := maskStmt.Exec(createdEpisode.Id, maskID)
 			if err != nil {
 				_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to insert mask relation: " + err.Error()})
+				c.Abort()
+				return
+			}
+		}
+	}
+
+	// 5. Insert Episode-Warning Relations
+	if len(req.WarningIds) > 0 {
+		warnStmt, err := tx.Prepare("INSERT INTO episode_warnings (episode_id, warning_id) VALUES (?, ?)")
+		if err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to prepare warning relation statement"})
+			c.Abort()
+			return
+		}
+		defer warnStmt.Close()
+
+		for _, warningID := range req.WarningIds {
+			_, err := warnStmt.Exec(createdEpisode.Id, warningID)
+			if err != nil {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to insert warning relation: " + err.Error()})
 				c.Abort()
 				return
 			}
@@ -815,6 +849,18 @@ func UpdateEpisode(c *gin.Context, db *sql.DB) {
 	if req.OpenToEveryone != nil {
 		updates["open_to_everyone"] = *req.OpenToEveryone
 	}
+	if req.RatingSet != nil {
+		updates["rating_set"] = *req.RatingSet
+	}
+	if req.RatingLanguage != nil {
+		updates["rating_language"] = *req.RatingLanguage
+	}
+	if req.RatingViolence != nil {
+		updates["rating_violence"] = *req.RatingViolence
+	}
+	if req.RatingSex != nil {
+		updates["rating_sex"] = *req.RatingSex
+	}
 	_, err = Services.PatchEntity(int64(episodeID), "episode", updates, tx)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update episode entity: " + err.Error()})
@@ -872,6 +918,33 @@ func UpdateEpisode(c *gin.Context, db *sql.DB) {
 			_, err := maskStmt.Exec(episodeID, maskID)
 			if err != nil {
 				_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to insert mask relation: " + err.Error()})
+				c.Abort()
+				return
+			}
+		}
+	}
+
+	// 7. Update Episode-Warning Relations
+	_, err = tx.Exec("DELETE FROM episode_warnings WHERE episode_id = ?", episodeID)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to clear old warning relations: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if len(req.WarningIds) > 0 {
+		warnStmt, err := tx.Prepare("INSERT INTO episode_warnings (episode_id, warning_id) VALUES (?, ?)")
+		if err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to prepare warning relation statement"})
+			c.Abort()
+			return
+		}
+		defer warnStmt.Close()
+
+		for _, warningID := range req.WarningIds {
+			_, err := warnStmt.Exec(episodeID, warningID)
+			if err != nil {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to insert warning relation: " + err.Error()})
 				c.Abort()
 				return
 			}
@@ -1013,4 +1086,32 @@ func ActivateEpisode(c *gin.Context, db *sql.DB) {
 		"episode_status": Entities.ActiveEpisode,
 		"topic_status":   topicStatus,
 	})
+}
+
+func AddEpisodeWarningsConsent(c *gin.Context, db *sql.DB) {
+	episodeId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid episode id"})
+		c.Abort()
+		return
+	}
+
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
+		c.Abort()
+		return
+	}
+
+	_, err = db.Exec(
+		"INSERT IGNORE INTO user_episode_warnings_consent (episode_id, user_id) VALUES (?, ?)",
+		episodeId, userID,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save consent: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Consent recorded"})
 }

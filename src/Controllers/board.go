@@ -25,6 +25,8 @@ type BoardInfo struct {
 	AutoArchivingShowPageLink      string              `json:"auto_archiving_show_page_link"`
 	AutoArchivingEnabled           string              `json:"auto_archiving_enabled"`
 	AutoArchivingDays              int                 `json:"auto_archiving_days"`
+	UseRatingSystem                string              `json:"use_rating_system"`
+	SiteMaxRating                  string              `json:"site_max_rating"`
 	Features                       map[string]int      `json:"features"`
 }
 
@@ -39,7 +41,7 @@ func GetBoard(c *gin.Context, db *sql.DB) {
 		LastRegisteredUser:     nil,
 	}
 
-	rows, err := db.Query("SELECT setting_name, setting_value FROM global_settings WHERE setting_name IN ('site_name', 'domain', 'posts_per_page', 'visual_navlinks_after_header_panel', 'auto_archiving_show_page_link', 'auto_archiving_enabled', 'auto_archiving_days')")
+	rows, err := db.Query("SELECT setting_name, setting_value FROM global_settings WHERE setting_name IN ('site_name', 'domain', 'posts_per_page', 'visual_navlinks_after_header_panel', 'auto_archiving_show_page_link', 'auto_archiving_enabled', 'auto_archiving_days', 'use_rating_system', 'site_max_rating')")
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get global settings: " + err.Error()})
 		c.Abort()
@@ -69,6 +71,10 @@ func GetBoard(c *gin.Context, db *sql.DB) {
 			boardInfo.AutoArchivingEnabled = value
 		case "auto_archiving_days":
 			boardInfo.AutoArchivingDays, _ = strconv.Atoi(value)
+		case "use_rating_system":
+			boardInfo.UseRatingSystem = value
+		case "site_max_rating":
+			boardInfo.SiteMaxRating = value
 		}
 	}
 

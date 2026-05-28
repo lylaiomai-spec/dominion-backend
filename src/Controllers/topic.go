@@ -768,6 +768,31 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 				maskRows.Close()
 			}
 
+			// Fetch warnings for the episode
+			warningRows, err := db.Query(`SELECT sw.id, sw.locale, sw.name, sw.description, sw.rating_language, sw.rating_violence, sw.rating_sex FROM standard_warnings sw JOIN episode_warnings ew ON sw.id = ew.warning_id WHERE ew.episode_id = ? ORDER BY sw.id, sw.locale`, episode.Id)
+			if err == nil {
+				var warnings []Entities.StandardWarning
+				for warningRows.Next() {
+					var w Entities.StandardWarning
+					if err := warningRows.Scan(&w.Id, &w.Locale, &w.Name, &w.Description, &w.RatingLanguage, &w.RatingViolence, &w.RatingSex); err == nil {
+						warnings = append(warnings, w)
+					}
+				}
+				if warnings == nil {
+					warnings = []Entities.StandardWarning{}
+				}
+				episode.HasWarnings = len(warnings) > 0
+				episode.Warnings = warnings
+				warningRows.Close()
+			}
+
+			// Check warnings consent for current user
+			if currentUserID != 0 {
+				var hasConsent bool
+				_ = db.QueryRow("SELECT EXISTS(SELECT 1 FROM user_episode_warnings_consent WHERE episode_id = ? AND user_id = ?)", episode.Id, currentUserID).Scan(&hasConsent)
+				episode.WarningsConsent = hasConsent
+			}
+
 			topic.Episode = episode
 		}
 	}
