@@ -42,10 +42,11 @@ func (c *ClaudeClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 	const maxRounds = 10
 	for round := 0; round < maxRounds; round++ {
 		params := anthropic.MessageNewParams{
-			Model:     anthropic.Model(c.model),
-			Messages:  messages,
-			MaxTokens: 4096,
-			Tools:     toolUnions,
+			Model:       anthropic.Model(c.model),
+			Messages:    messages,
+			MaxTokens:   4096,
+			Tools:       toolUnions,
+			Temperature: anthropic.Float(0),
 		}
 		if systemInstruction != "" {
 			params.System = []anthropic.TextBlockParam{{Text: systemInstruction}}

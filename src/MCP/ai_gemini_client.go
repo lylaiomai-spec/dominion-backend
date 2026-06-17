@@ -37,8 +37,10 @@ func (g *GeminiClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 		}
 	}
 
+	temperature := float32(0)
 	cfg := &genai.GenerateContentConfig{
-		Tools: buildGeminiTools(),
+		Tools:       buildGeminiTools(),
+		Temperature: &temperature,
 	}
 	if systemInstruction != "" {
 		cfg.SystemInstruction = &genai.Content{

@@ -45,8 +45,9 @@ func (o *OpenAICompatClient) Chat(ctx context.Context, history []ChatMessage, sy
 	const maxRounds = 10
 	for round := 0; round < maxRounds; round++ {
 		params := openai.ChatCompletionNewParams{
-			Model:    openai.ChatModel(o.model),
-			Messages: messages,
+			Model:       openai.ChatModel(o.model),
+			Messages:    messages,
+			Temperature: openai.Float(0),
 		}
 		if len(tools) > 0 {
 			params.Tools = tools

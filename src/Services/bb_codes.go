@@ -79,7 +79,14 @@ func GetBBCompiler() bbcode.Compiler {
 		out := bbcode.NewHTMLTag("")
 		out.Name = "div"
 
-		style := "display: block; "
+		if id, ok := getArg(node, "id"); ok {
+			out.Attrs["id"] = id
+		}
+		if class, ok := getArg(node, "class"); ok {
+			out.Attrs["class"] = class
+		}
+
+		var style string
 		if border, ok := getArg(node, "border"); ok {
 			style += fmt.Sprintf("border: %s;", border)
 		}
@@ -202,6 +209,24 @@ func GetBBCompiler() bbcode.Compiler {
 			out.Attrs["style"] = fmt.Sprintf("float: %s;", value)
 		}
 
+		return out, true
+	})
+
+	compiler.SetTag("ul", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "ul"
+		return out, true
+	})
+
+	compiler.SetTag("ol", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "ol"
+		return out, true
+	})
+
+	compiler.SetTag("li", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "li"
 		return out, true
 	})
 
