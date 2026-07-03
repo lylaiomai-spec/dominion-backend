@@ -957,3 +957,24 @@ create table faction_settings
     parent_faction_id int         null,
     constraint fk_faction_settings_parent foreign key (parent_faction_id) references factions (id)
 );
+
+create table external_apps
+(
+    id      int          auto_increment primary key,
+    name    varchar(255) not null,
+    api_key varchar(255) not null,
+    status  boolean      not null default false,
+    user_id int          null,
+    constraint fk_external_apps_user foreign key (user_id) references users (id) on delete set null
+);
+
+create table external_app_permissions
+(
+    external_app_id int            not null,
+    subforum_id     bigint unsigned not null,
+    permission      varchar(255)   not null,
+    primary key (external_app_id, subforum_id, permission),
+    key idx_eap_subforum_id (subforum_id),
+    constraint fk_external_app_permissions_app     foreign key (external_app_id) references external_apps (id) on delete cascade,
+    constraint fk_external_app_permissions_subforum foreign key (subforum_id)    references subforums (id)      on delete cascade
+);

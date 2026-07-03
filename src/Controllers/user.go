@@ -959,7 +959,7 @@ type RecoveryKeyItem struct {
 
 type SaveRecoveryKeysRequest struct {
 	Codes       []string          `json:"codes" binding:"required"`
-	PrivateKeys []RecoveryKeyItem `json:"private_keys" binding:"required"`
+	PrivateKeys []RecoveryKeyItem `json:"recovery_private_keys" binding:"required"`
 }
 
 func SaveRecoveryKeys(c *gin.Context, db *sql.DB) {

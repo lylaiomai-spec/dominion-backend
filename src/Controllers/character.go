@@ -1851,6 +1851,27 @@ func ActivateCharacter(c *gin.Context, db *sql.DB) {
 	})
 }
 
+func CharacterFieldSchema(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query("SELECT DISTINCT field_machine_name, field_type FROM character_main WHERE field_machine_name IS NOT NULL ORDER BY field_machine_name ASC")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field schema: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	result := []Entities.FieldSchema{}
+	for rows.Next() {
+		var f Entities.FieldSchema
+		if err := rows.Scan(&f.MachineName, &f.FieldType); err != nil {
+			continue
+		}
+		result = append(result, f)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"fields": result})
+}
+
 func CustomFieldList(c *gin.Context, db *sql.DB) {
 	machineName := c.Param("machine_name")
 
@@ -1908,7 +1929,7 @@ func CustomFieldList(c *gin.Context, db *sql.DB) {
 		Characters []*Entities.ShortCharacter `json:"characters"`
 	}
 
-	var values []FieldValue
+	values := []FieldValue{}
 	indexByValue := map[string]int{}
 	for rows.Next() {
 		var val string
@@ -2022,6 +2043,7 @@ type ArchivingWarningItem struct {
 	Username     string     `json:"username"`
 	DateLastPost *time.Time `json:"date_last_post"`
 	DaysLeft     int        `json:"days_left"`
+	ArchivalDate string     `json:"archival_date"`
 }
 
 func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
@@ -2036,14 +2058,15 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 				cb.user_id,
 				u.username,
 				cb.date_last_post,
-				? - DATEDIFF(NOW(), COALESCE(cb.date_last_post, t.date_created)) AS days_left
+				? - DATEDIFF(NOW(), COALESCE(cb.date_last_post, t.date_created)) AS days_left,
+				DATE_FORMAT(DATE_ADD(COALESCE(cb.date_last_post, t.date_created), INTERVAL ? DAY), '%Y-%m-%d') AS archival_date
 			FROM character_base cb
 			JOIN users u ON u.id = cb.user_id
 			JOIN topics t ON t.id = cb.topic_id
 			LEFT JOIN absent_users au ON au.user_id = cb.user_id
 				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW()
 			LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
-				AND aai.start_date <= NOW() AND aai.end_date >= NOW()
+				AND aai.end_date >= NOW()
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND DATEDIFF(NOW(), COALESCE(cb.date_last_post, t.date_created)) >= ?
@@ -2058,14 +2081,15 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 				cb.user_id,
 				u.username,
 				cb.date_last_post,
-				DATEDIFF(aai_exp.end_date, NOW()) AS days_left
+				DATEDIFF(aai_exp.end_date, NOW()) AS days_left,
+				DATE_FORMAT(aai_exp.end_date, '%Y-%m-%d') AS archival_date
 			FROM character_base cb
 			JOIN users u ON u.id = cb.user_id
 			JOIN topics t ON t.id = cb.topic_id
 			JOIN (
 				SELECT character_id, MAX(end_date) AS end_date
 				FROM auto_archiving_immunity
-				WHERE start_date <= NOW() AND end_date >= NOW()
+				WHERE end_date >= NOW()
 				GROUP BY character_id
 			) aai_exp ON aai_exp.character_id = cb.id
 			LEFT JOIN absent_users au ON au.user_id = cb.user_id
@@ -2077,7 +2101,7 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 			AND au.id IS NULL
 		)
 		ORDER BY days_left ASC
-	`, autoArchivingDays, Entities.ActiveCharacter, Entities.ActiveUser, warningThreshold,
+	`, autoArchivingDays, autoArchivingDays, Entities.ActiveCharacter, Entities.ActiveUser, warningThreshold,
 		Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get archiving warnings: " + err.Error()})
@@ -2089,7 +2113,7 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 	characters := []ArchivingWarningItem{}
 	for rows.Next() {
 		var ch ArchivingWarningItem
-		if err := rows.Scan(&ch.Id, &ch.Name, &ch.UserId, &ch.Username, &ch.DateLastPost, &ch.DaysLeft); err != nil {
+		if err := rows.Scan(&ch.Id, &ch.Name, &ch.UserId, &ch.Username, &ch.DateLastPost, &ch.DaysLeft, &ch.ArchivalDate); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan character: " + err.Error()})
 			c.Abort()
 			return
@@ -2098,4 +2122,25 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, characters)
+}
+
+func CharacterProfileFieldSchema(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query("SELECT DISTINCT field_machine_name, field_type FROM character_profile_main WHERE field_machine_name IS NOT NULL ORDER BY field_machine_name ASC")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field schema: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	result := []Entities.FieldSchema{}
+	for rows.Next() {
+		var f Entities.FieldSchema
+		if err := rows.Scan(&f.MachineName, &f.FieldType); err != nil {
+			continue
+		}
+		result = append(result, f)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"fields": result})
 }

@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+type FieldSchema struct {
+	MachineName string `json:"machine_name"`
+	FieldType   string `json:"field_type"`
+}
+
 type CustomField struct {
 	FieldName  string      `json:"field_name"`
 	FieldValue interface{} `json:"field_value"`

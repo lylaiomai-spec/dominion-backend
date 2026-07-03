@@ -1,11 +1,13 @@
 package EventHandlers
 
 import (
+	"cuento-backend/src/Entities"
 	"cuento-backend/src/Events"
 	"cuento-backend/src/Features"
 	"cuento-backend/src/Services"
 	"cuento-backend/src/Websockets"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 )
@@ -110,6 +112,71 @@ func RegisterCharacterEventHandlers() {
 				Websockets.MainHub.SendNotification(u.UserID, notification)
 			}
 		}
+	})
+
+	// Subscriber: Award currency on Character Accepted
+	Events.Subscribe(Events.CharacterAccepted, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.CharacterAcceptedEvent)
+		if !ok {
+			return
+		}
+
+		if !Features.IsCurrencyActive(db) {
+			return
+		}
+
+		var amount int
+		var isActive bool
+		if err := db.QueryRow(
+			"SELECT amount, is_active FROM currency_income_types WHERE `key` = 'currency_income_new_character'",
+		).Scan(&amount, &isActive); err != nil || !isActive {
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			fmt.Printf("Error starting transaction for new character currency: %v\n", err)
+			return
+		}
+		defer tx.Rollback()
+
+		_, err = tx.Exec(
+			"INSERT INTO currency_user_account (user_id, amount) VALUES (?, ?) ON DUPLICATE KEY UPDATE amount = amount + ?",
+			event.UserID, amount, amount,
+		)
+		if err != nil {
+			fmt.Printf("Error awarding currency for new character: %v\n", err)
+			return
+		}
+
+		metadataJSON, _ := json.Marshal(map[string]int{"character_id": event.CharacterID})
+		_, err = tx.Exec(
+			"INSERT INTO currency_user_transactions (user_id, type, amount, datetime, status, income_type_key, metadata) VALUES (?, ?, ?, NOW(), ?, ?, ?)",
+			event.UserID, Features.CurrencyTransactionIncome, amount, Features.CurrencyTransactionApproved, "currency_income_new_character", metadataJSON,
+		)
+		if err != nil {
+			fmt.Printf("Error recording currency transaction for new character: %v\n", err)
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			fmt.Printf("Error committing currency award for new character: %v\n", err)
+			return
+		}
+
+		var newTotal int
+		_ = db.QueryRow("SELECT amount FROM currency_user_account WHERE user_id = ?", event.UserID).Scan(&newTotal)
+
+		Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
+			UserID:  event.UserID,
+			Type:    "account_update",
+			Message: fmt.Sprintf("You earned %d currency for your new character %s", amount, event.CharacterName),
+			Data: Entities.NotificationAccountUpdate{
+				IncomeTypeKey: "currency_income_new_character",
+				Amount:        amount,
+				TotalAmount:   newTotal,
+			},
+		})
 	})
 
 	// Subscriber 14: Send System Notification on Character Accepted

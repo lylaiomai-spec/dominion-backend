@@ -1024,7 +1024,7 @@ func WantedCustomFieldList(c *gin.Context, db *sql.DB) {
 		Characters []WantedCharacterRef `json:"characters"`
 	}
 
-	var values []FieldValue
+	values := []FieldValue{}
 	indexByValue := map[string]int{}
 	for rows.Next() {
 		var val string
@@ -1042,4 +1042,25 @@ func WantedCustomFieldList(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"human_field_name": matched.HumanFieldName, "values": values})
+}
+
+func WantedCharacterFieldSchema(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query("SELECT DISTINCT field_machine_name, field_type FROM wanted_character_main WHERE field_machine_name IS NOT NULL ORDER BY field_machine_name ASC")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field schema: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	result := []Entities.FieldSchema{}
+	for rows.Next() {
+		var f Entities.FieldSchema
+		if err := rows.Scan(&f.MachineName, &f.FieldType); err != nil {
+			continue
+		}
+		result = append(result, f)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"fields": result})
 }

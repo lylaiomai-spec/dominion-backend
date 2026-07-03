@@ -387,6 +387,9 @@ func main() {
 	})
 
 	// Character Template routes
+	publicRouter.GET("/template/episode/get", "Get episode template (public)", func(c *gin.Context) {
+		Controllers.GetTemplate(c, Services.DB)
+	})
 	protectedRouter.GET("/template/:type/get", "Get character template by type", func(c *gin.Context) {
 		Controllers.GetTemplate(c, Services.DB)
 	})
@@ -516,6 +519,9 @@ func main() {
 	protectedRouter.POST("/admin/character/immunity", "Add auto-archiving immunity for a character (admin)", func(c *gin.Context) {
 		Controllers.AdminAddImmunity(c, Services.DB)
 	})
+	protectedRouter.POST("/character/immunity/buy", "Buy auto-archiving immunity for a character using currency", func(c *gin.Context) {
+		Controllers.BuyAutoArchivingImmunity(c, Services.DB)
+	})
 	protectedRouter.POST("/user/archive", "Archive the current user's account and deactivate all their characters", func(c *gin.Context) {
 		Controllers.ArchiveAccount(c, Services.DB)
 	})
@@ -536,6 +542,18 @@ func main() {
 	})
 	protectedRouter.GET("/admin/character/:id/protection-history", "Get absences and immunities for a character", func(c *gin.Context) {
 		Controllers.GetCharacterProtectionHistory(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/character/database-field-schema", "Get all unique field machine name + type combinations from character_main", func(c *gin.Context) {
+		Controllers.CharacterFieldSchema(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/character-profile/database-field-schema", "Get all unique field machine name + type combinations from character_profile_main", func(c *gin.Context) {
+		Controllers.CharacterProfileFieldSchema(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/episode/database-field-schema", "Get all unique field machine name + type combinations from episode_main", func(c *gin.Context) {
+		Controllers.EpisodeFieldSchema(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/wanted-character/database-field-schema", "Get all unique field machine name + type combinations from wanted_character_main", func(c *gin.Context) {
+		Controllers.WantedCharacterFieldSchema(c, Services.DB)
 	})
 	protectedRouter.POST("/admin/user/create", "Create a new user account (admin)", func(c *gin.Context) {
 		Controllers.CreateUser(c, Services.DB)
@@ -800,7 +818,7 @@ func main() {
 	})
 
 	// Fraction settings routes
-	protectedRouter.GET("/admin/faction-settings/list", "Get list of all faction settings ordered by level", func(c *gin.Context) {
+	publicRouter.GET("/faction-settings/list", "Get list of all faction settings ordered by level", func(c *gin.Context) {
 		Controllers.GetFactionSettings(c, Services.DB)
 	})
 	protectedRouter.POST("/admin/faction-setting/create", "Create a new faction setting", func(c *gin.Context) {
@@ -811,6 +829,37 @@ func main() {
 	})
 	protectedRouter.GET("/admin/faction-setting/delete/:id", "Delete faction setting by ID", func(c *gin.Context) {
 		Controllers.DeleteFactionSetting(c, Services.DB)
+	})
+
+	// External app public endpoints
+	publicRouter.POST("/external-app/post", "Create a post as an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
+		Controllers.ExternalAppPost(c, Services.DB)
+	})
+	publicRouter.GET("/external-app/active-topics", "Get active topics for an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
+		Controllers.ExternalAppGetActiveTopics(c, Services.DB)
+	})
+
+	// External apps routes
+	protectedRouter.GET("/admin/external-app/list", "Get list of all external apps", func(c *gin.Context) {
+		Controllers.GetExternalAppList(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/external-app/create", "Create a new external app with a generated API key", func(c *gin.Context) {
+		Controllers.CreateExternalApp(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/external-app/update/:id", "Update external app name or status by ID", func(c *gin.Context) {
+		Controllers.UpdateExternalApp(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/external-app/delete/:id", "Delete external app by ID", func(c *gin.Context) {
+		Controllers.DeleteExternalApp(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/external-app/:id/permissions", "Get permissions for an external app", func(c *gin.Context) {
+		Controllers.GetExternalAppPermissions(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/external-app/:id/permission/create", "Add a permission to an external app", func(c *gin.Context) {
+		Controllers.AddExternalAppPermission(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/external-app/:id/permission/delete", "Remove a permission from an external app", func(c *gin.Context) {
+		Controllers.DeleteExternalAppPermission(c, Services.DB)
 	})
 
 	// Standard warnings routes

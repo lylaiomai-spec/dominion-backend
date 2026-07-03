@@ -211,7 +211,7 @@ func RegisterPostEventHandlers() {
 		}
 
 		for _, m := range milestones {
-			if postCount%m.threshold != 0 {
+			if postCount == 0 || postCount%m.threshold != 0 {
 				continue
 			}
 			var amount int
@@ -296,7 +296,7 @@ func RegisterPostEventHandlers() {
 
 		// 3. Get all participants of the episode
 		query := `
-			SELECT cb.user_id, cb.id as character_id
+			SELECT cb.user_id, cb.id as character_id, cb.name as character_name
 			FROM character_base cb
 			JOIN episode_character ec ON cb.id = ec.character_id
 			JOIN episode_base e ON ec.episode_id = e.id
@@ -309,17 +309,25 @@ func RegisterPostEventHandlers() {
 		}
 		defer rows.Close()
 
+		authorCharacterName := ""
+		if event.Post.CharacterProfile != nil {
+			authorCharacterName = event.Post.CharacterProfile.CharacterName
+		}
+
 		for rows.Next() {
 			var participantUserID int
 			var participantCharacterID int
-			if err := rows.Scan(&participantUserID, &participantCharacterID); err == nil {
+			var participantCharacterName string
+			if err := rows.Scan(&participantUserID, &participantCharacterID, &participantCharacterName); err == nil {
 				gameData := Entities.NotificationGame{
-					TopicId:         int(event.TopicID),
-					TopicName:       topicTitle,
-					PostId:          event.Post.Id,
-					Type:            "post_created",
-					UserCharacterId: participantCharacterID,
-					CharacterId:     authorCharacterID,
+					TopicId:           int(event.TopicID),
+					TopicName:         topicTitle,
+					PostId:            event.Post.Id,
+					Type:              "post_created",
+					UserCharacterId:   participantCharacterID,
+					UserCharacterName: participantCharacterName,
+					CharacterId:       authorCharacterID,
+					CharacterName:     authorCharacterName,
 				}
 
 				Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{

@@ -41,10 +41,12 @@ type ViewforumRow struct {
 }
 
 type CreateTopicRequest struct {
-	SubforumId        int    `json:"subforum_id" binding:"required"`
-	Title             string `json:"title" binding:"required"`
-	Content           string `json:"content" binding:"required"`
-	IsStickyFirstPost bool   `json:"is_sticky_first_post"`
+	SubforumId          int    `json:"subforum_id" binding:"required"`
+	Title               string `json:"title" binding:"required"`
+	Content             string `json:"content" binding:"required"`
+	IsStickyFirstPost   bool   `json:"is_sticky_first_post"`
+	UseCharacterProfile bool   `json:"use_character_profile"`
+	CharacterProfileID  *int   `json:"character_profile_id"`
 }
 
 type CreatePostRequest struct {
@@ -213,8 +215,8 @@ func CreateTopic(c *gin.Context, db *sql.DB) {
 	}
 
 	// Insert Post
-	res, err = tx.Exec("INSERT INTO posts (topic_id, author_user_id, content, date_created) VALUES (?, ?, ?, NOW())",
-		topicID, userID, req.Content)
+	res, err = tx.Exec("INSERT INTO posts (topic_id, author_user_id, content, date_created, use_character_profile, character_profile_id) VALUES (?, ?, ?, NOW(), ?, ?)",
+		topicID, userID, req.Content, req.UseCharacterProfile, req.CharacterProfileID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert post: " + err.Error()})
 		return
