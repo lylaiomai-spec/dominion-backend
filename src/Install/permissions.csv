@@ -195,6 +195,9 @@ role_id,type,permission
 3,0,/admin/faction-setting/create
 3,0,/admin/faction-setting/update/:id
 3,0,/admin/faction-setting/delete/:id
+3,0,/admin/free-format-date-settings
+3,0,/admin/free-format-date-settings/options
+3,0,/admin/free-format-date-settings/:id
 2,0,/standard-warnings
 3,0,/admin/standard-warning/list
 3,0,/admin/standard-warning/create

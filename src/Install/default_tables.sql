@@ -143,6 +143,9 @@ VALUES ('use_rating_system', 'y');
 INSERT INTO global_settings (setting_name, setting_value)
 VALUES ('site_max_rating', 'L1V1S1');
 
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('global_free_format_date_id', NULL);
+
 CREATE TABLE categories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NULL,
@@ -208,14 +211,16 @@ create table character_base
 
 create table character_main
 (
-    entity_id          int            null,
-    field_machine_name varchar(255)   null,
-    field_type         varchar(10)    null,
-    value_int          int            null,
-    value_decimal      decimal(10, 2) null,
-    value_string       varchar(255)   null,
-    value_text         text           null,
-    value_date         varchar(255)   null
+    entity_id                  int            null,
+    field_machine_name         varchar(255)   null,
+    field_type                 varchar(50)    null,
+    value_int                  int            null,
+    value_decimal              decimal(10, 2) null,
+    value_string               varchar(255)   null,
+    value_text                 text           null,
+    value_date                 varchar(255)   null,
+    value_free_formatted_date  json           null,
+    sort_free_formatted_date   bigint         null
 );
 
 create table character_profile_base
@@ -233,14 +238,16 @@ create table character_profile_base
 
 create table character_profile_main
 (
-    entity_id          int            null,
-    field_machine_name varchar(255)   null,
-    field_type         varchar(10)    null,
-    value_int          int            null,
-    value_decimal      decimal(10, 2) null,
-    value_string       varchar(255)   null,
-    value_text         text           null,
-    value_date         varchar(255)   null
+    entity_id                  int            null,
+    field_machine_name         varchar(255)   null,
+    field_type                 varchar(50)    null,
+    value_int                  int            null,
+    value_decimal              decimal(10, 2) null,
+    value_string               varchar(255)   null,
+    value_text                 text           null,
+    value_date                 varchar(255)   null,
+    value_free_formatted_date  json           null,
+    sort_free_formatted_date   bigint         null
 );
 
 CREATE TABLE posts (
@@ -279,14 +286,16 @@ create table episode_base
 
 create table episode_main
 (
-    entity_id          int            null,
-    field_machine_name varchar(255)   null,
-    field_type         varchar(10)    null,
-    value_int          int            null,
-    value_decimal      decimal(10, 2) null,
-    value_string       varchar(255)   null,
-    value_text         text           null,
-    value_date         varchar(255)   null
+    entity_id                  int            null,
+    field_machine_name         varchar(255)   null,
+    field_type                 varchar(50)    null,
+    value_int                  int            null,
+    value_decimal              decimal(10, 2) null,
+    value_string               varchar(255)   null,
+    value_text                 text           null,
+    value_date                 varchar(255)   null,
+    value_free_formatted_date  json           null,
+    sort_free_formatted_date   bigint         null
 );
 
 create table episode_character
@@ -383,18 +392,42 @@ INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_post_number', 0)
 INSERT INTO global_stats (stat_name, stat_value) VALUES ('total_episode_post_number', 0);
 INSERT INTO global_stats (stat_name, stat_value, stat_secondary) VALUES ('last_user', 0, '');
 
+create table free_format_date_settings
+(
+    id               int          auto_increment primary key,
+    name             varchar(255) not null,
+    free_format_date json         not null
+);
+
+INSERT INTO free_format_date_settings (name, free_format_date) VALUES (
+    'Gregorian Calendar',
+    '{"format_strings":["$1 $2, $0"],"placeholders":[{"type":"number","name":"year","position":0,"is_nullable":false,"min_value":-9999,"max_value":9999},{"type":"list","name":"month","position":1,"is_nullable":false,"value_list":["January","February","March","April","May","June","July","August","September","October","November","December"]},{"type":"number","name":"day","position":2,"is_nullable":true,"min_value":1,"max_value":31}]}'
+);
+
+INSERT INTO free_format_date_settings (name, free_format_date) VALUES (
+    'Dragon Age',
+    '{"format_strings":["$0 Ancient, $5 of $4","$0 Ancient, $4","$1:$2 $3, $5 of $4","$1:$2 $3, $4"],"placeholders":[{"type":"number","name":"ancient_year","position":0,"is_nullable":true,"min_value":-9999,"max_value":-1},{"type":"number","name":"age_number","position":1,"is_nullable":true,"min_value":1,"max_value":9},{"type":"number","name":"year","position":2,"is_nullable":true,"min_value":0,"max_value":99},{"type":"list","name":"month_and_holidays","position":4,"is_nullable":false,"value_list":["First Day","Wintermarch (Verimensis)","Wintersend","Guardian (Pluitanis)","Drakonis (Nubulis)","Cloudreach (Eluviesta)","Summerday","Bloomingtide (Molioris)","Justinian (Ferventis)","Solace (Solis)","All Soul''s Day","August (Matrinalis)","Kingsway (Parvulis)","Harvestmere (Frumentum)","Satinalia","Firstfall (Umbralis)","Haring (Cassus)"]},{"type":"number","name":"day","position":5,"is_nullable":true,"min_value":1,"max_value":30},{"type":"list","name":"age_name","position":3,"is_nullable":true,"value_list":["Divine","Glory","Towers","Black","Exalted","Steel","Storm","Blessed","Dragon"]}]}'
+);
+
+INSERT INTO free_format_date_settings (name, free_format_date) VALUES (
+    'Forgotten Realms (Dale Reckoning)',
+    '{"format_strings":["$1 DR, $2 $3","$1 DR, $2"],"placeholders":[{"type":"number","name":"year","position":1,"is_nullable":false,"min_value":-9999,"max_value":9999},{"type":"list","name":"month_or_holiday","position":2,"is_nullable":false,"value_list":["Hammer","Midwinter","Alturiak","Ches","Tarsakh","Greengrass","Mirtul","Kythorn","Flamerule","Midsummer","Shieldmeet","Eleasis","Eleint","Highharvestide","Marpenoth","Uktar","Feast of the Moon ","Nightal"]},{"type":"number","name":"day","position":3,"is_nullable":true,"min_value":1,"max_value":30}]}'
+);
+
 create table factions
 (
-    id              int          auto_increment  primary key,
-    name            varchar(255) not null,
-    parent_id       int          null,
-    level           int          not null,
-    description     text         null,
-    icon            varchar(255) null,
-    show_on_profile boolean      not null,
-    can_be_multiple bool default FALSE null,
-    root_id         int          null,
-    faction_status int default 2 not null
+    id                               int          auto_increment  primary key,
+    name                             varchar(255) not null,
+    parent_id                        int          null,
+    level                            int          not null,
+    description                      text         null,
+    icon                             varchar(255) null,
+    show_on_profile                  boolean      not null,
+    can_be_multiple                  bool default FALSE null,
+    root_id                          int          null,
+    faction_status                   int default 2 not null,
+    free_format_date_id              int          null,
+    constraint fk_factions_free_format_date foreign key (free_format_date_id) references free_format_date_settings (id) on delete set null
 );
 
 create table character_faction
@@ -630,14 +663,16 @@ create table wanted_character_base
 
 create table wanted_character_main
 (
-    entity_id          int            null,
-    field_machine_name varchar(255)   null,
-    field_type         varchar(10)    null,
-    value_int          int            null,
-    value_decimal      decimal(10, 2) null,
-    value_string       varchar(255)   null,
-    value_text         text           null,
-    value_date         varchar(255)   null
+    entity_id                  int            null,
+    field_machine_name         varchar(255)   null,
+    field_type                 varchar(50)    null,
+    value_int                  int            null,
+    value_decimal              decimal(10, 2) null,
+    value_string               varchar(255)   null,
+    value_text                 text           null,
+    value_date                 varchar(255)   null,
+    value_free_formatted_date  json           null,
+    sort_free_formatted_date   bigint         null
 );
 
 create table wanted_character_flattened

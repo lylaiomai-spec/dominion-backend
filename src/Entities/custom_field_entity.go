@@ -32,11 +32,44 @@ type CustomFieldData struct {
 type CustomFieldValue struct {
 	Content     interface{} `json:"content"`
 	ContentHtml string      `json:"content_html,omitempty"`
+	Sort        *int64      `json:"sort,omitempty"`
+	Data        interface{} `json:"data,omitempty"`
 }
 
 type CustomFieldEntity struct {
 	CustomFields map[string]CustomFieldValue `json:"custom_fields"`
 	FieldConfig  []CustomFieldConfig         `json:"field_config"`
+}
+
+type FreeFormatDatePlaceholderType string
+
+const (
+	FreeFormatDatePlaceholderTypeNumber FreeFormatDatePlaceholderType = "number"
+	FreeFormatDatePlaceholderTypeList   FreeFormatDatePlaceholderType = "list"
+)
+
+type FreeFormatDatePlaceholder struct {
+	Type       FreeFormatDatePlaceholderType `json:"type"`
+	Name       string                        `json:"name"`
+	Position   int                           `json:"position"`
+	IsNullable bool                          `json:"is_nullable"`
+	ValueList  []string                      `json:"value_list,omitempty"`
+	MinValue   *int                          `json:"min_value,omitempty"`
+	MaxValue   *int                          `json:"max_value,omitempty"`
+}
+
+type FreeFormatDate struct {
+	FormatStrings []string                    `json:"format_strings"`
+	Placeholders  []FreeFormatDatePlaceholder `json:"placeholders"`
+}
+
+type FreeFormatDateFieldValue struct {
+	EntityId         int                    `json:"entity_id"`
+	EntityType       string                 `json:"entity_type"`
+	FreeFormatDateId *int                   `json:"free_format_date_id,omitempty"`
+	FormatString     string                 `json:"format_string"`
+	Placeholders     map[string]interface{} `json:"placeholders"`
+	SortValue        int64                  `json:"sort_value"`
 }
 
 // Compile-time check or global compiler initialization
@@ -45,12 +78,14 @@ func GenerateEntityTables(entity CustomFieldEntity, entityName string, db *sql.D
 	customFieldMainTableSQL := "CREATE TABLE IF NOT EXISTS " + entityName + "_main (" +
 		"entity_id INT," +
 		"field_machine_name VARCHAR(255)," +
-		"field_type VARCHAR(10)," +
+		"field_type VARCHAR(50)," +
 		"value_int INT," +
 		"value_decimal DECIMAL(10,2)," +
 		"value_string VARCHAR(255)," +
 		"value_text TEXT," +
-		"value_date DATETIME)"
+		"value_date DATETIME," +
+		"value_free_formatted_date JSON," +
+		"sort_free_formatted_date BIGINT)"
 
 	customFieldFlattenedTableSQL := "CREATE TABLE IF NOT EXISTS " + entityName + "_flattened (" +
 		"entity_id INT PRIMARY KEY"
@@ -72,11 +107,17 @@ func GenerateEntityTables(entity CustomFieldEntity, entityName string, db *sql.D
 	}
 
 	for _, config := range entity.FieldConfig {
-		valCol := valueColumnMap[config.FieldType]
-		if valCol == "" {
-			valCol = "value_string"
+		if config.FieldType == "free_format_date" {
+			customFieldFlattenedTableSQL += ", " + config.MachineFieldName + " JSON"
+			customFieldFlattenedTableSQL += ", " + config.MachineFieldName + "_sort BIGINT"
+		} else {
+			sqlType := fieldTypeMap[config.FieldType]
+			if sqlType == "" {
+				sqlType = "VARCHAR(255)"
+			}
+			_ = valueColumnMap[config.FieldType]
+			customFieldFlattenedTableSQL += ", " + config.MachineFieldName + " " + sqlType
 		}
-		customFieldFlattenedTableSQL += ", " + config.MachineFieldName + " " + fieldTypeMap[config.FieldType]
 	}
 	customFieldFlattenedTableSQL += ")"
 
@@ -117,37 +158,39 @@ func UpdateFlattenedTable(entity CustomFieldEntity, entityName string, db *sql.D
 		"date":    "DATETIME",
 	}
 
-	valueColumnMap := map[string]string{
-		"int":     "value_int",
-		"decimal": "value_decimal",
-		"string":  "value_string",
-		"text":    "value_text",
-		"date":    "value_date",
-	}
-
 	// Track fields present in the current configuration
 	configFieldNames := make(map[string]bool)
 
 	// 2. Iterate over config and add missing columns
 	for _, config := range entity.FieldConfig {
-		configFieldNames[config.MachineFieldName] = true
-		if !existingColumns[config.MachineFieldName] {
-			sqlType := fieldTypeMap[config.FieldType]
-			if sqlType == "" {
-				sqlType = "VARCHAR(255)" // Default fallback
+		if config.FieldType == "free_format_date" {
+			configFieldNames[config.MachineFieldName] = true
+			configFieldNames[config.MachineFieldName+"_sort"] = true
+
+			if !existingColumns[config.MachineFieldName] {
+				alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s JSON", tableName, config.MachineFieldName)
+				if _, err := db.Exec(alterSQL); err != nil {
+					return fmt.Errorf("failed to add column %s: %w", config.MachineFieldName, err)
+				}
 			}
-
-			valCol := valueColumnMap[config.FieldType]
-			if valCol == "" {
-				valCol = "value_string"
+			if !existingColumns[config.MachineFieldName+"_sort"] {
+				alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s_sort BIGINT", tableName, config.MachineFieldName)
+				if _, err := db.Exec(alterSQL); err != nil {
+					return fmt.Errorf("failed to add column %s_sort: %w", config.MachineFieldName, err)
+				}
 			}
+		} else {
+			configFieldNames[config.MachineFieldName] = true
+			if !existingColumns[config.MachineFieldName] {
+				sqlType := fieldTypeMap[config.FieldType]
+				if sqlType == "" {
+					sqlType = "VARCHAR(255)"
+				}
 
-			// Note: Table and column names cannot be parameterized in SQL.
-			// Ensure MachineFieldName is sanitized in production to prevent SQL injection.
-			alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, config.MachineFieldName, sqlType)
-
-			if _, err := db.Exec(alterSQL); err != nil {
-				return fmt.Errorf("failed to add column %s: %w", config.MachineFieldName, err)
+				alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, config.MachineFieldName, sqlType)
+				if _, err := db.Exec(alterSQL); err != nil {
+					return fmt.Errorf("failed to add column %s: %w", config.MachineFieldName, err)
+				}
 			}
 		}
 	}
@@ -183,13 +226,21 @@ func UpdateTriggers(entity CustomFieldEntity, entityName string, db *sql.DB) err
 	deleteTriggerBody := ""
 
 	for _, config := range entity.FieldConfig {
-		valCol := valueColumnMap[config.FieldType]
-		if valCol == "" {
-			valCol = "value_string"
+		if config.FieldType == "free_format_date" {
+			triggerBody += fmt.Sprintf(
+				"IF NEW.field_machine_name = '%s' THEN UPDATE %s_flattened SET %s = NEW.value_free_formatted_date, %s_sort = NEW.sort_free_formatted_date WHERE entity_id = NEW.entity_id; END IF; ",
+				config.MachineFieldName, entityName, config.MachineFieldName, config.MachineFieldName)
+			deleteTriggerBody += fmt.Sprintf(
+				"IF OLD.field_machine_name = '%s' THEN UPDATE %s_flattened SET %s = NULL, %s_sort = NULL WHERE entity_id = OLD.entity_id; END IF; ",
+				config.MachineFieldName, entityName, config.MachineFieldName, config.MachineFieldName)
+		} else {
+			valCol := valueColumnMap[config.FieldType]
+			if valCol == "" {
+				valCol = "value_string"
+			}
+			triggerBody += fmt.Sprintf("IF NEW.field_machine_name = '%s' THEN UPDATE %s_flattened SET %s = NEW.%s WHERE entity_id = NEW.entity_id; END IF; ", config.MachineFieldName, entityName, config.MachineFieldName, valCol)
+			deleteTriggerBody += fmt.Sprintf("IF OLD.field_machine_name = '%s' THEN UPDATE %s_flattened SET %s = NULL WHERE entity_id = OLD.entity_id; END IF; ", config.MachineFieldName, entityName, config.MachineFieldName)
 		}
-		// Update the specific column in the flattened table when the main table row matches the field name
-		triggerBody += fmt.Sprintf("IF NEW.field_machine_name = '%s' THEN UPDATE %s_flattened SET %s = NEW.%s WHERE entity_id = NEW.entity_id; END IF; ", config.MachineFieldName, entityName, config.MachineFieldName, valCol)
-		deleteTriggerBody += fmt.Sprintf("IF OLD.field_machine_name = '%s' THEN UPDATE %s_flattened SET %s = NULL WHERE entity_id = OLD.entity_id; END IF; ", config.MachineFieldName, entityName, config.MachineFieldName)
 	}
 
 	// Drop existing triggers to ensure we update them with new fields

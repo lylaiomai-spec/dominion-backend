@@ -13,13 +13,14 @@ import (
 )
 
 type FactionUpdateRequest struct {
-	Name          *string                 `json:"name"`
-	ParentId      *int                    `json:"parent_id"`
-	Level         *int                    `json:"level"`
-	Description   *string                 `json:"description"`
-	Icon          *string                 `json:"icon"`
-	ShowOnProfile *bool                   `json:"show_on_profile"`
-	FactionStatus *Entities.FactionStatus `json:"faction_status"`
+	Name             *string                 `json:"name"`
+	ParentId         *int                    `json:"parent_id"`
+	Level            *int                    `json:"level"`
+	Description      *string                 `json:"description"`
+	Icon             *string                 `json:"icon"`
+	ShowOnProfile    *bool                   `json:"show_on_profile"`
+	FactionStatus    *Entities.FactionStatus `json:"faction_status"`
+	FreeFormatDateId *int                    `json:"free_format_date_id"`
 }
 
 func GetFactionChildren(c *gin.Context, db *sql.DB) {
@@ -149,6 +150,10 @@ func UpdateFactionById(c *gin.Context, db *sql.DB) {
 	if req.FactionStatus != nil {
 		setClauses = append(setClauses, "faction_status = ?")
 		args = append(args, *req.FactionStatus)
+	}
+	if req.FreeFormatDateId != nil {
+		setClauses = append(setClauses, "free_format_date_id = ?")
+		args = append(args, *req.FreeFormatDateId)
 	}
 
 	if len(setClauses) == 0 {

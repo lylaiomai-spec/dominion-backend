@@ -62,6 +62,19 @@ func RegisterEpisodeEventHandlers() {
 		}
 	})
 
+	// Subscriber: Decrement global total_episode_number when episode topics are deleted
+	Events.Subscribe(Events.EpisodeTopicsDeleted, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.EpisodeTopicsDeletedEvent)
+		if !ok || len(event.EpisodeIDs) == 0 {
+			return
+		}
+		count := len(event.EpisodeIDs)
+		_, err := db.Exec("UPDATE global_stats SET stat_value = GREATEST(stat_value - ?, 0) WHERE stat_name = 'total_episode_number'", count)
+		if err != nil {
+			fmt.Printf("Error decrementing global total_episode_number on episode topic deleted: %v\n", err)
+		}
+	})
+
 	// Subscriber: Update mask_stats total_episodes on episode created
 	Events.Subscribe(Events.EpisodeCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.EpisodeCreatedEvent)

@@ -6,6 +6,7 @@ import (
 	"cuento-backend/src/Middlewares"
 	"cuento-backend/src/Services"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -308,7 +309,11 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 		"last_post_date": "t.date_last_post",
 	}
 	for _, f := range allowedFields {
-		baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName
+		if f.FieldType == "free_format_date" {
+			baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName + "_sort"
+		} else {
+			baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName
+		}
 	}
 
 	// Build ORDER BY clause
@@ -419,8 +424,25 @@ func GetEpisodes(c *gin.Context, db *sql.DB) {
 		}
 
 		for i, f := range allowedFields {
-			if rawVals[i] != nil && *rawVals[i] != nil {
-				ep.CustomFields[f.MachineFieldName] = string(*rawVals[i])
+			if rawVals[i] == nil || *rawVals[i] == nil {
+				continue
+			}
+			raw := string(*rawVals[i])
+			if f.FieldType == "free_format_date" {
+				var m map[string]interface{}
+				if err := json.Unmarshal([]byte(raw), &m); err == nil {
+					if fs, ok := m["format_string"].(string); ok {
+						rendered := fs
+						if ph, ok := m["placeholders"].(map[string]interface{}); ok {
+							for k, v := range ph {
+								rendered = strings.ReplaceAll(rendered, "{"+k+"}", fmt.Sprintf("%v", v))
+							}
+						}
+						ep.CustomFields[f.MachineFieldName] = rendered
+					}
+				}
+			} else {
+				ep.CustomFields[f.MachineFieldName] = raw
 			}
 		}
 
@@ -498,7 +520,11 @@ func GetEpisodesByMask(c *gin.Context, db *sql.DB) {
 		"last_post_date": "t.date_last_post",
 	}
 	for _, f := range allowedFields {
-		baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName
+		if f.FieldType == "free_format_date" {
+			baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName + "_sort"
+		} else {
+			baseColumnMap[f.MachineFieldName] = "ef." + f.MachineFieldName
+		}
 	}
 
 	var orderClauses []string
@@ -589,8 +615,25 @@ func GetEpisodesByMask(c *gin.Context, db *sql.DB) {
 		}
 
 		for i, f := range allowedFields {
-			if rawVals[i] != nil && *rawVals[i] != nil {
-				ep.CustomFields[f.MachineFieldName] = string(*rawVals[i])
+			if rawVals[i] == nil || *rawVals[i] == nil {
+				continue
+			}
+			raw := string(*rawVals[i])
+			if f.FieldType == "free_format_date" {
+				var m map[string]interface{}
+				if err := json.Unmarshal([]byte(raw), &m); err == nil {
+					if fs, ok := m["format_string"].(string); ok {
+						rendered := fs
+						if ph, ok := m["placeholders"].(map[string]interface{}); ok {
+							for k, v := range ph {
+								rendered = strings.ReplaceAll(rendered, "{"+k+"}", fmt.Sprintf("%v", v))
+							}
+						}
+						ep.CustomFields[f.MachineFieldName] = rendered
+					}
+				}
+			} else {
+				ep.CustomFields[f.MachineFieldName] = raw
 			}
 		}
 

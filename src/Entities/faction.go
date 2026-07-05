@@ -11,6 +11,7 @@ type Faction struct {
 	Characters         []CharacterListItem `json:"characters"`
 	FactionStatus      FactionStatus       `json:"faction_status"`
 	FactionSettingName *string             `json:"faction_setting_name"`
+	FreeFormatDateId   *int                `json:"free_format_date_id"`
 }
 
 type ClaimFactionResponse struct {
