@@ -865,6 +865,9 @@ func main() {
 	publicRouter.GET("/external-app/active-topics", "Get active topics for an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
 		Controllers.ExternalAppGetActiveTopics(c, Services.DB)
 	})
+	publicRouter.GET("/external-app/topic-first-post", "Get the first post content of a topic (authenticated via X-Api-Key header)", func(c *gin.Context) {
+		Controllers.ExternalAppGetTopicFirstPost(c, Services.DB)
+	})
 
 	// External apps routes
 	protectedRouter.GET("/admin/external-app/list", "Get list of all external apps", func(c *gin.Context) {

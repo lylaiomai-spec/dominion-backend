@@ -181,7 +181,9 @@ func fillEntity(entity interface{}, data map[string]interface{}, config []Entiti
 					} else if conf.FieldType == "free_format_date" {
 						if m, ok := val.(map[string]interface{}); ok {
 							cfValue.Data = m
-							if fs, ok := m["format_string"].(string); ok {
+							if fs, ok := m["formatted_string"].(string); fs != "" && ok {
+								cfValue.Content = fs
+							} else if fs, ok := m["format_string"].(string); ok {
 								rendered := fs
 								if placeholders, ok := m["placeholders"].(map[string]interface{}); ok {
 									for k, v := range placeholders {
@@ -369,6 +371,22 @@ func computeFreeFormatDateSort(freeFormatDateId *int, placeholders map[string]in
 					}
 				}
 			}
+		} else if p.IsHiddenNegative {
+			// User inputs positive values [min,max] but sorting treats the range as [-max,-min].
+			// Mapping: input v → normalized = v - min (null → max, placing it after all valid values).
+			max := int64(0)
+			if p.MaxValue != nil {
+				max = int64(*p.MaxValue)
+			}
+			min := int64(0)
+			if p.MinValue != nil {
+				min = int64(*p.MinValue)
+			}
+			if f, ok := raw.(float64); ok {
+				val = int64(f) - min
+			} else if raw == nil {
+				val = max
+			}
 		} else {
 			min := int64(0)
 			if p.MinValue != nil {
@@ -412,11 +430,19 @@ func buildFreeFormatDateStoredValue(raw map[string]interface{}, entityId int64, 
 
 	sortVal = computeFreeFormatDateSort(freeFormatDateId, placeholders, db)
 
+	formattedString := formatString
+	if placeholders != nil {
+		for k, v := range placeholders {
+			formattedString = strings.ReplaceAll(formattedString, "{"+k+"}", fmt.Sprintf("%v", v))
+		}
+	}
+
 	stored := Entities.FreeFormatDateFieldValue{
 		EntityId:         int(entityId),
 		EntityType:       entityType,
 		FreeFormatDateId: freeFormatDateId,
 		FormatString:     formatString,
+		FormattedString:  formattedString,
 		Placeholders:     placeholders,
 		SortValue:        sortVal,
 	}

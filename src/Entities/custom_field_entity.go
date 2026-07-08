@@ -49,13 +49,14 @@ const (
 )
 
 type FreeFormatDatePlaceholder struct {
-	Type       FreeFormatDatePlaceholderType `json:"type"`
-	Name       string                        `json:"name"`
-	Position   int                           `json:"position"`
-	IsNullable bool                          `json:"is_nullable"`
-	ValueList  []string                      `json:"value_list,omitempty"`
-	MinValue   *int                          `json:"min_value,omitempty"`
-	MaxValue   *int                          `json:"max_value,omitempty"`
+	Type             FreeFormatDatePlaceholderType `json:"type"`
+	Name             string                        `json:"name"`
+	Position         int                           `json:"position"`
+	IsNullable       bool                          `json:"is_nullable"`
+	IsHiddenNegative bool                          `json:"is_hidden_negative,omitempty"`
+	ValueList        []string                      `json:"value_list,omitempty"`
+	MinValue         *int                          `json:"min_value,omitempty"`
+	MaxValue         *int                          `json:"max_value,omitempty"`
 }
 
 type FreeFormatDate struct {
@@ -68,6 +69,7 @@ type FreeFormatDateFieldValue struct {
 	EntityType       string                 `json:"entity_type"`
 	FreeFormatDateId *int                   `json:"free_format_date_id,omitempty"`
 	FormatString     string                 `json:"format_string"`
+	FormattedString  string                 `json:"formatted_string"`
 	Placeholders     map[string]interface{} `json:"placeholders"`
 	SortValue        int64                  `json:"sort_value"`
 }

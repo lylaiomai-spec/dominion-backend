@@ -592,6 +592,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 			SELECT
 				c.id,
 				c.name,
+				c.avatar,
 				f.id AS faction_id,
 				ROW_NUMBER() OVER(PARTITION BY c.id ORDER BY f.level DESC) AS rn
 			FROM character_base c
@@ -600,7 +601,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 			JOIN topics t ON t.id = c.topic_id AND t.status != ?
 			WHERE c.character_status = 0
 		)
-		SELECT id, name, faction_id FROM RankedFactions WHERE rn = 1
+		SELECT id, name, avatar, faction_id FROM RankedFactions WHERE rn = 1
 	`
 	charRows, err := db.Query(charQuery, Entities.DeletedTopic)
 	if err != nil {
@@ -613,7 +614,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 	for charRows.Next() {
 		var item Entities.CharacterListItem
 		var factionID int
-		if err := charRows.Scan(&item.Id, &item.Name, &factionID); err != nil {
+		if err := charRows.Scan(&item.Id, &item.Name, &item.Avatar, &factionID); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan character: " + err.Error()})
 			c.Abort()
 			return
@@ -775,7 +776,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 
 func GetCharacterAutocomplete(c *gin.Context, db *sql.DB) {
 	query := `
-		SELECT cb.id, cb.name FROM character_base cb
+		SELECT cb.id, cb.name, cb.avatar FROM character_base cb
 		JOIN topics t ON t.id = cb.topic_id AND t.status != ?
 		WHERE cb.name LIKE ? AND cb.character_status = 0 ORDER BY cb.name ASC LIMIT 10
 	`
@@ -789,7 +790,7 @@ func GetCharacterAutocomplete(c *gin.Context, db *sql.DB) {
 	var characters []Entities.ShortCharacter
 	for rows.Next() {
 		var tempCharacter Entities.ShortCharacter
-		if err := rows.Scan(&tempCharacter.Id, &tempCharacter.Name); err != nil {
+		if err := rows.Scan(&tempCharacter.Id, &tempCharacter.Name, &tempCharacter.Avatar); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan character: " + err.Error()})
 		}
 		characters = append(characters, tempCharacter)

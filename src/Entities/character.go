@@ -32,8 +32,9 @@ func (c *Character) GetBaseFields() []string {
 }
 
 type ShortCharacter struct {
-	Id   int    `json:"id"`
-	Name string `json:"name"`
+	Id     int     `json:"id"`
+	Name   string  `json:"name"`
+	Avatar *string `json:"avatar"`
 }
 
 type CharacterStatus int
@@ -99,6 +100,7 @@ func (w *WantedCharacter) GetBaseFields() []string {
 type CharacterListItem struct {
 	Id                  int     `json:"id"`
 	Name                string  `json:"name"`
+	Avatar              *string `json:"avatar"`
 	IsClaim             bool    `json:"is_claim"`
 	WantedCharacterId   *int    `json:"wanted_character_id"`
 	ClaimRecordId       *int    `json:"claim_record_id,omitempty"`

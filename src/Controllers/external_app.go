@@ -244,7 +244,7 @@ func AddExternalAppPermission(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	if req.Permission != Entities.ExternalAppPermissionPost && req.Permission != Entities.ExternalAppPermissionGetActiveTopics {
+	if req.Permission != Entities.ExternalAppPermissionPost && req.Permission != Entities.ExternalAppPermissionGetActiveTopics && req.Permission != Entities.ExternalAppPermissionGetFirstPost {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid permission value"})
 		c.Abort()
 		return

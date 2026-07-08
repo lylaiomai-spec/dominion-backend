@@ -129,6 +129,60 @@ func ExternalAppPost(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusCreated, gin.H{"post_id": postId})
 }
 
+func ExternalAppGetTopicFirstPost(c *gin.Context, db *sql.DB) {
+	appId, ok := authenticateExternalApp(c, db)
+	if !ok {
+		return
+	}
+
+	topicId, err := strconv.Atoi(c.Query("topic_id"))
+	if err != nil || topicId <= 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid topic_id"})
+		c.Abort()
+		return
+	}
+
+	var subforumId sql.NullInt64
+	if err := db.QueryRow("SELECT subforum_id FROM topics WHERE id = ?", topicId).Scan(&subforumId); err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Topic not found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check topic"})
+		}
+		c.Abort()
+		return
+	}
+
+	var hasPermission bool
+	if err := db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM external_app_permissions WHERE external_app_id = ? AND subforum_id = ? AND permission = ?)",
+		appId, subforumId, string(Entities.ExternalAppPermissionGetFirstPost),
+	).Scan(&hasPermission); err != nil || !hasPermission {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "External app does not have get_first_post permission for this subforum"})
+		c.Abort()
+		return
+	}
+
+	var postId int
+	var content string
+	err = db.QueryRow(
+		"SELECT id, content FROM posts WHERE topic_id = ? AND (is_deleted IS NULL OR is_deleted = 0) ORDER BY id ASC LIMIT 1",
+		topicId,
+	).Scan(&postId, &content)
+	if err == sql.ErrNoRows {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "No posts found for topic"})
+		c.Abort()
+		return
+	}
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get first post"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"post_id": postId, "content": content, "content_html": Services.ParseBBCode(content)})
+}
+
 func ExternalAppGetActiveTopics(c *gin.Context, db *sql.DB) {
 	appId, ok := authenticateExternalApp(c, db)
 	if !ok {
