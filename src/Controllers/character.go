@@ -1669,6 +1669,22 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	// If this character was accepted via a claim, free the wanted character again
+	var deactClaimRecordId int
+	var deactClaimId int
+	if err := tx.QueryRow("SELECT id, claim_id FROM claim_record WHERE character_id = ? ORDER BY claim_date DESC LIMIT 1", id).Scan(&deactClaimRecordId, &deactClaimId); err == nil {
+		if _, err := tx.Exec("UPDATE character_claim SET is_claimed = false WHERE id = ?", deactClaimId); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to reset character claim: " + err.Error()})
+			c.Abort()
+			return
+		}
+		if _, err := tx.Exec("UPDATE wanted_character_base SET is_claimed = false WHERE character_claim_id = ?", deactClaimId); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to free wanted character: " + err.Error()})
+			c.Abort()
+			return
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
 		c.Abort()

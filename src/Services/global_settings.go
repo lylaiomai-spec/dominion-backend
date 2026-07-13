@@ -6,9 +6,9 @@ import (
 )
 
 func GetGlobalSetting(name string, db *sql.DB) (string, error) {
-	var value string
+	var value sql.NullString
 	err := db.QueryRow("SELECT setting_value FROM global_settings WHERE setting_name = ?", name).Scan(&value)
-	return value, err
+	return value.String, err
 }
 
 func GetPostsPerPage(db *sql.DB) int {

@@ -35,10 +35,12 @@ func GetGitHubConfig(db *sql.DB) (GitHubConfig, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var name, value string
-		if err := rows.Scan(&name, &value); err != nil {
+		var name string
+		var nullValue sql.NullString
+		if err := rows.Scan(&name, &nullValue); err != nil {
 			continue
 		}
+		value := nullValue.String
 		switch name {
 		case "github_token":
 			cfg.Token = value

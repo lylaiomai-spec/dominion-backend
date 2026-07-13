@@ -50,12 +50,14 @@ func GetBoard(c *gin.Context, db *sql.DB) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var name, value string
-		if err := rows.Scan(&name, &value); err != nil {
+		var name string
+		var nullValue sql.NullString
+		if err := rows.Scan(&name, &nullValue); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan settings: " + err.Error()})
 			c.Abort()
 			return
 		}
+		value := nullValue.String
 		switch name {
 		case "site_name":
 			boardInfo.SiteName = value

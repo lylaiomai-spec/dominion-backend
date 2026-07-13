@@ -90,6 +90,7 @@ type WantedCharacter struct {
 	CustomFields          CustomFieldEntity     `json:"custom_fields" db:"-"`
 	Factions              []Faction             `json:"factions" db:"-"`
 	ClaimRecord           *ClaimRecord          `json:"claim_record,omitempty" db:"-"`
+	ActiveClaimRecord     *time.Time            `json:"active_claim_record" db:"-"`
 	UserInfo              *UserInfo             `json:"user_info,omitempty" db:"-"`
 }
 

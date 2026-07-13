@@ -22,11 +22,13 @@ func GetGlobalSettings(c *gin.Context, db *sql.DB) {
 	var settings []Entities.Setting
 	for rows.Next() {
 		var s Entities.Setting
-		if err := rows.Scan(&s.SettingName, &s.SettingValue); err != nil {
+		var value sql.NullString
+		if err := rows.Scan(&s.SettingName, &value); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan setting: " + err.Error()})
 			c.Abort()
 			return
 		}
+		s.SettingValue = value.String
 		settings = append(settings, s)
 	}
 

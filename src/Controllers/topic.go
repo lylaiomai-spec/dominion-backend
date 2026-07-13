@@ -108,8 +108,8 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 		SELECT topics.id, topics.status, topics.name, topics.type, topics.date_last_post, topics.post_number,
 		       topics.author_user_id, u.username as author_username,
 		       topics.last_post_author_user_id, u2.username as last_post_author_username,
-		       COALESCE(topics.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = topics.id)) as last_post_id,
-		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < COALESCE(topics.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = topics.id))) THEN 1 ELSE 0 END) as not_viewed,
+		       (SELECT MAX(id) FROM posts WHERE topic_id = topics.id AND (is_deleted IS NULL OR is_deleted = 0)) as last_post_id,
+		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = topics.id AND (is_deleted IS NULL OR is_deleted = 0))) THEN 1 ELSE 0 END) as not_viewed,
 		       utv.post_id as last_viewed_id,
 		       COALESCE(topics.is_sticky, false) as is_sticky,
 		       COALESCE(topics.is_sticky_first_post, false) as is_sticky_first_post,
@@ -850,6 +850,9 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 				if wc.CharacterClaimId != nil {
 					wc.Factions, _ = Services.GetFactionTreeByCharacterClaim(*wc.CharacterClaimId, db)
 					wc.ClaimRecord = fetchActiveClaimRecord(*wc.CharacterClaimId, db)
+					if wc.ClaimRecord != nil {
+						wc.ActiveClaimRecord = &wc.ClaimRecord.ClaimExpirationDate
+					}
 				}
 				wc.UserInfo = fetchUserInfo(wc.AuthorUserId, db)
 				topic.WantedCharacter = wc
@@ -1634,8 +1637,8 @@ func GetActiveTopics(c *gin.Context, db *sql.DB) {
 		SELECT t.id, t.status, t.name, t.type, t.date_last_post, t.post_number, 
 		       t.author_user_id, u.username as author_username,
 		       t.last_post_author_user_id, u2.username as last_post_author_username, 
-		       COALESCE(t.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = t.id)) as last_post_id,
-		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < COALESCE(t.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = t.id))) THEN 1 ELSE 0 END) as not_viewed,
+		       (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0)) as last_post_id,
+		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0))) THEN 1 ELSE 0 END) as not_viewed,
 		       utv.post_id as last_viewed_id
 		FROM topics t
 		JOIN users u ON t.author_user_id = u.id
@@ -1651,7 +1654,7 @@ func GetActiveTopics(c *gin.Context, db *sql.DB) {
 	}
 
 	if notViewed && userID != 0 {
-		query += " AND (utv.post_id IS NULL OR utv.post_id < COALESCE(t.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = t.id)))"
+		query += " AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0)))"
 	}
 
 	query += " AND t.date_last_post >= DATE_SUB(NOW(), INTERVAL 10 DAY)"
@@ -1770,7 +1773,7 @@ func GetActiveTopicCount(c *gin.Context, db *sql.DB) {
 	}
 
 	if notViewed && userID != 0 {
-		query += " AND (utv.post_id IS NULL OR utv.post_id < COALESCE(t.last_post_id, (SELECT MAX(id) FROM posts WHERE topic_id = t.id)))"
+		query += " AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0)))"
 	}
 
 	query += " AND t.date_last_post >= DATE_SUB(NOW(), INTERVAL 10 DAY)"

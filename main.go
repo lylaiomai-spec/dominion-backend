@@ -859,7 +859,7 @@ func main() {
 	})
 
 	// External app public endpoints
-	publicRouter.POST("/external-app/post", "Create a post as an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
+	publicRouter.POST(" ", "Create a post as an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
 		Controllers.ExternalAppPost(c, Services.DB)
 	})
 	publicRouter.GET("/external-app/active-topics", "Get active topics for an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
