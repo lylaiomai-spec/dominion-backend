@@ -623,7 +623,7 @@ create table claim_record
     guest_hash             varchar(255) null,
     is_guest               boolean      default false not null,
     claim_date             datetime     not null,
-    claim_expiration_date  datetime     not null,
+    claim_expiration_date  datetime     null,
     character_id                        bigint unsigned null,
     claim_created_with_character_sheet  boolean null,
     constraint fk_claim_record_claim      foreign key (claim_id) references character_claim (id) on delete cascade,
@@ -699,7 +699,7 @@ create table widget_types
 );
 
 INSERT INTO widget_types (name, config_template, func) VALUES ('last_post', '{"topic_id": {"type": "int"}}', 'WidgetLastPost');
-INSERT INTO widget_types (name, config_template, func) VALUES ('random_entities', '{"number": {"type": "int"}, "entity_type": {"type": "string", "values": ["wanted_character", "character"]}, "entity_field_1": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}, "entity_field_2": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}}', 'WidgetRandomEntities');
+INSERT INTO widget_types (name, config_template, func) VALUES ('random_entities', '{"number": {"type": "int"}, "entity_type": {"type": "string", "values": ["wanted_character", "character"]}, "entity_field_1": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}, "entity_field_2": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}, "filters": {"type": "filters", "can_empty": true}}', 'WidgetRandomEntities');
 
 create table widgets
 (

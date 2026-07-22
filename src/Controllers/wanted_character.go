@@ -108,7 +108,7 @@ func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
 			wc.Factions, _ = Services.GetFactionTreeByCharacterClaim(*wc.CharacterClaimId, db)
 			wc.ClaimRecord = fetchActiveClaimRecord(*wc.CharacterClaimId, db)
 			if wc.ClaimRecord != nil {
-				wc.ActiveClaimRecord = &wc.ClaimRecord.ClaimExpirationDate
+				wc.ActiveClaimRecord = wc.ClaimRecord.ClaimExpirationDate
 			}
 		} else {
 			wc.Factions = []Entities.Faction{}
@@ -270,7 +270,7 @@ func GetWantedCharacter(c *gin.Context, db *sql.DB) {
 			wc.Factions, _ = Services.GetFactionTreeByCharacterClaim(*wc.CharacterClaimId, db)
 			wc.ClaimRecord = fetchActiveClaimRecord(*wc.CharacterClaimId, db)
 			if wc.ClaimRecord != nil {
-				wc.ActiveClaimRecord = &wc.ClaimRecord.ClaimExpirationDate
+				wc.ActiveClaimRecord = wc.ClaimRecord.ClaimExpirationDate
 			}
 		} else {
 			wc.Factions = []Entities.Faction{}
@@ -675,8 +675,8 @@ func GetWantedCharacterAutocomplete(c *gin.Context, db *sql.DB) {
 		JOIN topics t_wc ON t_wc.id = wcb.topic_id AND t_wc.status != ?
 		LEFT JOIN character_claim cc ON cc.id = wcb.character_claim_id
 		LEFT JOIN claim_record cr ON cr.claim_id = cc.id
-			AND cr.claim_expiration_date > NOW()
-			AND cr.id = (SELECT MAX(id) FROM claim_record WHERE claim_id = cc.id AND claim_expiration_date > NOW())
+			AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())
+			AND cr.id = (SELECT MAX(id) FROM claim_record WHERE claim_id = cc.id AND (claim_expiration_date IS NULL OR claim_expiration_date > NOW()))
 		WHERE wcb.name LIKE ? AND (wcb.is_deleted IS NULL OR wcb.is_deleted = false) AND wcb.wanted_character_status = 0
 		ORDER BY wcb.name ASC LIMIT 10
 	`
@@ -696,8 +696,8 @@ func GetClaimAutocomplete(c *gin.Context, db *sql.DB) {
 		FROM character_claim cc
 		LEFT JOIN wanted_character_base wcb ON wcb.character_claim_id = cc.id
 		LEFT JOIN claim_record cr ON cr.claim_id = cc.id
-			AND cr.claim_expiration_date > NOW()
-			AND cr.id = (SELECT MAX(id) FROM claim_record WHERE claim_id = cc.id AND claim_expiration_date > NOW())
+			AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())
+			AND cr.id = (SELECT MAX(id) FROM claim_record WHERE claim_id = cc.id AND (claim_expiration_date IS NULL OR claim_expiration_date > NOW()))
 		WHERE cc.name LIKE ? AND wcb.id IS NULL AND cc.is_claimed IS NOT TRUE AND cr.id IS NULL
 		ORDER BY cc.name ASC LIMIT 10
 	`
@@ -736,7 +736,7 @@ func fetchActiveClaimRecord(characterClaimId int, db *sql.DB) *Entities.ClaimRec
 		SELECT cr.id, cr.claim_id, cr.user_id, cr.guest_hash, cr.is_guest, cr.claim_date, cr.claim_expiration_date, cr.character_id, cr.claim_created_with_character_sheet, u.id, u.username
 		FROM claim_record cr
 		LEFT JOIN users u ON u.id = cr.user_id
-		WHERE cr.claim_id = ? AND cr.claim_expiration_date > NOW()
+		WHERE cr.claim_id = ? AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())
 		ORDER BY cr.claim_date DESC
 		LIMIT 1
 	`, characterClaimId).Scan(&cr.Id, &cr.ClaimId, &cr.UserId, &cr.GuestHash, &cr.IsGuest, &cr.ClaimDate, &cr.ClaimExpirationDate, &cr.CharacterId, &cr.ClaimCreatedWithCharacterSheet, &cr.ClaimAuthorId, &cr.ClaimAuthorUsername)

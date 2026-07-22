@@ -186,18 +186,46 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 		selectFields += fmt.Sprintf(", f.%s", field2)
 	}
 
+	var filterClauses []string
+	var filterArgs []interface{}
+	if rawFilters, ok := config["filters"]; ok && rawFilters != nil {
+		filtersMap, ok := rawFilters.(map[string]interface{})
+		if !ok {
+			return "", fmt.Errorf("invalid filters format")
+		}
+		for fieldName, rawVals := range filtersMap {
+			if !safeFieldName.MatchString(fieldName) {
+				return "", fmt.Errorf("invalid filter field name: %s", fieldName)
+			}
+			vals, ok := rawVals.([]interface{})
+			if !ok || len(vals) == 0 {
+				continue
+			}
+			placeholders := strings.Repeat("?,", len(vals))
+			placeholders = placeholders[:len(placeholders)-1]
+			filterClauses = append(filterClauses, fmt.Sprintf("f.%s IN (%s)", fieldName, placeholders))
+			filterArgs = append(filterArgs, vals...)
+		}
+	}
+
 	statusColumn := entityType + "_status"
+	whereClause := fmt.Sprintf("b.%s = 0", statusColumn)
+	if len(filterClauses) > 0 {
+		whereClause += " AND " + strings.Join(filterClauses, " AND ")
+	}
+
 	query := fmt.Sprintf(`
 		SELECT b.id, b.topic_id, b.name, %s
 		FROM %s_base b
 		JOIN %s_flattened f ON b.id = f.entity_id
-		WHERE b.%s = 0
+		WHERE %s
 		ORDER BY RAND()
 		LIMIT ?`,
-		selectFields, entityType, entityType, statusColumn,
+		selectFields, entityType, entityType, whereClause,
 	)
 
-	rows, err := db.Query(query, number)
+	queryArgs := append(filterArgs, number)
+	rows, err := db.Query(query, queryArgs...)
 	if err != nil {
 		return "", fmt.Errorf("failed to query random entities: %w", err)
 	}

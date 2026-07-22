@@ -252,7 +252,6 @@ func ExternalAppGetActiveTopics(c *gin.Context, db *sql.DB) {
 		JOIN users u ON t.author_user_id = u.id
 		LEFT JOIN users u2 ON t.last_post_author_user_id = u2.id
 		WHERE t.subforum_id IN (%s)
-		  AND t.date_last_post >= DATE_SUB(NOW(), INTERVAL 10 DAY)
 		  AND t.status = ?
 		ORDER BY t.date_last_post DESC
 		LIMIT ? OFFSET ?

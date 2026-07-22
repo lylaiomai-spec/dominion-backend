@@ -34,6 +34,37 @@ type UpdateCharacterRequest struct {
 	ClaimType    string                 `json:"claim_type"`
 }
 
+func attachPendingClaimRecord(tx *sql.Tx, claimId int, userId int, characterId int64) error {
+	var standaloneRecordId int
+	err := tx.QueryRow("SELECT id FROM claim_record WHERE claim_id = ? AND user_id = ? AND character_id IS NULL", claimId, userId).Scan(&standaloneRecordId)
+	if err == nil {
+		if _, err := tx.Exec("UPDATE claim_record SET claim_expiration_date = DATE_SUB(NOW(), INTERVAL 1 MINUTE) WHERE id = ?", standaloneRecordId); err != nil {
+			return fmt.Errorf("failed to expire standalone claim record: %w", err)
+		}
+	} else if err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check standalone claim record: %w", err)
+	}
+
+	res, err := tx.Exec(
+		"INSERT INTO claim_record (claim_id, user_id, is_guest, claim_date, claim_expiration_date, character_id, claim_created_with_character_sheet) VALUES (?, ?, false, NOW(), NULL, ?, true)",
+		claimId, userId, characterId,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create claim record: %w", err)
+	}
+	newClaimRecordId, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get new claim record ID: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE character_claim SET claim_record_id = ? WHERE id = ?", newClaimRecordId, claimId); err != nil {
+		return fmt.Errorf("failed to update character claim: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE wanted_character_base SET is_claimed = true WHERE character_claim_id = ?", claimId); err != nil {
+		return fmt.Errorf("failed to mark wanted character as claimed: %w", err)
+	}
+	return nil
+}
+
 func GetCharacter(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -253,41 +284,8 @@ func CreateCharacter(c *gin.Context, db *sql.DB) {
 			claimId = *characterClaimId
 		}
 
-		// Expire the existing standalone claim record if present
-		var existingRecordId int
-		err := tx.QueryRow("SELECT id FROM claim_record WHERE claim_id = ? AND user_id = ? AND character_id IS NULL", claimId, userID).Scan(&existingRecordId)
-		if err == nil {
-			if _, err := tx.Exec("UPDATE claim_record SET claim_expiration_date = DATE_SUB(NOW(), INTERVAL 1 MINUTE) WHERE id = ?", existingRecordId); err != nil {
-				_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to expire old claim record: " + err.Error()})
-				c.Abort()
-				return
-			}
-		} else if err != sql.ErrNoRows {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check claim record: " + err.Error()})
-			c.Abort()
-			return
-		}
-
-		// Create a new claim record associated with the character sheet
-		newClaimRes, err := tx.Exec(
-			"INSERT INTO claim_record (claim_id, user_id, is_guest, claim_date, claim_expiration_date, character_id, claim_created_with_character_sheet) VALUES (?, ?, false, NOW(), DATE_ADD(NOW(), INTERVAL 5 DAY), ?, true)",
-			claimId, userID, characterID,
-		)
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create claim record: " + err.Error()})
-			c.Abort()
-			return
-		}
-		newClaimRecordId, err := newClaimRes.LastInsertId()
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get new claim record ID"})
-			c.Abort()
-			return
-		}
-
-		// Update character_claim so the new record shows in the character list
-		if _, err := tx.Exec("UPDATE character_claim SET claim_record_id = ? WHERE id = ?", newClaimRecordId, claimId); err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update character claim: " + err.Error()})
+		if err := attachPendingClaimRecord(tx, claimId, userID, characterID); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: err.Error()})
 			c.Abort()
 			return
 		}
@@ -498,7 +496,7 @@ func UpdateCharacter(c *gin.Context, db *sql.DB) {
 				}
 				if newClaimId != -1 {
 					if _, err := tx.Exec(
-						"INSERT INTO claim_record (claim_id, user_id, is_guest, claim_date, claim_expiration_date, character_id, claim_created_with_character_sheet) VALUES (?, ?, false, NOW(), DATE_ADD(NOW(), INTERVAL 5 DAY), ?, true)",
+						"INSERT INTO claim_record (claim_id, user_id, is_guest, claim_date, claim_expiration_date, character_id, claim_created_with_character_sheet) VALUES (?, ?, false, NOW(), NULL, ?, true)",
 						newClaimId, userID, characterID,
 					); err != nil {
 						_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create claim record: " + err.Error()})
@@ -509,7 +507,7 @@ func UpdateCharacter(c *gin.Context, db *sql.DB) {
 			}
 		} else if err == sql.ErrNoRows && newClaimId != -1 {
 			if _, err := tx.Exec(
-				"INSERT INTO claim_record (claim_id, user_id, is_guest, claim_date, claim_expiration_date, character_id, claim_created_with_character_sheet) VALUES (?, ?, false, NOW(), DATE_ADD(NOW(), INTERVAL 5 DAY), ?, true)",
+				"INSERT INTO claim_record (claim_id, user_id, is_guest, claim_date, claim_expiration_date, character_id, claim_created_with_character_sheet) VALUES (?, ?, false, NOW(), NULL, ?, true)",
 				newClaimId, userID, characterID,
 			); err != nil {
 				_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create claim record: " + err.Error()})
@@ -669,7 +667,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 			FROM wanted_character_base
 			GROUP BY character_claim_id
 		) wc ON wc.character_claim_id = r.id
-		LEFT JOIN claim_record cr ON cr.id = r.claim_record_id AND cr.claim_expiration_date > NOW()
+		LEFT JOIN claim_record cr ON cr.id = r.claim_record_id AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())
 		LEFT JOIN users u ON u.id = cr.user_id
 		LEFT JOIN character_base cb ON cb.id = cr.character_id
 		WHERE r.rn = 1
@@ -753,7 +751,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 		WHERE cc.is_claimed IS NOT TRUE
 		AND cc.id NOT IN (SELECT character_claim_id FROM character_claim_faction)
 		AND (wc.id IS NULL OR wc.wanted_character_status = 0)
-		AND (cc.show_only_with_active_claim = false OR (cr.id IS NOT NULL AND cr.claim_expiration_date > NOW()))
+		AND (cc.show_only_with_active_claim = false OR (cr.id IS NOT NULL AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())))
 		AND (cr.character_id IS NULL OR cb.character_status = 2)
 	`)
 	if err == nil {
@@ -1209,13 +1207,13 @@ func AcceptCharacter(c *gin.Context, db *sql.DB) {
 	var claimRecordId int
 	var claimId int
 	if err := tx.QueryRow("SELECT id, claim_id FROM claim_record WHERE character_id = ? ORDER BY claim_date DESC LIMIT 1", id).Scan(&claimRecordId, &claimId); err == nil {
-		if _, err := tx.Exec("UPDATE character_claim SET is_claimed = true, claim_record_id = ? WHERE id = ?", claimRecordId, claimId); err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update character claim: " + err.Error()})
+		if _, err := tx.Exec("UPDATE claim_record SET claim_expiration_date = NOW() WHERE id = ?", claimRecordId); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to close claim record: " + err.Error()})
 			c.Abort()
 			return
 		}
-		if _, err := tx.Exec("UPDATE wanted_character_base SET is_claimed = true WHERE character_claim_id = ?", claimId); err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update wanted character: " + err.Error()})
+		if _, err := tx.Exec("UPDATE character_claim SET is_claimed = true, claim_record_id = ? WHERE id = ?", claimRecordId, claimId); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update character claim: " + err.Error()})
 			c.Abort()
 			return
 		}
@@ -1561,7 +1559,7 @@ func DeleteCharacterClaim(c *gin.Context, db *sql.DB) {
 	// Reject if any claim record is still active (not yet expired)
 	var activeCount int
 	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM claim_record WHERE claim_id = ? AND claim_expiration_date >= NOW()",
+		"SELECT COUNT(*) FROM claim_record WHERE claim_id = ? AND (claim_expiration_date IS NULL OR claim_expiration_date >= NOW())",
 		id,
 	).Scan(&activeCount); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check active claim records: " + err.Error()})
@@ -1752,6 +1750,11 @@ func DeclineCharacter(c *gin.Context, db *sql.DB) {
 			c.Abort()
 			return
 		}
+		if _, err := tx.Exec("UPDATE wanted_character_base SET is_claimed = false WHERE character_claim_id = ?", claimId); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to free wanted character: " + err.Error()})
+			c.Abort()
+			return
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1788,7 +1791,15 @@ func PendingCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	result, err := db.Exec("UPDATE character_base SET character_status = ? WHERE id = ?", Entities.PendingCharacter, id)
+	tx, err := db.Begin()
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
+		c.Abort()
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec("UPDATE character_base SET character_status = ? WHERE id = ?", Entities.PendingCharacter, id)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to set character to pending: " + err.Error()})
 		c.Abort()
@@ -1797,6 +1808,22 @@ func PendingCharacter(c *gin.Context, db *sql.DB) {
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
+		c.Abort()
+		return
+	}
+
+	var prevClaimId int
+	var prevUserId int
+	if err := tx.QueryRow("SELECT claim_id, user_id FROM claim_record WHERE character_id = ? ORDER BY claim_date DESC LIMIT 1", id).Scan(&prevClaimId, &prevUserId); err == nil {
+		if err := attachPendingClaimRecord(tx, prevClaimId, prevUserId, int64(id)); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: err.Error()})
+			c.Abort()
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
 		c.Abort()
 		return
 	}
