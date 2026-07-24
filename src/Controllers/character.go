@@ -1949,14 +1949,20 @@ func buildCustomFieldFilters(c *gin.Context, flatAlias, baseAlias string, allowe
 	for _, fc := range fieldConfigs {
 		customFieldNames[fc.MachineFieldName] = true
 	}
+	addFilter := func(col, val string) {
+		if val == "false" {
+			wheres = append(wheres, "("+col+" = false OR "+col+" IS NULL)")
+		} else {
+			wheres = append(wheres, col+" = ?")
+			args = append(args, coerceFilterValue(val))
+		}
+	}
 	for key, values := range c.Request.URL.Query() {
 		val := values[0]
 		if col, ok := allowedBaseFields[key]; ok {
-			wheres = append(wheres, col+" = ?")
-			args = append(args, coerceFilterValue(val))
+			addFilter(col, val)
 		} else if customFieldNames[key] {
-			wheres = append(wheres, fmt.Sprintf("%s.`%s` = ?", flatAlias, key))
-			args = append(args, coerceFilterValue(val))
+			addFilter(fmt.Sprintf("%s.`%s`", flatAlias, key), val)
 		}
 	}
 	clause := ""
@@ -2010,14 +2016,15 @@ func CustomFieldList(c *gin.Context, db *sql.DB) {
 		"character_status": "cb.character_status",
 		"is_archived":      "cb.is_archived",
 		"user_id":          "cb.user_id",
+		"topic_status":     "t.status",
 	}
 	filterClause, filterArgs := buildCustomFieldFilters(c, "cf", "cb", baseFields, fieldConfigs)
 
 	query := fmt.Sprintf(
-		"SELECT cf.`%s`, cb.id, cb.name FROM character_flattened cf JOIN character_base cb ON cb.id = cf.entity_id WHERE cf.`%s` IS NOT NULL AND cf.`%s` != ''%s ORDER BY cf.`%s` ASC",
+		"SELECT cf.`%s`, cb.id, cb.name FROM character_flattened cf JOIN character_base cb ON cb.id = cf.entity_id LEFT JOIN topics t ON t.id = cb.topic_id WHERE cf.`%s` IS NOT NULL AND cf.`%s` != '' AND (t.status IS NULL OR t.status != ?)%s ORDER BY cf.`%s` ASC",
 		machineName, machineName, machineName, filterClause, machineName,
 	)
-	rows, err := db.Query(query, filterArgs...)
+	rows, err := db.Query(query, append([]interface{}{Entities.DeletedTopic}, filterArgs...)...)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field values: " + err.Error()})
 		c.Abort()

@@ -361,12 +361,12 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 	var queryArgs []interface{}
 	if isStickyFirstPost && page > 1 {
 		query = fmt.Sprintf(
-			`(%s ORDER BY p.date_created ASC LIMIT 1) UNION ALL (%s ORDER BY p.date_created ASC LIMIT ? OFFSET ?) ORDER BY date_created ASC`,
+			`(%s ORDER BY p.id ASC LIMIT 1) UNION ALL (%s ORDER BY p.id ASC LIMIT ? OFFSET ?) ORDER BY id ASC`,
 			baseQuery, baseQuery,
 		)
 		queryArgs = []interface{}{topicID, topicID, postsPerPage, offset}
 	} else {
-		query = fmt.Sprintf(`%s ORDER BY p.date_created ASC LIMIT ? OFFSET ?`, baseQuery)
+		query = fmt.Sprintf(`%s ORDER BY p.id ASC LIMIT ? OFFSET ?`, baseQuery)
 		queryArgs = []interface{}{topicID, postsPerPage, offset}
 	}
 
