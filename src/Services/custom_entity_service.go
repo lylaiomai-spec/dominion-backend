@@ -12,6 +12,17 @@ import (
 	"unicode"
 )
 
+func ResolveSelectField(val interface{}, options map[string]string) map[string]interface{} {
+	var id int
+	switch v := val.(type) {
+	case float64:
+		id = int(v)
+	case int:
+		id = v
+	}
+	return map[string]interface{}{"id": id, "value": options[strconv.Itoa(id)]}
+}
+
 type BaseEntity interface {
 	GetBaseFields() []string
 }
@@ -177,6 +188,10 @@ func fillEntity(entity interface{}, data map[string]interface{}, config []Entiti
 					if conf.FieldType == "text" {
 						if s, ok := val.(string); ok {
 							cfValue.ContentHtml = ParseBBCode(s)
+						}
+					} else if conf.FieldType == "select" {
+						if conf.Options != nil {
+							cfValue.Content = ResolveSelectField(val, conf.Options)
 						}
 					} else if conf.FieldType == "free_format_date" {
 						if m, ok := val.(map[string]interface{}); ok {
@@ -602,6 +617,10 @@ func CreateEntity(className string, entity interface{}, db DBExecutor) (interfac
 							valInt = &i
 						} else if v, ok := fieldValue.(int); ok {
 							valInt = &v
+						} else if v, ok := fieldValue.(string); ok {
+							if i, err := strconv.Atoi(v); err == nil {
+								valInt = &i
+							}
 						}
 					case "DECIMAL", "FLOAT", "DOUBLE":
 						fieldType = "decimal"
@@ -793,6 +812,10 @@ func PatchEntity(id int64, className string, updates map[string]interface{}, db 
 							valInt = &i
 						} else if v, ok := actualFieldValue.(int); ok {
 							valInt = &v
+						} else if v, ok := actualFieldValue.(string); ok {
+							if i, err := strconv.Atoi(v); err == nil {
+								valInt = &i
+							}
 						}
 					case "DECIMAL", "FLOAT", "DOUBLE":
 						fieldType = "decimal"

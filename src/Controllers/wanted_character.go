@@ -19,8 +19,9 @@ import (
 )
 
 type GetWantedCharacterListRequest struct {
-	FactionIDs []int `json:"faction_ids"`
-	Page       int   `json:"page"`
+	FactionIDs         []int             `json:"faction_ids"`
+	Page               int               `json:"page"`
+	CustomFieldFilters map[string]string `json:"custom_field_filters"`
 }
 
 type UpdateWantedCharacterRequest struct {
@@ -45,12 +46,18 @@ func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	baseWhere := `
+	baseFrom := `
 		FROM wanted_character_base wcb
-		JOIN topics t_wc ON t_wc.id = wcb.topic_id AND t_wc.status != ?
-		WHERE wcb.is_claimed = false AND (wcb.is_deleted IS NULL OR wcb.is_deleted = false) AND wcb.wanted_character_status = 0`
+		JOIN topics t_wc ON t_wc.id = wcb.topic_id AND t_wc.status != ?`
 
 	args := []interface{}{Entities.DeletedTopic}
+
+	if len(req.CustomFieldFilters) > 0 {
+		baseFrom += " JOIN wanted_character_flattened wcf ON wcf.entity_id = wcb.id"
+	}
+
+	baseWhere := " WHERE wcb.is_claimed = false AND (wcb.is_deleted IS NULL OR wcb.is_deleted = false) AND wcb.wanted_character_status = 0"
+
 	if len(req.FactionIDs) > 0 {
 		placeholders := make([]string, len(req.FactionIDs))
 		for i, id := range req.FactionIDs {
@@ -60,8 +67,41 @@ func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
 		baseWhere += " AND wcb.character_claim_id IN (SELECT character_claim_id FROM character_claim_faction WHERE faction_id IN (" + strings.Join(placeholders, ",") + "))"
 	}
 
+	if len(req.CustomFieldFilters) > 0 {
+		fieldConfigs, err := Services.GetFieldConfig("wanted_character", db)
+		if err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to load field config: " + err.Error()})
+			c.Abort()
+			return
+		}
+		configMap := make(map[string]Entities.CustomFieldConfig, len(fieldConfigs))
+		for _, fc := range fieldConfigs {
+			configMap[fc.MachineFieldName] = fc
+		}
+		for fieldName, filterValue := range req.CustomFieldFilters {
+			if !safeIdentifier.MatchString(fieldName) {
+				continue
+			}
+			fc, exists := configMap[fieldName]
+			if !exists {
+				continue
+			}
+			if fc.FieldType == "select" || fc.FieldType == "int" {
+				if intVal, err := strconv.Atoi(filterValue); err == nil {
+					baseWhere += fmt.Sprintf(" AND wcf.`%s` = ?", fieldName)
+					args = append(args, intVal)
+				}
+			} else {
+				baseWhere += fmt.Sprintf(" AND wcf.`%s` = ?", fieldName)
+				args = append(args, filterValue)
+			}
+		}
+	}
+
+	baseQuery := baseFrom + baseWhere
+
 	var totalCount int
-	if err := db.QueryRow("SELECT COUNT(*) "+baseWhere, args...).Scan(&totalCount); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) "+baseQuery, args...).Scan(&totalCount); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to count wanted characters: " + err.Error()})
 		c.Abort()
 		return
@@ -76,7 +116,7 @@ func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
 	totalPages := (totalCount + limit - 1) / limit
 
 	query := "SELECT wcb.id, wcb.name, wcb.is_claimed, wcb.author_user_id, wcb.date_created, wcb.character_claim_id, wcb.is_deleted, wcb.topic_id" +
-		baseWhere + " ORDER BY wcb.date_created DESC LIMIT ? OFFSET ?"
+		baseQuery + " ORDER BY wcb.date_created DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
 	rows, err := db.Query(query, args...)
@@ -1009,11 +1049,19 @@ func WantedCustomFieldList(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	baseFields := map[string]string{
+		"is_claimed":              "wb.is_claimed",
+		"is_deleted":              "wb.is_deleted",
+		"wanted_character_status": "wb.wanted_character_status",
+		"author_user_id":          "wb.author_user_id",
+	}
+	filterClause, filterArgs := buildCustomFieldFilters(c, "wf", "wb", baseFields, fieldConfigs)
+
 	query := fmt.Sprintf(
-		"SELECT wf.`%s`, wb.name, wb.topic_id FROM wanted_character_flattened wf JOIN wanted_character_base wb ON wb.id = wf.entity_id WHERE wf.`%s` IS NOT NULL AND wf.`%s` != '' ORDER BY wf.`%s` ASC",
-		machineName, machineName, machineName, machineName,
+		"SELECT wf.`%s`, wb.name, wb.topic_id FROM wanted_character_flattened wf JOIN wanted_character_base wb ON wb.id = wf.entity_id WHERE wf.`%s` IS NOT NULL AND wf.`%s` != ''%s ORDER BY wf.`%s` ASC",
+		machineName, machineName, machineName, filterClause, machineName,
 	)
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, filterArgs...)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field values: " + err.Error()})
 		c.Abort()

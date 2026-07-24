@@ -1013,3 +1013,42 @@ create table external_app_permissions
     constraint fk_external_app_permissions_app     foreign key (external_app_id) references external_apps (id) on delete cascade,
     constraint fk_external_app_permissions_subforum foreign key (subforum_id)    references subforums (id)      on delete cascade
 );
+
+create table user_data_processing
+(
+    id                   int          auto_increment primary key,
+    date_created         datetime     not null,
+    user_id              int          not null,
+    status               int          not null default 0,
+    original_topic_id    varchar(64)  null,
+    original_topic_title varchar(255) null,
+    new_topic_id         int          null,
+    original_post_count  int          null,
+    parsed_post_count    int          null,
+    forum_domain         varchar(255) null,
+    data_extraction_urls json         null,
+    user_character_map   json         null,
+    constraint fk_udp_user foreign key (user_id) references users (id) on delete cascade
+);
+
+create table user_data_migration
+(
+    id                         int          auto_increment primary key,
+    original_forum_domain      varchar(255) null,
+    original_forum_type        int          not null,
+    original_topic_id          varchar(64)  null,
+    original_post_id           varchar(64)  null,
+    original_user_id           varchar(64)  null,
+    original_user_name         varchar(255) null,
+    original_post_content_html mediumtext   null,
+    post_content_bb_parsed     mediumtext   null,
+    user_id                    int          null,
+    character_id               int          null,
+    topic_id                   int          null,
+    post_id                    int          null,
+    is_published               tinyint(1)   not null default 0,
+    date_processed             datetime     null,
+    date_published             datetime     null,
+    processing_id              int          not null,
+    constraint fk_udm_processing foreign key (processing_id) references user_data_processing (id) on delete cascade
+);

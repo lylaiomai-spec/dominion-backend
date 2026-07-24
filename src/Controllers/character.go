@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -1190,18 +1191,32 @@ func AcceptCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// 2. Create a character profile
-	profile := Entities.CharacterProfile{
-		CharacterId:   &id,
-		CharacterName: name,
-		Avatar:        avatar,
-	}
-
-	_, profileID, err := Services.CreateEntity("character_profile", &profile, tx)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create character profile: " + err.Error()})
+	// 2. Ensure an active character profile exists — create one only if none exists yet
+	var profileID int64
+	err = tx.QueryRow("SELECT id FROM character_profile_base WHERE character_id = ? AND is_mask IS NOT TRUE LIMIT 1", id).Scan(&profileID)
+	if err == sql.ErrNoRows {
+		profile := Entities.CharacterProfile{
+			CharacterId:   &id,
+			CharacterName: name,
+			Avatar:        avatar,
+		}
+		_, profileID, err = Services.CreateEntity("character_profile", &profile, tx)
+		if err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create character profile: " + err.Error()})
+			c.Abort()
+			return
+		}
+	} else if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check character profile: " + err.Error()})
 		c.Abort()
 		return
+	} else {
+		// Profile already exists — unarchive it
+		if _, err = tx.Exec("UPDATE character_profile_base SET is_archived = false WHERE character_id = ? AND is_mask IS NOT TRUE", id); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to unarchive character profile: " + err.Error()})
+			c.Abort()
+			return
+		}
 	}
 
 	var claimRecordId int
@@ -1916,6 +1931,41 @@ func CharacterFieldSchema(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"fields": result})
 }
 
+func coerceFilterValue(val string) interface{} {
+	switch val {
+	case "true":
+		return true
+	case "false":
+		return false
+	default:
+		return val
+	}
+}
+
+func buildCustomFieldFilters(c *gin.Context, flatAlias, baseAlias string, allowedBaseFields map[string]string, fieldConfigs []Entities.CustomFieldConfig) (string, []interface{}) {
+	var wheres []string
+	var args []interface{}
+	customFieldNames := map[string]bool{}
+	for _, fc := range fieldConfigs {
+		customFieldNames[fc.MachineFieldName] = true
+	}
+	for key, values := range c.Request.URL.Query() {
+		val := values[0]
+		if col, ok := allowedBaseFields[key]; ok {
+			wheres = append(wheres, col+" = ?")
+			args = append(args, coerceFilterValue(val))
+		} else if customFieldNames[key] {
+			wheres = append(wheres, fmt.Sprintf("%s.`%s` = ?", flatAlias, key))
+			args = append(args, coerceFilterValue(val))
+		}
+	}
+	clause := ""
+	if len(wheres) > 0 {
+		clause = " AND " + strings.Join(wheres, " AND ")
+	}
+	return clause, args
+}
+
 func CustomFieldList(c *gin.Context, db *sql.DB) {
 	machineName := c.Param("machine_name")
 
@@ -1956,11 +2006,18 @@ func CustomFieldList(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	baseFields := map[string]string{
+		"character_status": "cb.character_status",
+		"is_archived":      "cb.is_archived",
+		"user_id":          "cb.user_id",
+	}
+	filterClause, filterArgs := buildCustomFieldFilters(c, "cf", "cb", baseFields, fieldConfigs)
+
 	query := fmt.Sprintf(
-		"SELECT cf.`%s`, cb.id, cb.name FROM character_flattened cf JOIN character_base cb ON cb.id = cf.entity_id WHERE cf.`%s` IS NOT NULL AND cf.`%s` != '' ORDER BY cf.`%s` ASC",
-		machineName, machineName, machineName, machineName,
+		"SELECT cf.`%s`, cb.id, cb.name FROM character_flattened cf JOIN character_base cb ON cb.id = cf.entity_id WHERE cf.`%s` IS NOT NULL AND cf.`%s` != ''%s ORDER BY cf.`%s` ASC",
+		machineName, machineName, machineName, filterClause, machineName,
 	)
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, filterArgs...)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field values: " + err.Error()})
 		c.Abort()

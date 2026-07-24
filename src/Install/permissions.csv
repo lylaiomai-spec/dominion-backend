@@ -211,3 +211,10 @@ role_id,type,permission
 3,0,/admin/external-app/:id/permissions
 3,0,/admin/external-app/:id/permission/create
 3,0,/admin/external-app/:id/permission/delete
+2,0,/episode-autocomplete/:term
+2,0,/user-data-migration/list
+2,0,/user-data-migration/processing/:id
+2,0,/user-data-migration/create-processing
+2,0,/user-data-migration/process-mybb-topic
+2,0,/user-data-migration/publish
+2,0,/user-data-migration/update-character-map

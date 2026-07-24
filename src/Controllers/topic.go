@@ -516,6 +516,8 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 						if s, ok := val.(string); ok {
 							cfValue.ContentHtml = Services.ParseBBCode(s)
 						}
+					} else if field.FieldType == "select" && field.Options != nil {
+						cfValue.Content = Services.ResolveSelectField(val, field.Options)
 					}
 					customFields[field.MachineFieldName] = cfValue
 				}

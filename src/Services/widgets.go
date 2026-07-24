@@ -186,6 +186,17 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 		selectFields += fmt.Sprintf(", f.%s", field2)
 	}
 
+	baseColumns := make(map[string]bool)
+	if colRows, err := db.Query("SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?", entityType+"_base"); err == nil {
+		defer colRows.Close()
+		for colRows.Next() {
+			var col string
+			if err := colRows.Scan(&col); err == nil {
+				baseColumns[col] = true
+			}
+		}
+	}
+
 	var filterClauses []string
 	var filterArgs []interface{}
 	if rawFilters, ok := config["filters"]; ok && rawFilters != nil {
@@ -203,7 +214,11 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 			}
 			placeholders := strings.Repeat("?,", len(vals))
 			placeholders = placeholders[:len(placeholders)-1]
-			filterClauses = append(filterClauses, fmt.Sprintf("f.%s IN (%s)", fieldName, placeholders))
+			tableAlias := "f"
+			if baseColumns[fieldName] {
+				tableAlias = "b"
+			}
+			filterClauses = append(filterClauses, fmt.Sprintf("%s.%s IN (%s)", tableAlias, fieldName, placeholders))
 			filterArgs = append(filterArgs, vals...)
 		}
 	}

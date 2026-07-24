@@ -16,11 +16,12 @@ type CustomField struct {
 }
 
 type CustomFieldConfig struct {
-	MachineFieldName string `json:"machine_field_name"`
-	HumanFieldName   string `json:"human_field_name"`
-	FieldType        string `json:"field_type"`
-	ContentFieldType string `json:"content_field_type"`
-	Order            int    `json:"order"`
+	MachineFieldName string            `json:"machine_field_name"`
+	HumanFieldName   string            `json:"human_field_name"`
+	FieldType        string            `json:"field_type"`
+	ContentFieldType string            `json:"content_field_type"`
+	Order            int               `json:"order"`
+	Options          map[string]string `json:"options,omitempty"`
 }
 
 type CustomFieldData struct {
@@ -98,6 +99,7 @@ func GenerateEntityTables(entity CustomFieldEntity, entityName string, db *sql.D
 		"string":  "VARCHAR(255)",
 		"text":    "TEXT",
 		"date":    "DATETIME",
+		"select":  "INT",
 	}
 
 	valueColumnMap := map[string]string{
@@ -106,6 +108,7 @@ func GenerateEntityTables(entity CustomFieldEntity, entityName string, db *sql.D
 		"string":  "value_string",
 		"text":    "value_text",
 		"date":    "value_date",
+		"select":  "value_int",
 	}
 
 	for _, config := range entity.FieldConfig {
@@ -158,6 +161,7 @@ func UpdateFlattenedTable(entity CustomFieldEntity, entityName string, db *sql.D
 		"string":  "VARCHAR(255)",
 		"text":    "TEXT",
 		"date":    "DATETIME",
+		"select":  "INT",
 	}
 
 	// Track fields present in the current configuration
@@ -222,6 +226,7 @@ func UpdateTriggers(entity CustomFieldEntity, entityName string, db *sql.DB) err
 		"string":  "value_string",
 		"text":    "value_text",
 		"date":    "value_date",
+		"select":  "value_int",
 	}
 
 	triggerBody := ""

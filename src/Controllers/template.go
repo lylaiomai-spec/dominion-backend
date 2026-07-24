@@ -5,10 +5,14 @@ import (
 	"cuento-backend/src/Middlewares"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 )
+
+var safeIdentifier = regexp.MustCompile(`^[a-z0-9_]+$`)
 
 func GetTemplate(c *gin.Context, db *sql.DB) {
 	entityType := c.Param("type")
@@ -84,4 +88,80 @@ func UpdateTemplate(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Template updated successfully"})
+}
+
+func CustomFieldAutocomplete(c *gin.Context, db *sql.DB) {
+	entityType := c.Query("entity_type")
+	fieldName := c.Query("field")
+	term := c.Query("term")
+
+	if !safeIdentifier.MatchString(entityType) {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid entity_type"})
+		c.Abort()
+		return
+	}
+	if !safeIdentifier.MatchString(fieldName) {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid field name"})
+		c.Abort()
+		return
+	}
+
+	fieldConfigs, err := getFieldConfigs(entityType, db)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to load field config: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	var matched *Entities.CustomFieldConfig
+	for i := range fieldConfigs {
+		if fieldConfigs[i].MachineFieldName == fieldName {
+			matched = &fieldConfigs[i]
+			break
+		}
+	}
+	if matched == nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Custom field not found"})
+		c.Abort()
+		return
+	}
+	if matched.FieldType != "string" {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Field is not of type string"})
+		c.Abort()
+		return
+	}
+
+	query := fmt.Sprintf(
+		"SELECT DISTINCT `%s` FROM `%s_flattened` WHERE `%s` IS NOT NULL AND `%s` != '' AND `%s` LIKE ? ORDER BY `%s` ASC LIMIT 20",
+		fieldName, entityType, fieldName, fieldName, fieldName, fieldName,
+	)
+	rows, err := db.Query(query, "%"+term+"%")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query field values: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	values := []string{}
+	for rows.Next() {
+		var val string
+		if err := rows.Scan(&val); err == nil {
+			values = append(values, val)
+		}
+	}
+
+	c.JSON(http.StatusOK, values)
+}
+
+func getFieldConfigs(entityType string, db *sql.DB) ([]Entities.CustomFieldConfig, error) {
+	var configJSON string
+	if err := db.QueryRow("SELECT config FROM custom_field_config WHERE entity_type = ?", entityType).Scan(&configJSON); err != nil {
+		return nil, err
+	}
+	var configs []Entities.CustomFieldConfig
+	if err := json.Unmarshal([]byte(configJSON), &configs); err != nil {
+		return nil, err
+	}
+	return configs, nil
 }
