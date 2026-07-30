@@ -232,6 +232,9 @@ func CreateTopic(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	// Mark the new topic as read for its author
+	_ = Services.ActivityStorage.UpdateTopicView(db, userID, topicID, &postID)
+
 	// Publish event to update stats asynchronously
 	Events.Publish(db, Events.TopicCreated, Events.TopicCreatedEvent{
 		Type:       "topic_created",
@@ -857,6 +860,7 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 					}
 				}
 				wc.UserInfo = fetchUserInfo(wc.AuthorUserId, db)
+				wc.Relations = fetchWantedCharacterRelations(wc.Id, db)
 				topic.WantedCharacter = wc
 			}
 		}
@@ -979,6 +983,11 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 		return
+	}
+
+	// Mark the new post as read for its author
+	if userID != 0 {
+		_ = Services.ActivityStorage.UpdateTopicView(db, userID, int64(req.TopicID), &postID)
 	}
 
 	// Fetch topic name for notifications

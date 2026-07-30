@@ -7,6 +7,7 @@ import (
 	"cuento-backend/src/Websockets"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -91,6 +92,8 @@ func RegisterTopicEventHandlers() {
 		if err != nil {
 			fmt.Printf("Error updating subforum stats: %v\n", err)
 		}
+
+		Events.Publish(db, Events.SubforumUpdated, Events.SubforumUpdatedEvent{SubforumID: event.SubforumID})
 	})
 
 	// Subscriber 3: Refresh subforum stats when topics are moved
@@ -101,6 +104,7 @@ func RegisterTopicEventHandlers() {
 		}
 		for _, id := range event.SubforumIDs {
 			refreshSubforumStats(db, id)
+			Events.Publish(db, Events.SubforumUpdated, Events.SubforumUpdatedEvent{SubforumID: id})
 		}
 	})
 
@@ -112,6 +116,33 @@ func RegisterTopicEventHandlers() {
 		}
 		for _, id := range event.SubforumIDs {
 			refreshSubforumStats(db, id)
+			Events.Publish(db, Events.SubforumUpdated, Events.SubforumUpdatedEvent{SubforumID: id})
+		}
+	})
+
+	// Subscriber: Notify page_changed on subforum updated
+	Events.Subscribe(Events.SubforumUpdated, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.SubforumUpdatedEvent)
+		if !ok {
+			return
+		}
+
+		sfIDStr := strconv.Itoa(event.SubforumID)
+
+		viewforumUserIDs := Websockets.MainHub.GetUserIDsOnPage("viewforum", sfIDStr)
+		if len(viewforumUserIDs) > 0 {
+			Websockets.MainHub.BroadcastToUsers(viewforumUserIDs, map[string]interface{}{
+				"type": "page_changed",
+				"data": Entities.NotificationPageChanged{PageType: "viewforum", Id: &sfIDStr},
+			})
+		}
+
+		indexUserIDs := Websockets.MainHub.GetUserIDsOnPageType("index")
+		if len(indexUserIDs) > 0 {
+			Websockets.MainHub.BroadcastToUsers(indexUserIDs, map[string]interface{}{
+				"type": "page_changed",
+				"data": Entities.NotificationPageChanged{PageType: "index"},
+			})
 		}
 	})
 

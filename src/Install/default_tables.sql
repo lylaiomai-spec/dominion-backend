@@ -690,6 +690,14 @@ create table wanted_character_faction
         foreign key (faction_id) references factions (id)
 );
 
+create table wanted_character_relations
+(
+    wanted_character_id   int not null,
+    relation_character_id bigint unsigned not null,
+    constraint fk_wcr_wanted_character foreign key (wanted_character_id) references wanted_character_base (id) on delete cascade,
+    constraint fk_wcr_character        foreign key (relation_character_id) references character_base (id) on delete cascade
+);
+
 create table widget_types
 (
     id              int auto_increment primary key,

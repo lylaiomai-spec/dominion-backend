@@ -114,6 +114,8 @@ func RegisterPostEventHandlers() {
 		if err != nil {
 			fmt.Printf("Error updating subforum stats: %v\n", err)
 		}
+
+		Events.Publish(db, Events.SubforumUpdated, Events.SubforumUpdatedEvent{SubforumID: event.SubforumID})
 	})
 
 	// Subscriber: Update character stats on episode post created
@@ -371,6 +373,7 @@ func RegisterPostEventHandlers() {
 
 		// 4. Recalculate subforum stats (post count + last post).
 		refreshSubforumStats(db, event.SubforumID)
+		Events.Publish(db, Events.SubforumUpdated, Events.SubforumUpdatedEvent{SubforumID: event.SubforumID})
 
 		// 5. Decrement author's post count.
 		if topicType == Entities.EpisodeTopic {

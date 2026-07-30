@@ -89,6 +89,7 @@ type WantedCharacter struct {
 	WantedCharacterStatus WantedCharacterStatus `json:"wanted_character_status"`
 	CustomFields          CustomFieldEntity     `json:"custom_fields" db:"-"`
 	Factions              []Faction             `json:"factions" db:"-"`
+	Relations             []ShortCharacter      `json:"relations" db:"-"`
 	ClaimRecord           *ClaimRecord          `json:"claim_record,omitempty" db:"-"`
 	ActiveClaimRecord     *time.Time            `json:"active_claim_record" db:"-"`
 	UserInfo              *UserInfo             `json:"user_info,omitempty" db:"-"`

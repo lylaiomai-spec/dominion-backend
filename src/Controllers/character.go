@@ -600,7 +600,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 			JOIN topics t ON t.id = c.topic_id AND t.status != ?
 			WHERE c.character_status = 0
 		)
-		SELECT id, name, avatar, faction_id FROM RankedFactions WHERE rn = 1
+		SELECT id, name, avatar, faction_id FROM RankedFactions WHERE rn = 1 ORDER BY name
 	`
 	charRows, err := db.Query(charQuery, Entities.DeletedTopic)
 	if err != nil {
@@ -679,6 +679,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 		  )))
 		  AND (r.show_only_with_active_claim = false OR cr.id IS NOT NULL)
 		  AND (cr.character_id IS NULL OR cb.character_status = 2)
+		ORDER BY r.name
 	`
 	claimRows, err := db.Query(claimQuery, userID, userID, guestHashes[0], guestHashes[1], guestHashes[2], Entities.DeletedTopic)
 	if err != nil {
@@ -723,6 +724,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 		SELECT id, name FROM character_base
 		WHERE character_status = 0
 		AND id NOT IN (SELECT character_id FROM character_faction)
+		ORDER BY name
 	`)
 	if err == nil {
 		defer noFactionCharRows.Close()
@@ -754,6 +756,7 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 		AND (wc.id IS NULL OR wc.wanted_character_status = 0)
 		AND (cc.show_only_with_active_claim = false OR (cr.id IS NOT NULL AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())))
 		AND (cr.character_id IS NULL OR cb.character_status = 2)
+		ORDER BY cc.name
 	`)
 	if err == nil {
 		defer noFactionClaimRows.Close()

@@ -134,6 +134,7 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 					case int:
 						pageIdStr = fmt.Sprintf("%d", v)
 					}
+					Websockets.MainHub.UpdateClientPage(client, msg.PageType, pageIdStr)
 					Services.ActivityStorage.UpdateUserLocation(db, userID, msg.PageType, pageIdStr)
 					if msg.PageType == "home" {
 						BroadcastActiveUsersToHome()

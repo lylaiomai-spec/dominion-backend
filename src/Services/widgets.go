@@ -153,9 +153,16 @@ func RenderPanelContent(content string, db *sql.DB) string {
 var safeFieldName = regexp.MustCompile(`^[a-z0-9_]+$`)
 
 func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, error) {
+	widgetID, _ := config["_widget_id"].(int)
+
 	number, err := extractIntValue(config, "number")
 	if err != nil {
 		return "", err
+	}
+
+	interval := 0
+	if v, err := extractIntValue(config, "interval"); err == nil {
+		interval = v
 	}
 
 	entityType, err := extractStringValue(config, "entity_type")
@@ -166,39 +173,34 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 		return "", fmt.Errorf("unsupported entity_type: %s", entityType)
 	}
 
-	field1, err := extractStringValue(config, "entity_field_1")
-	if err != nil {
-		return "", err
-	}
-	field2, _ := extractStringValue(config, "entity_field_2")
-
-	// Sanitize field names to prevent SQL injection
-	if !safeFieldName.MatchString(field1) {
-		return "", fmt.Errorf("invalid field name: %s", field1)
-	}
-	hasField2 := field2 != ""
-	if hasField2 && !safeFieldName.MatchString(field2) {
-		return "", fmt.Errorf("invalid field name: %s", field2)
-	}
-
-	selectFields := fmt.Sprintf("f.%s", field1)
-	if hasField2 {
-		selectFields += fmt.Sprintf(", f.%s", field2)
-	}
-
-	baseColumns := make(map[string]bool)
-	if colRows, err := db.Query("SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?", entityType+"_base"); err == nil {
-		defer colRows.Close()
-		for colRows.Next() {
-			var col string
-			if err := colRows.Scan(&col); err == nil {
-				baseColumns[col] = true
-			}
+	var configFields []string
+	for _, key := range []string{"entity_field_1", "entity_field_2"} {
+		if v, err := extractStringValue(config, key); err == nil && v != "" && safeFieldName.MatchString(v) {
+			configFields = append(configFields, v)
 		}
 	}
 
+	knownColumns := func(table string) map[string]bool {
+		m := make(map[string]bool)
+		r, err := db.Query("SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?", table)
+		if err != nil {
+			return m
+		}
+		defer r.Close()
+		for r.Next() {
+			var col string
+			if r.Scan(&col) == nil {
+				m[col] = true
+			}
+		}
+		return m
+	}
+	baseColumns := knownColumns(entityType + "_base")
+	flattenedColumns := knownColumns(entityType + "_flattened")
+
 	var filterClauses []string
 	var filterArgs []interface{}
+	needsFlattened := false
 	if rawFilters, ok := config["filters"]; ok && rawFilters != nil {
 		filtersMap, ok := rawFilters.(map[string]interface{})
 		if !ok {
@@ -208,110 +210,192 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 			if !safeFieldName.MatchString(fieldName) {
 				return "", fmt.Errorf("invalid filter field name: %s", fieldName)
 			}
-			vals, ok := rawVals.([]interface{})
-			if !ok || len(vals) == 0 {
+			var vals []interface{}
+			switch v := rawVals.(type) {
+			case []interface{}:
+				vals = v
+			case string:
+				vals = []interface{}{v}
+			case float64:
+				vals = []interface{}{v}
+			}
+			if len(vals) == 0 {
 				continue
 			}
 			placeholders := strings.Repeat("?,", len(vals))
 			placeholders = placeholders[:len(placeholders)-1]
-			tableAlias := "f"
-			if baseColumns[fieldName] {
-				tableAlias = "b"
+			var clause string
+			if fieldName == "status_active" {
+				clause = fmt.Sprintf("b.%s_status IN (%s)", entityType, placeholders)
+			} else if baseColumns[fieldName] {
+				clause = fmt.Sprintf("b.%s IN (%s)", fieldName, placeholders)
+			} else if flattenedColumns[fieldName] {
+				clause = fmt.Sprintf("f.%s IN (%s)", fieldName, placeholders)
+				needsFlattened = true
+			} else {
+				continue // field doesn't exist in either table — skip
 			}
-			filterClauses = append(filterClauses, fmt.Sprintf("%s.%s IN (%s)", tableAlias, fieldName, placeholders))
+			filterClauses = append(filterClauses, clause)
 			filterArgs = append(filterArgs, vals...)
 		}
 	}
 
-	statusColumn := entityType + "_status"
-	whereClause := fmt.Sprintf("b.%s = 0", statusColumn)
+	whereClause := "1=1"
 	if len(filterClauses) > 0 {
 		whereClause += " AND " + strings.Join(filterClauses, " AND ")
 	}
 
-	query := fmt.Sprintf(`
-		SELECT b.id, b.topic_id, b.name, %s
-		FROM %s_base b
-		JOIN %s_flattened f ON b.id = f.entity_id
-		WHERE %s
-		ORDER BY RAND()
-		LIMIT ?`,
-		selectFields, entityType, entityType, whereClause,
+	fromClause := fmt.Sprintf("%s_base b", entityType)
+	if needsFlattened {
+		fromClause += fmt.Sprintf(" JOIN %s_flattened f ON b.id = f.entity_id", entityType)
+	}
+
+	query := fmt.Sprintf(
+		"SELECT b.id, b.topic_id, b.name FROM %s WHERE %s ORDER BY RAND()",
+		fromClause, whereClause,
 	)
 
-	queryArgs := append(filterArgs, number)
-	rows, err := db.Query(query, queryArgs...)
+	rows, err := db.Query(query, filterArgs...)
 	if err != nil {
 		return "", fmt.Errorf("failed to query random entities: %w", err)
 	}
 	defer rows.Close()
 
-	useTopicId := entityType == "episode" || entityType == "wanted_character"
+	useTopicId := entityType == "wanted_character"
 
-	// Look up content_field_type for the selected fields from entity config.
-	field1IsImage := false
-	field2IsImage := false
-	if fieldConfigs, err := GetFieldConfig(entityType, db); err == nil {
-		fieldTypeMap := make(map[string]string, len(fieldConfigs))
-		for _, fc := range fieldConfigs {
-			fieldTypeMap[fc.MachineFieldName] = fc.ContentFieldType
-		}
-		isImageType := func(t string) bool { return t == "image" || t == "cropped_image" }
-		field1IsImage = isImageType(fieldTypeMap[field1])
-		field2IsImage = hasField2 && isImageType(fieldTypeMap[field2])
+	type customField struct {
+		FieldName  string      `json:"field_name"`
+		Value      interface{} `json:"value"`
+		RenderType string      `json:"render_type"`
+	}
+	type entityItem struct {
+		Id           int           `json:"id"`
+		Type         string        `json:"type"`
+		Name         string        `json:"name"`
+		CustomFields []customField `json:"custom_fields,omitempty"`
+	}
+	type entityRaw struct {
+		rawId int // base table id for custom field lookup
+		entityItem
 	}
 
-	// Build data-* attributes from config fields starting with _.
-	var dataAttrs strings.Builder
-	for key, val := range config {
-		if strings.HasPrefix(key, "_") {
-			attrName := "data-" + strings.ReplaceAll(key[1:], "_", "-")
-			dataAttrs.WriteString(fmt.Sprintf(` %s="%v"`, attrName, val))
-		}
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(`<div class="widget-grid widget-grid--cols-%d"%s>`, number, dataAttrs.String()))
+	var allRaw []entityRaw
 	for rows.Next() {
 		var id int
 		var topicId sql.NullInt64
 		var name string
-		var val1 sql.NullString
-		var val2 sql.NullString
-
-		var scanArgs []interface{}
-		scanArgs = append(scanArgs, &id, &topicId, &name, &val1)
-		if hasField2 {
-			scanArgs = append(scanArgs, &val2)
-		}
-		if err := rows.Scan(scanArgs...); err != nil {
+		if err := rows.Scan(&id, &topicId, &name); err != nil {
 			continue
 		}
-		entityId := id
+		displayId := id
 		if useTopicId && topicId.Valid {
-			entityId = int(topicId.Int64)
+			displayId = int(topicId.Int64)
 		}
-		sb.WriteString(fmt.Sprintf(`<div class="widget-grid__item" data-entity-type="%s" data-entity-id="%d">`, entityType, entityId))
-		sb.WriteString(fmt.Sprintf(`<div class="widget-grid__name">%s</div>`, name))
-		if val1.Valid {
-			if field1IsImage {
-				sb.WriteString(fmt.Sprintf(`<div class="widget-grid__field"><img src="%s" alt="" /></div>`, val1.String))
-			} else {
-				sb.WriteString(fmt.Sprintf(`<div class="widget-grid__field">%s</div>`, val1.String))
-			}
-		}
-		if hasField2 && val2.Valid {
-			if field2IsImage {
-				sb.WriteString(fmt.Sprintf(`<div class="widget-grid__field"><img src="%s" alt="" /></div>`, val2.String))
-			} else {
-				sb.WriteString(fmt.Sprintf(`<div class="widget-grid__field">%s</div>`, val2.String))
-			}
-		}
-		sb.WriteString(`</div>`)
+		allRaw = append(allRaw, entityRaw{rawId: id, entityItem: entityItem{Id: displayId, Type: entityType, Name: name}})
 	}
-	sb.WriteString(`</div>`)
 
-	return sb.String(), nil
+	// Fetch custom fields for all entities in one query
+	if len(allRaw) > 0 && len(configFields) > 0 {
+		fieldRenderType := make(map[string]string)
+		if fieldConfigs, err := GetFieldConfig(entityType, db); err == nil {
+			for _, fc := range fieldConfigs {
+				fieldRenderType[fc.MachineFieldName] = fc.ContentFieldType
+			}
+		}
+
+		idPlaceholders := strings.Repeat("?,", len(allRaw))
+		idPlaceholders = idPlaceholders[:len(idPlaceholders)-1]
+		idArgs := make([]interface{}, len(allRaw))
+		for i, r := range allRaw {
+			idArgs[i] = r.rawId
+		}
+
+		fieldPlaceholders := strings.Repeat("?,", len(configFields))
+		fieldPlaceholders = fieldPlaceholders[:len(fieldPlaceholders)-1]
+		fieldArgs := make([]interface{}, len(configFields))
+		for i, f := range configFields {
+			fieldArgs[i] = f
+		}
+
+		cfRows, cfErr := db.Query(
+			fmt.Sprintf("SELECT entity_id, field_machine_name, field_type, value_int, value_string, value_text FROM %s_main WHERE entity_id IN (%s) AND field_machine_name IN (%s)", entityType, idPlaceholders, fieldPlaceholders),
+			append(idArgs, fieldArgs...)...,
+		)
+		if cfErr == nil {
+			defer cfRows.Close()
+			fieldsByEntity := make(map[int][]customField)
+			for cfRows.Next() {
+				var entityID int
+				var fieldName, fieldType string
+				var valueInt sql.NullInt64
+				var valueString, valueText sql.NullString
+				if err := cfRows.Scan(&entityID, &fieldName, &fieldType, &valueInt, &valueString, &valueText); err != nil {
+					continue
+				}
+				var value interface{}
+				switch fieldType {
+				case "int", "select":
+					if valueInt.Valid {
+						value = valueInt.Int64
+					}
+				case "text":
+					if valueText.Valid {
+						value = valueText.String
+					}
+				default:
+					if valueString.Valid {
+						value = valueString.String
+					}
+				}
+				if value == nil {
+					continue
+				}
+				fieldsByEntity[entityID] = append(fieldsByEntity[entityID], customField{
+					FieldName:  fieldName,
+					Value:      value,
+					RenderType: fieldRenderType[fieldName],
+				})
+			}
+			for i := range allRaw {
+				if fields, ok := fieldsByEntity[allRaw[i].rawId]; ok {
+					allRaw[i].CustomFields = fields
+				}
+			}
+		}
+	}
+
+	allItems := make([]entityItem, len(allRaw))
+	for i, r := range allRaw {
+		allItems[i] = r.entityItem
+	}
+
+	var sets [][]entityItem
+	if number > 0 {
+		for i := 0; i < len(allItems); i += number {
+			end := i + number
+			if end > len(allItems) {
+				end = len(allItems)
+			}
+			sets = append(sets, allItems[i:end])
+		}
+	}
+	if sets == nil {
+		sets = [][]entityItem{}
+	}
+
+	type widgetData struct {
+		Interval int            `json:"interval"`
+		Sets     [][]entityItem `json:"sets"`
+	}
+	dataJSON, err := json.Marshal(widgetData{Interval: interval, Sets: sets})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal widget data: %w", err)
+	}
+
+	comment := fmt.Sprintf("<!-- widget:%d:%s -->", widgetID, string(dataJSON))
+	placeholder := fmt.Sprintf(`<div data-widget-id="%d" widget-type="random_entity"></div>`, widgetID)
+
+	return comment + "\n" + placeholder, nil
 }
 
 func extractIntValue(config map[string]interface{}, key string) (int, error) {

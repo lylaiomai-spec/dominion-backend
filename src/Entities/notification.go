@@ -109,3 +109,8 @@ type UserNotificationSetting struct {
 	DisableSound     bool   `json:"disable_sound"`
 	DisableAll       bool   `json:"disable_all"`
 }
+
+type NotificationPageChanged struct {
+	PageType string  `json:"page_type"`
+	Id       *string `json:"id,omitempty"`
+}

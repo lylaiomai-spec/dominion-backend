@@ -21,10 +21,12 @@ type BufferedMessage struct {
 }
 
 type Client struct {
-	Hub    *Hub
-	Conn   *websocket.Conn
-	Send   chan interface{}
-	UserID int
+	Hub      *Hub
+	Conn     *websocket.Conn
+	Send     chan interface{}
+	UserID   int
+	PageType string
+	PageId   string
 }
 
 func (c *Client) writePump() {
@@ -307,6 +309,54 @@ func (h *Hub) CloseUserConnections(userID int) {
 	for _, c := range clients {
 		c.Conn.Close()
 	}
+}
+
+// UpdateClientPage sets the page location for a specific connection.
+func (h *Hub) UpdateClientPage(client *Client, pageType, pageId string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	client.PageType = pageType
+	client.PageId = pageId
+}
+
+// GetUserIDsOnPage returns IDs of users who have at least one connection on the given page.
+func (h *Hub) GetUserIDsOnPage(pageType, pageId string) []int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	seen := make(map[int]bool)
+	for userID, clients := range h.clients {
+		for c := range clients {
+			if c.PageType == pageType && c.PageId == pageId {
+				seen[userID] = true
+				break
+			}
+		}
+	}
+	result := make([]int, 0, len(seen))
+	for id := range seen {
+		result = append(result, id)
+	}
+	return result
+}
+
+// GetUserIDsOnPageType returns IDs of users who have at least one connection on the given page type.
+func (h *Hub) GetUserIDsOnPageType(pageType string) []int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	seen := make(map[int]bool)
+	for userID, clients := range h.clients {
+		for c := range clients {
+			if c.PageType == pageType {
+				seen[userID] = true
+				break
+			}
+		}
+	}
+	result := make([]int, 0, len(seen))
+	for id := range seen {
+		result = append(result, id)
+	}
+	return result
 }
 
 func (h *Hub) SendNotification(userID int, message interface{}) {

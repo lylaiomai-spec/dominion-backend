@@ -129,6 +129,47 @@ func GetHomeCategories(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	if userID != 0 {
+		// Collect all subforum IDs present in the result
+		var subforumIDsForUnread []interface{}
+		type subPos struct{ catIdx, subIdx int }
+		subPosMap := make(map[int]subPos)
+		for ci, cat := range categories {
+			for si, sub := range cat.Subforums {
+				subforumIDsForUnread = append(subforumIDsForUnread, sub.Id)
+				subPosMap[sub.Id] = subPos{ci, si}
+			}
+		}
+
+		if len(subforumIDsForUnread) > 0 {
+			unreadPlaceholders := strings.Repeat("?,", len(subforumIDsForUnread)-1) + "?"
+			unreadQuery := fmt.Sprintf(`
+				SELECT DISTINCT t.subforum_id
+				FROM topics t
+				LEFT JOIN user_topic_view utv ON t.id = utv.topic_id AND utv.user_id = ?
+				WHERE t.subforum_id IN (%s)
+				AND t.status != ?
+				AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(p.id) FROM posts p WHERE p.topic_id = t.id AND (p.is_deleted IS NULL OR p.is_deleted = 0)))
+			`, unreadPlaceholders)
+
+			unreadArgs := append([]interface{}{userID}, subforumIDsForUnread...)
+			unreadArgs = append(unreadArgs, Entities.DeletedTopic)
+
+			unreadRows, err := db.Query(unreadQuery, unreadArgs...)
+			if err == nil {
+				defer unreadRows.Close()
+				for unreadRows.Next() {
+					var sfID int
+					if err := unreadRows.Scan(&sfID); err == nil {
+						if pos, ok := subPosMap[sfID]; ok {
+							categories[pos.catIdx].Subforums[pos.subIdx].HasNewMessages = true
+						}
+					}
+				}
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, categories)
 }
 
