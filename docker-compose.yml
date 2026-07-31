@@ -17,6 +17,7 @@ services:
       - SONIC_PASSWORD=SecretPassword
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6334
+      - IMAGE_PROXY_BASE_URL=http://localhost:8080/image/proxy
 
   db:
     image: mariadb:latest

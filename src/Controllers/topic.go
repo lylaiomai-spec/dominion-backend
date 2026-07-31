@@ -262,6 +262,8 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 	}
 
 	currentUserID := Services.GetUserIdFromContext(c)
+	useProxy := Services.GetUseImageProxy(db)
+	domain, _ := Services.GetGlobalSetting("domain", db)
 
 	var subforumIDCheck int
 	if err := db.QueryRow("SELECT subforum_id FROM topics WHERE id = ? AND status != ?", topicID, Entities.DeletedTopic).Scan(&subforumIDCheck); err != nil {
@@ -435,7 +437,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		post.DateCreated = dateCreated
 		post.DateCreatedLocalized = Services.LocalizeTime(post.DateCreated, userTimezone)
 		post.Content = rowMap["content"].(string)
-		post.ContentHtml = Services.ParseBBCode(post.Content)
+		post.ContentHtml = Services.ApplyImageProxyToHTML(Services.LinkifyURLs(Services.ParseBBCode(post.Content), domain, db), useProxy)
 		post.UseCharacterProfile, _ = strconv.ParseBool(rowMap["use_character_profile"].(string))
 		subforumID, _ = strconv.Atoi(rowMap["subforum_id"].(string))
 		topicTypeInt, _ := strconv.Atoi(rowMap["topic_type"].(string))
@@ -493,7 +495,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			if avatar, ok := rowMap["character_avatar"]; ok {
 				avatarStr := avatar.(string)
-				charProfile.Avatar = &avatarStr
+				charProfile.Avatar = Services.WrapImageURLPtr(&avatarStr, useProxy)
 			}
 			if maskName, ok := rowMap["mask_name"]; ok {
 				maskNameStr := maskName.(string)
@@ -505,7 +507,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			if sig, ok := rowMap["character_signature"]; ok {
 				sigStr := sig.(string)
-				sigHtml := Services.ParseBBCode(sigStr)
+				sigHtml := Services.ApplyImageProxyToHTML(Services.LinkifyURLs(Services.ParseBBCode(sigStr), domain, db), useProxy)
 				charProfile.Signature = &sigStr
 				charProfile.SignatureHtml = &sigHtml
 			}
@@ -517,10 +519,14 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 					cfValue := Entities.CustomFieldValue{Content: val}
 					if field.FieldType == "text" {
 						if s, ok := val.(string); ok {
-							cfValue.ContentHtml = Services.ParseBBCode(s)
+							cfValue.ContentHtml = Services.ApplyImageProxyToHTML(Services.ParseBBCode(s), useProxy)
 						}
 					} else if field.FieldType == "select" && field.Options != nil {
 						cfValue.Content = Services.ResolveSelectField(val, field.Options)
+					} else if useProxy && (field.ContentFieldType == "image" || field.ContentFieldType == "cropped_image") {
+						if s, ok := val.(string); ok {
+							cfValue.Content = Services.WrapImageURL(s)
+						}
 					}
 					customFields[field.MachineFieldName] = cfValue
 				}
@@ -538,7 +544,11 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 				userProfile.UserName = username.(string)
 			}
 			if avatar, ok := rowMap["avatar"]; ok {
-				userProfile.Avatar = avatar.(string)
+				avatarStr := avatar.(string)
+				if useProxy && avatarStr != "" {
+					avatarStr = Services.WrapImageURL(avatarStr)
+				}
+				userProfile.Avatar = avatarStr
 			}
 			if v, ok := rowMap["total_posts"]; ok {
 				userProfile.TotalPosts, _ = strconv.Atoi(v.(string))
@@ -552,7 +562,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			if sig, ok := rowMap["user_signature"]; ok {
 				sigStr := sig.(string)
-				sigHtml := Services.ParseBBCode(sigStr)
+				sigHtml := Services.ApplyImageProxyToHTML(Services.LinkifyURLs(Services.ParseBBCode(sigStr), domain, db), useProxy)
 				userProfile.Signature = &sigStr
 				userProfile.SignatureHtml = &sigHtml
 			}
@@ -1104,7 +1114,8 @@ func PreviewPost(c *gin.Context, db *sql.DB) {
 	post.TopicId = req.TopicID
 	post.AuthorUserId = userID
 	post.Content = req.Content
-	post.ContentHtml = Services.ParseBBCode(req.Content)
+	previewDomain, _ := Services.GetGlobalSetting("domain", db)
+	post.ContentHtml = Services.LinkifyURLs(Services.ParseBBCode(req.Content), previewDomain, db)
 	post.UseCharacterProfile = req.UseCharacterProfile
 	post.GuestName = req.GuestName
 

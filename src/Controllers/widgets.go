@@ -50,6 +50,8 @@ type UpdateWidgetRequest struct {
 type EntityFieldItem struct {
 	MachineFieldName string `json:"machine_field_name"`
 	HumanFieldName   string `json:"human_field_name"`
+	DataType         string `json:"data_type"`
+	RenderType       string `json:"render_type"`
 }
 
 func GetEntityFields(c *gin.Context, db *sql.DB) {
@@ -67,6 +69,8 @@ func GetEntityFields(c *gin.Context, db *sql.DB) {
 		fields = append(fields, EntityFieldItem{
 			MachineFieldName: f.MachineFieldName,
 			HumanFieldName:   f.HumanFieldName,
+			DataType:         f.FieldType,
+			RenderType:       f.ContentFieldType,
 		})
 	}
 

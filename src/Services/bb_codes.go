@@ -1,8 +1,10 @@
 package Services
 
 import (
+	"database/sql"
 	"fmt"
 	"html"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,6 +13,65 @@ import (
 )
 
 var youtubeRegexp = regexp.MustCompile(`(?i)(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/)|youtu\.be/)([a-zA-Z0-9_-]{11})`)
+
+// autoLinkRe matches either a full HTML tag (kept as-is) or a raw http(s) URL (linkified).
+// Matching tags first ensures URLs already inside href/src attributes are never touched.
+var autoLinkRe = regexp.MustCompile(`(?i)(<[^>]*>)|(https?://[^\s<>"']+)`)
+
+var (
+	viewforumRe = regexp.MustCompile(`^/viewforum/(\d+)$`)
+	loreRe      = regexp.MustCompile(`^/lore/(\d+)`)
+	viewtopicRe = regexp.MustCompile(`^/viewtopic/(\d+)`)
+	profileRe   = regexp.MustCompile(`^/profile/(\d+)$`)
+	characterRe = regexp.MustCompile(`^/character/(\d+)$`)
+)
+
+func resolveInternalLinkLabel(rawURL, domain string, db *sql.DB) string {
+	if domain == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	domainHost := strings.TrimPrefix(strings.TrimPrefix(domain, "https://"), "http://")
+	domainHost = strings.SplitN(domainHost, "/", 2)[0]
+	domainHost = strings.SplitN(domainHost, ":", 2)[0] // strip port if present
+	if !strings.EqualFold(u.Hostname(), domainHost) {
+		return ""
+	}
+	path := u.Path
+	var name string
+	if m := viewforumRe.FindStringSubmatch(path); m != nil {
+		db.QueryRow("SELECT name FROM subforums WHERE id = ?", m[1]).Scan(&name)
+	} else if m := loreRe.FindStringSubmatch(path); m != nil {
+		db.QueryRow("SELECT name FROM topics WHERE id = ?", m[1]).Scan(&name)
+	} else if m := viewtopicRe.FindStringSubmatch(path); m != nil {
+		db.QueryRow("SELECT name FROM topics WHERE id = ?", m[1]).Scan(&name)
+	} else if m := profileRe.FindStringSubmatch(path); m != nil {
+		db.QueryRow("SELECT username FROM users WHERE id = ?", m[1]).Scan(&name)
+	} else if m := characterRe.FindStringSubmatch(path); m != nil {
+		db.QueryRow("SELECT name FROM character_base WHERE id = ?", m[1]).Scan(&name)
+	} else {
+		name = strings.ReplaceAll(strings.Trim(path, "/"), "-", " ")
+	}
+	return name
+}
+
+func LinkifyURLs(input, domain string, db *sql.DB) string {
+	return autoLinkRe.ReplaceAllStringFunc(input, func(match string) string {
+		if match[0] == '<' {
+			return match
+		}
+		trimmed := strings.TrimRight(match, ".,;:!?)]}")
+		suffix := match[len(trimmed):]
+		label := resolveInternalLinkLabel(trimmed, domain, db)
+		if label == "" {
+			label = trimmed
+		}
+		return `<a href="` + html.EscapeString(trimmed) + `">` + html.EscapeString(label) + `</a>` + suffix
+	})
+}
 var audioExtRegexp = regexp.MustCompile(`(?i)\.(mp3|ogg|wav|flac|aac|m4a|opus|webm)(\?.*)?$`)
 
 func getArg(node *bbcode.BBCodeNode, key string) (string, bool) {

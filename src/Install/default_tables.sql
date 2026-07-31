@@ -75,10 +75,13 @@ INSERT INTO global_settings (setting_name, setting_value)
 VALUES ('site_name', 'Site Name');
 
 INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('domain', '');
+
+INSERT INTO global_settings (setting_name, setting_value)
 VALUES ('posts_per_page', '20');
 
 INSERT INTO global_settings (setting_name, setting_value)
-VALUES ('imgbb_api_key', '');
+VALUES ('use_image_uploading', 'n');
 
 INSERT INTO global_settings (setting_name, setting_value)
 VALUES ('allow_add_faction', 'y');
@@ -145,6 +148,30 @@ VALUES ('site_max_rating', 'L1V1S1');
 
 INSERT INTO global_settings (setting_name, setting_value)
 VALUES ('global_free_format_date_id', NULL);
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('imgbb_api_key', '');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('image_hosting', '');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('use_image_proxy', 'n');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('proxy_cache_size', '0');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('user_avatar_width', '0');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('user_avatar_height', '0');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('character_avatar_width', '0');
+
+INSERT INTO global_settings (setting_name, setting_value)
+VALUES ('character_avatar_height', '0');
 
 CREATE TABLE categories (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -707,7 +734,7 @@ create table widget_types
 );
 
 INSERT INTO widget_types (name, config_template, func) VALUES ('last_post', '{"topic_id": {"type": "int"}}', 'WidgetLastPost');
-INSERT INTO widget_types (name, config_template, func) VALUES ('random_entities', '{"number": {"type": "int"}, "entity_type": {"type": "string", "values": ["wanted_character", "character"]}, "entity_field_1": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}, "entity_field_2": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}, "filters": {"type": "filters", "can_empty": true}}', 'WidgetRandomEntities');
+INSERT INTO widget_types (name, config_template, func) VALUES ('random_entities', '{"number": {"type": "int"}, "entity_type": {"type": "string", "values": ["wanted_character", "character"]}, "entity_field_1": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}, "entity_field_1_width": {"type": "int", "can_empty": true}, "entity_field_1_height": {"type": "int", "can_empty": true}, "entity_field_2": {"type": "string", "endpoint": "entity/fields/:entity_type", "can_empty": true}, "entity_field_2_width": {"type": "int", "can_empty": true}, "entity_field_2_height": {"type": "int", "can_empty": true}, "filters": {"type": "filters", "can_empty": true}}', 'WidgetRandomEntities');
 
 create table widgets
 (

@@ -9,6 +9,10 @@ import (
 	"cuento-backend/src/Websockets"
 	"database/sql"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
 	"strconv"
 	"strings"
@@ -555,6 +559,8 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 		}
 	}
 
+	profile.Avatar = Services.WrapImageURLPtr(profile.Avatar, Services.GetUseImageProxy(db))
+
 	c.JSON(http.StatusOK, profile)
 }
 
@@ -577,6 +583,35 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 	var args []interface{}
 
 	if req.Avatar != nil {
+		maxWStr, _ := Services.GetGlobalSetting("user_avatar_width", db)
+		maxHStr, _ := Services.GetGlobalSetting("user_avatar_height", db)
+		maxW, _ := strconv.Atoi(maxWStr)
+		maxH, _ := strconv.Atoi(maxHStr)
+		if maxW > 0 || maxH > 0 {
+			resp, fetchErr := http.Get(*req.Avatar)
+			if fetchErr != nil {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Could not fetch avatar image"})
+				c.Abort()
+				return
+			}
+			cfg, _, decodeErr := image.DecodeConfig(resp.Body)
+			resp.Body.Close()
+			if decodeErr != nil {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Could not read avatar image dimensions"})
+				c.Abort()
+				return
+			}
+			if maxW > 0 && cfg.Width > maxW {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: fmt.Sprintf("Avatar width %d exceeds maximum allowed %d", cfg.Width, maxW)})
+				c.Abort()
+				return
+			}
+			if maxH > 0 && cfg.Height > maxH {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: fmt.Sprintf("Avatar height %d exceeds maximum allowed %d", cfg.Height, maxH)})
+				c.Abort()
+				return
+			}
+		}
 		updates = append(updates, "avatar = ?")
 		args = append(args, *req.Avatar)
 	}

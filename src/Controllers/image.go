@@ -11,6 +11,12 @@ import (
 )
 
 func UploadImage(c *gin.Context, db *sql.DB) {
+	if val, _ := Services.GetGlobalSetting("use_image_uploading", db); val != "y" {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "Image uploading is disabled"})
+		c.Abort()
+		return
+	}
+
 	file, _, err := c.Request.FormFile("file")
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "file field is required"})
@@ -45,9 +51,14 @@ func UploadImage(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	imageURL := result.URL
+	if val, _ := Services.GetGlobalSetting("use_image_proxy", db); val == "y" {
+		imageURL = Services.WrapImageURL(result.URL)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":       true,
-		"url":           result.URL,
+		"url":           imageURL,
 		"thumbnail_url": result.ThumbnailURL,
 	})
 }

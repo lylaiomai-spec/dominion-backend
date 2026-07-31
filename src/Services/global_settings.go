@@ -11,6 +11,7 @@ func GetGlobalSetting(name string, db *sql.DB) (string, error) {
 	return value.String, err
 }
 
+
 func GetPostsPerPage(db *sql.DB) int {
 	val, err := GetGlobalSetting("posts_per_page", db)
 	if err != nil {

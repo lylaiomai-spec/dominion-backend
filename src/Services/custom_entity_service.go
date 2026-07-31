@@ -96,14 +96,15 @@ func GetEntity(id int64, className string, db DBExecutor) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
+		rows.Close()
 		return nil, sql.ErrNoRows
 	}
 
 	cols, err := rows.Columns()
 	if err != nil {
+		rows.Close()
 		return nil, err
 	}
 
@@ -113,6 +114,7 @@ func GetEntity(id int64, className string, db DBExecutor) (interface{}, error) {
 	}
 
 	if err := rows.Scan(vals...); err != nil {
+		rows.Close()
 		return nil, err
 	}
 
@@ -129,6 +131,7 @@ func GetEntity(id int64, className string, db DBExecutor) (interface{}, error) {
 			data[colName] = string(*val)
 		}
 	}
+	rows.Close() // close before issuing further queries on the same connection
 
 	// 2. Instantiate struct
 	var entity, er = IdentifyBaseEntity(className)
@@ -136,15 +139,17 @@ func GetEntity(id int64, className string, db DBExecutor) (interface{}, error) {
 		return nil, er
 	}
 
+	useProxy := GetUseImageProxy(db)
+
 	// 3. Fill struct
-	if err := fillEntity(entity, data, config); err != nil {
+	if err := fillEntity(entity, data, config, useProxy); err != nil {
 		return nil, err
 	}
 
 	return entity, nil
 }
 
-func fillEntity(entity interface{}, data map[string]interface{}, config []Entities.CustomFieldConfig) error {
+func fillEntity(entity interface{}, data map[string]interface{}, config []Entities.CustomFieldConfig, useProxy bool) error {
 	v := reflect.ValueOf(entity).Elem()
 	t := v.Type()
 
@@ -187,7 +192,11 @@ func fillEntity(entity interface{}, data map[string]interface{}, config []Entiti
 				if conf, ok := configMap[key]; ok {
 					if conf.FieldType == "text" {
 						if s, ok := val.(string); ok {
-							cfValue.ContentHtml = ParseBBCode(s)
+							cfValue.ContentHtml = ApplyImageProxyToHTML(ParseBBCode(s), useProxy)
+						}
+					} else if useProxy && (conf.ContentFieldType == "image" || conf.ContentFieldType == "cropped_image") {
+						if s, ok := val.(string); ok {
+							cfValue.Content = WrapImageURL(s)
 						}
 					} else if conf.FieldType == "select" {
 						if conf.Options != nil {

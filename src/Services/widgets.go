@@ -173,10 +173,18 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 		return "", fmt.Errorf("unsupported entity_type: %s", entityType)
 	}
 
+	type fieldSize struct{ width, height int }
+	fieldSizes := make(map[string]fieldSize)
+
 	var configFields []string
-	for _, key := range []string{"entity_field_1", "entity_field_2"} {
+	for i, key := range []string{"entity_field_1", "entity_field_2"} {
 		if v, err := extractStringValue(config, key); err == nil && v != "" && safeFieldName.MatchString(v) {
 			configFields = append(configFields, v)
+			w, _ := extractIntValue(config, fmt.Sprintf("entity_field_%d_width", i+1))
+			h, _ := extractIntValue(config, fmt.Sprintf("entity_field_%d_height", i+1))
+			if w > 0 || h > 0 {
+				fieldSizes[v] = fieldSize{width: w, height: h}
+			}
 		}
 	}
 
@@ -296,6 +304,8 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 
 	// Fetch custom fields for all entities in one query
 	if len(allRaw) > 0 && len(configFields) > 0 {
+		useProxy := GetUseImageProxy(db)
+
 		fieldRenderType := make(map[string]string)
 		if fieldConfigs, err := GetFieldConfig(entityType, db); err == nil {
 			for _, fc := range fieldConfigs {
@@ -350,10 +360,20 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 				if value == nil {
 					continue
 				}
+				renderType := fieldRenderType[fieldName]
+				if useProxy && (renderType == "image" || renderType == "cropped_image") {
+					if s, ok := value.(string); ok {
+						proxyURL := WrapImageURL(s)
+						if dims, ok := fieldSizes[fieldName]; ok {
+							proxyURL += fmt.Sprintf("&size=%dx%d", dims.width, dims.height)
+						}
+						value = proxyURL
+					}
+				}
 				fieldsByEntity[entityID] = append(fieldsByEntity[entityID], customField{
 					FieldName:  fieldName,
 					Value:      value,
-					RenderType: fieldRenderType[fieldName],
+					RenderType: renderType,
 				})
 			}
 			for i := range allRaw {
