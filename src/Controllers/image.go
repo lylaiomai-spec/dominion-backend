@@ -51,14 +51,9 @@ func UploadImage(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	imageURL := result.URL
-	if val, _ := Services.GetGlobalSetting("use_image_proxy", db); val == "y" {
-		imageURL = Services.WrapImageURL(result.URL)
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"success":       true,
-		"url":           imageURL,
+		"url":           result.URL,
 		"thumbnail_url": result.ThumbnailURL,
 	})
 }

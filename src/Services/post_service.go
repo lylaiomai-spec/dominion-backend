@@ -105,7 +105,6 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 		}
 	}
 
-	useProxy := GetUseImageProxy(db)
 	domain, _ := GetGlobalSetting("domain", db)
 
 	var post Entities.Post
@@ -124,7 +123,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 	post.DateCreated = dateCreated
 	if val, ok := rowMap["content"]; ok {
 		post.Content = val.(string)
-		post.ContentHtml = ApplyImageProxyToHTML(LinkifyURLs(ParseBBCode(post.Content), domain, db), useProxy)
+		post.ContentHtml = LinkifyURLs(ParseBBCode(post.Content), domain, db)
 	}
 	if val, ok := rowMap["use_character_profile"]; ok {
 		post.UseCharacterProfile, _ = strconv.ParseBool(val.(string))
@@ -144,7 +143,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 		}
 		if avatar, ok := rowMap["character_avatar"]; ok {
 			avatarStr := avatar.(string)
-			charProfile.Avatar = WrapImageURLPtr(&avatarStr, useProxy)
+			charProfile.Avatar = &avatarStr
 		}
 		if maskName, ok := rowMap["mask_name"]; ok {
 			maskNameStr := maskName.(string)
@@ -156,7 +155,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 		}
 		if sig, ok := rowMap["character_signature"]; ok {
 			sigStr := sig.(string)
-			sigHtml := ApplyImageProxyToHTML(LinkifyURLs(ParseBBCode(sigStr), domain, db), useProxy)
+			sigHtml := LinkifyURLs(ParseBBCode(sigStr), domain, db)
 			charProfile.Signature = &sigStr
 			charProfile.SignatureHtml = &sigHtml
 		}
@@ -167,11 +166,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 				cfValue := Entities.CustomFieldValue{Content: val}
 				if field.FieldType == "text" {
 					if s, ok := val.(string); ok {
-						cfValue.ContentHtml = ApplyImageProxyToHTML(ParseBBCode(s), useProxy)
-					}
-				} else if useProxy && (field.ContentFieldType == "image" || field.ContentFieldType == "cropped_image") {
-					if s, ok := val.(string); ok {
-						cfValue.Content = WrapImageURL(s)
+						cfValue.ContentHtml = ParseBBCode(s)
 					}
 				}
 				customFields[field.MachineFieldName] = cfValue
@@ -207,11 +202,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 			userProfile.UserName = username.(string)
 		}
 		if avatar, ok := rowMap["avatar"]; ok {
-			avatarStr := avatar.(string)
-			if useProxy && avatarStr != "" {
-				avatarStr = WrapImageURL(avatarStr)
-			}
-			userProfile.Avatar = avatarStr
+			userProfile.Avatar = avatar.(string)
 		}
 		if v, ok := rowMap["total_posts"]; ok {
 			userProfile.TotalPosts, _ = strconv.Atoi(v.(string))
@@ -225,7 +216,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 		}
 		if sig, ok := rowMap["user_signature"]; ok {
 			sigStr := sig.(string)
-			sigHtml := ApplyImageProxyToHTML(LinkifyURLs(ParseBBCode(sigStr), domain, db), useProxy)
+			sigHtml := LinkifyURLs(ParseBBCode(sigStr), domain, db)
 			userProfile.Signature = &sigStr
 			userProfile.SignatureHtml = &sigHtml
 		}

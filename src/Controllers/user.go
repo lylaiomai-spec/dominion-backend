@@ -9,10 +9,7 @@ import (
 	"cuento-backend/src/Websockets"
 	"database/sql"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -559,9 +556,46 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 		}
 	}
 
-	profile.Avatar = Services.WrapImageURLPtr(profile.Avatar, Services.GetUseImageProxy(db))
-
 	c.JSON(http.StatusOK, profile)
+}
+
+func UploadUserAvatar(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
+		c.Abort()
+		return
+	}
+
+	file, _, err := c.Request.FormFile("avatar")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "avatar file is required"})
+		c.Abort()
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to read uploaded file"})
+		c.Abort()
+		return
+	}
+
+	avatarURL, err := Services.SaveUserAvatar(data, userID, db)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: err.Error()})
+		c.Abort()
+		return
+	}
+
+	if _, err := db.Exec("UPDATE users SET avatar = ? WHERE id = ?", avatarURL, userID); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save avatar"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"avatar": avatarURL})
 }
 
 func UpdateSettings(c *gin.Context, db *sql.DB) {
@@ -583,35 +617,6 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 	var args []interface{}
 
 	if req.Avatar != nil {
-		maxWStr, _ := Services.GetGlobalSetting("user_avatar_width", db)
-		maxHStr, _ := Services.GetGlobalSetting("user_avatar_height", db)
-		maxW, _ := strconv.Atoi(maxWStr)
-		maxH, _ := strconv.Atoi(maxHStr)
-		if maxW > 0 || maxH > 0 {
-			resp, fetchErr := http.Get(*req.Avatar)
-			if fetchErr != nil {
-				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Could not fetch avatar image"})
-				c.Abort()
-				return
-			}
-			cfg, _, decodeErr := image.DecodeConfig(resp.Body)
-			resp.Body.Close()
-			if decodeErr != nil {
-				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Could not read avatar image dimensions"})
-				c.Abort()
-				return
-			}
-			if maxW > 0 && cfg.Width > maxW {
-				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: fmt.Sprintf("Avatar width %d exceeds maximum allowed %d", cfg.Width, maxW)})
-				c.Abort()
-				return
-			}
-			if maxH > 0 && cfg.Height > maxH {
-				_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: fmt.Sprintf("Avatar height %d exceeds maximum allowed %d", cfg.Height, maxH)})
-				c.Abort()
-				return
-			}
-		}
 		updates = append(updates, "avatar = ?")
 		args = append(args, *req.Avatar)
 	}
@@ -1638,6 +1643,9 @@ func AdminUpdateUser(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	if req.Username != nil {
+		Services.ActivityStorage.UpdateUsername(userID, *req.Username)
+	}
 	Services.NotifyUserRefresh(userID, db)
 	c.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
 }

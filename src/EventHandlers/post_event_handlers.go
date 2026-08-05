@@ -508,6 +508,33 @@ func RegisterPostEventHandlers() {
 		})
 	})
 
+	// Subscriber: Adjust character stats when a post's character profile is changed
+	Events.Subscribe(Events.PostProfileChanged, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.PostProfileChangedEvent)
+		if !ok {
+			return
+		}
+
+		var topicType Entities.TopicType
+		if err := db.QueryRow("SELECT type FROM topics WHERE id = ?", event.TopicID).Scan(&topicType); err != nil || topicType != Entities.EpisodeTopic {
+			return
+		}
+
+		if event.OldCharacterID != nil {
+			_, _ = db.Exec(
+				"UPDATE character_base SET total_posts = GREATEST(total_posts - 1, 0), date_last_post = (SELECT MAX(p.date_created) FROM posts p JOIN character_profile_base cpb ON cpb.id = p.character_profile_id WHERE cpb.character_id = ? AND COALESCE(p.is_deleted, 0) != 1) WHERE id = ?",
+				*event.OldCharacterID, *event.OldCharacterID,
+			)
+		}
+
+		if event.NewCharacterID != nil {
+			_, _ = db.Exec(
+				"UPDATE character_base SET total_posts = total_posts + 1, date_last_post = GREATEST(COALESCE(date_last_post, ?), ?) WHERE id = ?",
+				event.PostDateCreated, event.PostDateCreated, *event.NewCharacterID,
+			)
+		}
+	})
+
 	// Subscriber: Award currency for mask post
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)

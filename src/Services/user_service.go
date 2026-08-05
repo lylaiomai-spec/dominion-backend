@@ -2,10 +2,27 @@ package Services
 
 import (
 	"database/sql"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+// superuserID is read once from the environment at startup.
+var superuserID = func() int {
+	if v := os.Getenv("SUPERUSER_ID"); v != "" {
+		if id, err := strconv.Atoi(v); err == nil {
+			return id
+		}
+	}
+	return 0
+}()
+
+// IsSuperuser returns true if the currently authenticated user is the superuser.
+func IsSuperuser(c *gin.Context) bool {
+	return superuserID != 0 && GetUserIdFromContext(c) == superuserID
+}
 
 // LocalizeTime converts t into the user's IANA timezone and returns a formatted string.
 // Falls back to UTC if the timezone is nil, empty, or unrecognised.

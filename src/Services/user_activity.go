@@ -122,6 +122,14 @@ func (s *UserActivityStorage) GetActiveUsers() []*UserActivity {
 	return activeUsers
 }
 
+func (s *UserActivityStorage) UpdateUsername(userID int, username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if user, exists := s.users[userID]; exists {
+		user.Username = username
+	}
+}
+
 func (s *UserActivityStorage) GetUserActivity(userID int) *UserActivity {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -30,6 +30,7 @@ const (
 	CharacterDeactivated   EventType = "CharacterDeactivated"
 	UserWiped              EventType = "UserWiped"
 	CharacterUpdated       EventType = "CharacterUpdated"
+	PostProfileChanged     EventType = "PostProfileChanged"
 	EpisodeUpdated         EventType = "EpisodeUpdated"
 	WantedCharacterUpdated EventType = "WantedCharacterUpdated"
 	SubforumUpdated        EventType = "SubforumUpdated"
@@ -148,6 +149,14 @@ type UserWipedEvent struct {
 type CharacterUpdatedEvent struct {
 	CharacterID int64
 	SubforumID  int
+}
+
+type PostProfileChangedEvent struct {
+	PostID          int
+	TopicID         int64
+	PostDateCreated time.Time
+	OldCharacterID  *int
+	NewCharacterID  *int
 }
 
 type EpisodeUpdatedEvent struct {

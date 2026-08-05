@@ -58,7 +58,9 @@ type CreatePostRequest struct {
 }
 
 type UpdatePostRequest struct {
-	Content string `json:"content" binding:"required"`
+	Content             string `json:"content" binding:"required"`
+	UseCharacterProfile *bool  `json:"use_character_profile"`
+	CharacterProfileID  *int   `json:"character_profile_id"`
 }
 
 type UpdateTopicRequest struct {
@@ -262,7 +264,6 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 	}
 
 	currentUserID := Services.GetUserIdFromContext(c)
-	useProxy := Services.GetUseImageProxy(db)
 	domain, _ := Services.GetGlobalSetting("domain", db)
 
 	var subforumIDCheck int
@@ -437,7 +438,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		post.DateCreated = dateCreated
 		post.DateCreatedLocalized = Services.LocalizeTime(post.DateCreated, userTimezone)
 		post.Content = rowMap["content"].(string)
-		post.ContentHtml = Services.ApplyImageProxyToHTML(Services.LinkifyURLs(Services.ParseBBCode(post.Content), domain, db), useProxy)
+		post.ContentHtml = Services.LinkifyURLs(Services.ParseBBCode(post.Content), domain, db)
 		post.UseCharacterProfile, _ = strconv.ParseBool(rowMap["use_character_profile"].(string))
 		subforumID, _ = strconv.Atoi(rowMap["subforum_id"].(string))
 		topicTypeInt, _ := strconv.Atoi(rowMap["topic_type"].(string))
@@ -495,7 +496,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			if avatar, ok := rowMap["character_avatar"]; ok {
 				avatarStr := avatar.(string)
-				charProfile.Avatar = Services.WrapImageURLPtr(&avatarStr, useProxy)
+				charProfile.Avatar = &avatarStr
 			}
 			if maskName, ok := rowMap["mask_name"]; ok {
 				maskNameStr := maskName.(string)
@@ -507,7 +508,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			if sig, ok := rowMap["character_signature"]; ok {
 				sigStr := sig.(string)
-				sigHtml := Services.ApplyImageProxyToHTML(Services.LinkifyURLs(Services.ParseBBCode(sigStr), domain, db), useProxy)
+				sigHtml := Services.LinkifyURLs(Services.ParseBBCode(sigStr), domain, db)
 				charProfile.Signature = &sigStr
 				charProfile.SignatureHtml = &sigHtml
 			}
@@ -519,14 +520,10 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 					cfValue := Entities.CustomFieldValue{Content: val}
 					if field.FieldType == "text" {
 						if s, ok := val.(string); ok {
-							cfValue.ContentHtml = Services.ApplyImageProxyToHTML(Services.ParseBBCode(s), useProxy)
+							cfValue.ContentHtml = Services.ParseBBCode(s)
 						}
 					} else if field.FieldType == "select" && field.Options != nil {
 						cfValue.Content = Services.ResolveSelectField(val, field.Options)
-					} else if useProxy && (field.ContentFieldType == "image" || field.ContentFieldType == "cropped_image") {
-						if s, ok := val.(string); ok {
-							cfValue.Content = Services.WrapImageURL(s)
-						}
 					}
 					customFields[field.MachineFieldName] = cfValue
 				}
@@ -544,11 +541,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 				userProfile.UserName = username.(string)
 			}
 			if avatar, ok := rowMap["avatar"]; ok {
-				avatarStr := avatar.(string)
-				if useProxy && avatarStr != "" {
-					avatarStr = Services.WrapImageURL(avatarStr)
-				}
-				userProfile.Avatar = avatarStr
+				userProfile.Avatar = avatar.(string)
 			}
 			if v, ok := rowMap["total_posts"]; ok {
 				userProfile.TotalPosts, _ = strconv.Atoi(v.(string))
@@ -562,7 +555,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			if sig, ok := rowMap["user_signature"]; ok {
 				sigStr := sig.(string)
-				sigHtml := Services.ApplyImageProxyToHTML(Services.LinkifyURLs(Services.ParseBBCode(sigStr), domain, db), useProxy)
+				sigHtml := Services.LinkifyURLs(Services.ParseBBCode(sigStr), domain, db)
 				userProfile.Signature = &sigStr
 				userProfile.SignatureHtml = &sigHtml
 			}
@@ -1223,15 +1216,18 @@ func UpdatePost(c *gin.Context, db *sql.DB) {
 	}
 
 	// 1. Fetch post details to check ownership and subforum
-	var authorUserID int
-	var subforumID int
-	query := `
-		SELECT p.author_user_id, t.subforum_id 
-		FROM posts p 
-		JOIN topics t ON p.topic_id = t.id 
-		WHERE p.id = ?
-	`
-	err = db.QueryRow(query, postID).Scan(&authorUserID, &subforumID)
+	var authorUserID, subforumID int
+	var topicIDForUpdate int64
+	var topicTypeForUpdate int
+	var oldCharacterProfileID sql.NullInt64
+	var postDateCreated time.Time
+	err = db.QueryRow(`
+		SELECT p.author_user_id, p.character_profile_id, p.date_created,
+		       t.id, t.subforum_id, t.type
+		FROM posts p
+		JOIN topics t ON t.id = p.topic_id
+		WHERE p.id = ? AND COALESCE(p.is_deleted, 0) != 1
+	`, postID).Scan(&authorUserID, &oldCharacterProfileID, &postDateCreated, &topicIDForUpdate, &subforumID, &topicTypeForUpdate)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Post not found"})
@@ -1272,24 +1268,107 @@ func UpdatePost(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// 4. Fetch updated post and emit event
+	// 4. Handle profile change if requested
+	if req.UseCharacterProfile != nil {
+		var newCharacterID *int
+
+		if *req.UseCharacterProfile && req.CharacterProfileID != nil {
+			// Validate: profile must belong to the post's original author
+			var profileOwnerUserID int
+			var characterID sql.NullInt64
+			var isMask sql.NullBool
+			err = db.QueryRow(`
+				SELECT cb.user_id, cpb.character_id, cpb.is_mask
+				FROM character_profile_base cpb
+				JOIN character_base cb ON cb.id = cpb.character_id
+				WHERE cpb.id = ?
+			`, *req.CharacterProfileID).Scan(&profileOwnerUserID, &characterID, &isMask)
+			if err != nil {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character profile not found"})
+				c.Abort()
+				return
+			}
+			if profileOwnerUserID != authorUserID {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "This character profile does not belong to the post author"})
+				c.Abort()
+				return
+			}
+
+			// For episode topics verify the character/mask is a participant
+			if Entities.TopicType(topicTypeForUpdate) == Entities.EpisodeTopic {
+				var openToEveryone bool
+				_ = db.QueryRow("SELECT open_to_everyone FROM episode_base WHERE topic_id = ?", topicIDForUpdate).Scan(&openToEveryone)
+
+				if !openToEveryone {
+					var episodeID int
+					if err := db.QueryRow("SELECT id FROM episode_base WHERE topic_id = ?", topicIDForUpdate).Scan(&episodeID); err != nil {
+						_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to resolve episode"})
+						c.Abort()
+						return
+					}
+					var memberCount int
+					if isMask.Valid && isMask.Bool {
+						_ = db.QueryRow("SELECT COUNT(*) FROM episode_mask WHERE episode_id = ? AND mask_id = ?",
+							episodeID, *req.CharacterProfileID).Scan(&memberCount)
+					} else if characterID.Valid {
+						_ = db.QueryRow("SELECT COUNT(*) FROM episode_character WHERE episode_id = ? AND character_id = ?",
+							episodeID, characterID.Int64).Scan(&memberCount)
+					}
+					if memberCount == 0 {
+						_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "This character is not a participant in this episode"})
+						c.Abort()
+						return
+					}
+				}
+			}
+
+			if characterID.Valid {
+				id := int(characterID.Int64)
+				newCharacterID = &id
+			}
+		}
+
+		// Resolve old character ID before overwriting
+		var oldCharacterID *int
+		if oldCharacterProfileID.Valid {
+			var cid int
+			if err := db.QueryRow("SELECT character_id FROM character_profile_base WHERE id = ?", oldCharacterProfileID.Int64).Scan(&cid); err == nil {
+				oldCharacterID = &cid
+			}
+		}
+
+		newProfileID := req.CharacterProfileID
+		if !*req.UseCharacterProfile {
+			newProfileID = nil
+		}
+		_, _ = db.Exec(
+			"UPDATE posts SET character_profile_id = ?, use_character_profile = ? WHERE id = ?",
+			newProfileID, *req.UseCharacterProfile, postID,
+		)
+
+		Events.Publish(db, Events.PostProfileChanged, Events.PostProfileChangedEvent{
+			PostID:          postID,
+			TopicID:         topicIDForUpdate,
+			PostDateCreated: postDateCreated,
+			OldCharacterID:  oldCharacterID,
+			NewCharacterID:  newCharacterID,
+		})
+	}
+
+	// 5. Fetch updated post and emit event
 	updatedPost, err := Services.GetPostById(postID, db, Services.IsFeatureEnabled("currency", c))
 	if err == nil {
-		// We need topicID and subforumID for the event
-		var topicID int64
-		err = db.QueryRow("SELECT topic_id FROM posts WHERE id = ?", postID).Scan(&topicID)
-		if err == nil {
-			Events.Publish(db, Events.PostCreated, Events.PostCreatedEvent{ // Reusing PostCreatedEvent for broadcast
-				Type:       "post_updated",
-				TopicID:    topicID,
-				SubforumID: subforumID,
-				Post:       *updatedPost,
-			})
-		}
+		Events.Publish(db, Events.PostCreated, Events.PostCreatedEvent{
+			Type:       "post_updated",
+			TopicID:    topicIDForUpdate,
+			SubforumID: subforumID,
+			Post:       *updatedPost,
+		})
 	}
 
 	c.JSON(http.StatusOK, updatedPost)
 }
+
 
 func DeletePost(c *gin.Context, db *sql.DB) {
 	postID, err := strconv.Atoi(c.Param("id"))

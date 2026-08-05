@@ -65,6 +65,9 @@ role_id,type,permission
 2,0,/user/absence
 2,0,/character/immunity/buy
 2,0,/user/archive
+2,0,/user/avatar
+2,0,/character/:id/avatar
+2,0,/character-profile/:id/avatar
 2,0,/user/settings/update
 2,0,/users/page/:page_type/:page_id
 2,0,/wanted-character/activate/:id

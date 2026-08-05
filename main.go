@@ -36,10 +36,6 @@ func main() {
 	// Start archiving warning notifier (checks daily, sends notifications at 10/5/3/2/1 days before archiving)
 	Services.StartArchivingNotifier(Services.DB)
 
-	if err := Services.InitImageProxyCache(); err != nil {
-		panic("failed to initialize image proxy cache: " + err.Error())
-	}
-
 	// Start WebSocket Hub
 	go Websockets.MainHub.Run()
 
@@ -105,9 +101,6 @@ func main() {
 	})
 	publicRouter.POST("/refresh", "Refresh access token", func(c *gin.Context) {
 		Controllers.RefreshToken(c, Services.DB)
-	})
-	publicRouter.GET("/global-settings", "Get all global settings", func(c *gin.Context) {
-		Controllers.GetGlobalSettings(c, Services.DB)
 	})
 	publicRouter.GET("/currency/settings", "Get currency settings", func(c *gin.Context) {
 		Features.GetCurrencySettingsHandler(c, Services.DB)
@@ -185,6 +178,9 @@ func main() {
 	optionalAuthGroup := r.Group("/")
 	optionalAuthGroup.Use(Middlewares.OptionalAuthMiddleware())
 	optionalAuthRouter := Router.NewProtectedCustomRouter(optionalAuthGroup)
+	optionalAuthRouter.GET("/global-settings", "Get all global settings", func(c *gin.Context) {
+		Controllers.GetGlobalSettings(c, Services.DB)
+	})
 	optionalAuthRouter.GET("/categories/home", "Get home page categories", func(c *gin.Context) {
 		Controllers.GetHomeCategories(c, Services.DB)
 	})
@@ -359,6 +355,9 @@ func main() {
 	protectedRouter.POST("/character/update/:id", "Update character by ID", func(c *gin.Context) {
 		Controllers.UpdateCharacter(c, Services.DB)
 	})
+	protectedRouter.POST("/character/:id/avatar", "Upload and save a character's avatar", func(c *gin.Context) {
+		Controllers.UploadCharacterAvatar(c, Services.DB)
+	})
 	protectedRouter.GET("/user/characters", "Get current user's characters", func(c *gin.Context) {
 		Controllers.GetUserCharacters(c, Services.DB)
 	})
@@ -441,6 +440,9 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	protectedRouter.POST("/character-profile/update/:id", "Update character profile by ID", func(c *gin.Context) {
 		Controllers.CharacterProfileUpdate(c, Services.DB)
 	})
+	protectedRouter.POST("/character-profile/:id/avatar", "Upload and save a character profile's avatar", func(c *gin.Context) {
+		Controllers.UploadCharacterProfileAvatar(c, Services.DB)
+	})
 	protectedRouter.POST("/topic/create", "Create topic", func(c *gin.Context) {
 		Controllers.CreateTopic(c, Services.DB)
 	})
@@ -521,6 +523,9 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	})
 	protectedRouter.POST("/wanted-character/activate/:id", "Activate a wanted character", func(c *gin.Context) {
 		Controllers.ActivateWantedCharacter(c, Services.DB)
+	})
+	protectedRouter.POST("/user/avatar", "Upload and save the current user's avatar", func(c *gin.Context) {
+		Controllers.UploadUserAvatar(c, Services.DB)
 	})
 	protectedRouter.POST("/user/settings/update", "Update user settings", func(c *gin.Context) {
 		Controllers.UpdateSettings(c, Services.DB)
@@ -615,10 +620,7 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	protectedRouter.POST("/image/upload", "Upload an image to imgbb", func(c *gin.Context) {
 		Controllers.UploadImage(c, Services.DB)
 	})
-	publicRouter.GET("/image/proxy", "Fetch, resize, and cache-proxy an image", func(c *gin.Context) {
-		Controllers.ProxyImage(c, Services.DB)
-	})
-	protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Context) {
+protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Context) {
 		Controllers.CreateCategory(c, Services.DB)
 	})
 	protectedRouter.POST("/category/update/:id", "Update category by ID", func(c *gin.Context) {

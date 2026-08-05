@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -345,6 +346,84 @@ func PreviewCharacter(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, character)
+}
+
+func UploadCharacterAvatar(c *gin.Context, db *sql.DB) {
+	characterID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid character ID"})
+		c.Abort()
+		return
+	}
+
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
+		c.Abort()
+		return
+	}
+
+	var authorUserID, subforumID int
+	if err := db.QueryRow(
+		"SELECT t.author_user_id, t.subforum_id FROM character_base c JOIN topics t ON c.topic_id = t.id WHERE c.id = ?",
+		characterID,
+	).Scan(&authorUserID, &subforumID); err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch character"})
+		}
+		c.Abort()
+		return
+	}
+
+	canEdit := false
+	if userID == authorUserID {
+		perm := fmt.Sprintf("subforum_edit_own_topic:%d", subforumID)
+		if ok, _ := Services.HasPermission(userID, perm, db); ok {
+			canEdit = true
+		}
+	} else {
+		perm := fmt.Sprintf("subforum_edit_others_topic:%d", subforumID)
+		if ok, _ := Services.HasPermission(userID, perm, db); ok {
+			canEdit = true
+		}
+	}
+	if !canEdit {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "You do not have permission to edit this character"})
+		c.Abort()
+		return
+	}
+
+	file, _, err := c.Request.FormFile("avatar")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "avatar file is required"})
+		c.Abort()
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to read uploaded file"})
+		c.Abort()
+		return
+	}
+
+	avatarURL, err := Services.SaveCharacterAvatar(data, characterID, db)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: err.Error()})
+		c.Abort()
+		return
+	}
+
+	if _, err := Services.PatchEntity(int64(characterID), "character", map[string]interface{}{"avatar": avatarURL}, db); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save avatar"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"avatar": avatarURL})
 }
 
 func UpdateCharacter(c *gin.Context, db *sql.DB) {
@@ -971,6 +1050,72 @@ func GetCharacterProfile(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, entity)
+}
+
+func UploadCharacterProfileAvatar(c *gin.Context, db *sql.DB) {
+	characterID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid character ID"})
+		c.Abort()
+		return
+	}
+
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
+		c.Abort()
+		return
+	}
+
+	var profileID, authorUserID int
+	if err := db.QueryRow(
+		"SELECT cpb.id, cb.user_id FROM character_profile_base cpb JOIN character_base cb ON cpb.character_id = cb.id WHERE cpb.character_id = ?",
+		characterID,
+	).Scan(&profileID, &authorUserID); err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character profile not found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch character profile"})
+		}
+		c.Abort()
+		return
+	}
+
+	if userID != authorUserID {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "You do not have permission to edit this character profile"})
+		c.Abort()
+		return
+	}
+
+	file, _, err := c.Request.FormFile("avatar")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "avatar file is required"})
+		c.Abort()
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to read uploaded file"})
+		c.Abort()
+		return
+	}
+
+	avatarURL, err := Services.SaveCharacterProfileAvatar(data, profileID, db)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: err.Error()})
+		c.Abort()
+		return
+	}
+
+	if _, err := Services.PatchEntity(int64(profileID), "character_profile", map[string]interface{}{"avatar": avatarURL}, db); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save avatar"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"avatar": avatarURL})
 }
 
 func CharacterProfileUpdate(c *gin.Context, db *sql.DB) {
