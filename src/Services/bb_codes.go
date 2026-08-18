@@ -17,6 +17,7 @@ var youtubeRegexp = regexp.MustCompile(`(?i)(?:youtube\.com/(?:watch\?(?:.*&)?v=
 // autoLinkRe matches either a full HTML tag (kept as-is) or a raw http(s) URL (linkified).
 // Matching tags first ensures URLs already inside href/src attributes are never touched.
 var autoLinkRe = regexp.MustCompile(`(?i)(<[^>]*>)|(https?://[^\s<>"']+)`)
+var preBlockRe = regexp.MustCompile(`(?is)<pre[^>]*>.*?</pre>`)
 
 var (
 	viewforumRe = regexp.MustCompile(`^/viewforum/(\d+)$`)
@@ -59,7 +60,16 @@ func resolveInternalLinkLabel(rawURL, domain string, db *sql.DB) string {
 }
 
 func LinkifyURLs(input, domain string, db *sql.DB) string {
-	return autoLinkRe.ReplaceAllStringFunc(input, func(match string) string {
+	placeholders := make(map[string]string)
+	i := 0
+	input = preBlockRe.ReplaceAllStringFunc(input, func(block string) string {
+		key := fmt.Sprintf("\x00pre%d\x00", i)
+		i++
+		placeholders[key] = block
+		return key
+	})
+
+	result := autoLinkRe.ReplaceAllStringFunc(input, func(match string) string {
 		if match[0] == '<' {
 			return match
 		}
@@ -71,8 +81,49 @@ func LinkifyURLs(input, domain string, db *sql.DB) string {
 		}
 		return `<a href="` + html.EscapeString(trimmed) + `">` + html.EscapeString(label) + `</a>` + suffix
 	})
+
+	for key, block := range placeholders {
+		result = strings.ReplaceAll(result, key, block)
+	}
+	return result
 }
 var audioExtRegexp = regexp.MustCompile(`(?i)\.(mp3|ogg|wav|flac|aac|m4a|opus|webm)(\?.*)?$`)
+var cssDimensionRe = regexp.MustCompile(`^[a-zA-Z0-9.%\-]+$`)
+
+// getRawArg extracts a named arg directly from the raw tag string, bypassing
+// the bbcode library's quoted-value parser which corrupts multi-byte UTF-8.
+func getRawArg(node *bbcode.BBCodeNode, key string) (string, bool) {
+	raw := node.GetOpeningTag().Raw
+	search := key + "="
+	idx := strings.Index(strings.ToLower(raw), search)
+	if idx < 0 {
+		return "", false
+	}
+	rest := raw[idx+len(search):]
+	if len(rest) == 0 {
+		return "", false
+	}
+	var val string
+	if rest[0] == '"' || rest[0] == '\'' {
+		quoteChar := rest[0]
+		end := strings.IndexByte(rest[1:], quoteChar)
+		if end < 0 {
+			return "", false
+		}
+		val = rest[1 : end+1]
+	} else {
+		end := strings.IndexAny(rest, " \t]")
+		if end < 0 {
+			val = rest
+		} else {
+			val = rest[:end]
+		}
+	}
+	if val == "" {
+		return "", false
+	}
+	return val, true
+}
 
 func getArg(node *bbcode.BBCodeNode, key string) (string, bool) {
 	val, ok := node.GetOpeningTag().Args[key]
@@ -193,7 +244,7 @@ func GetBBCompiler() bbcode.Compiler {
 		}
 
 		value := node.GetOpeningTag().Value
-		if validFonts[value] {
+		if validFonts[strings.ToLower(value)] {
 			out.Attrs["style"] = fmt.Sprintf("font-family: %s;", value)
 		}
 
@@ -338,6 +389,48 @@ func GetBBCompiler() bbcode.Compiler {
 		return out, true
 	})
 
+	compiler.SetTag("code", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "pre"
+		for _, child := range node.Children {
+			out.AppendChild(bbcode.CompileRaw(child))
+		}
+		// Ensure closing </pre> is emitted even for empty blocks.
+		// HTMLTag.Compile only adds a closing tag when children are present.
+		if len(node.Children) == 0 {
+			out.AppendChild(bbcode.NewHTMLTag(""))
+		}
+		return out, false
+	})
+
+	compiler.SetTag("table", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "table"
+		out.Attrs["style"] = "border-collapse: collapse;"
+		return out, true
+	})
+
+	compiler.SetTag("tr", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "tr"
+		return out, true
+	})
+
+	compiler.SetTag("td", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "td"
+		if width, ok := getRawArg(node, "width"); ok && cssDimensionRe.MatchString(width) {
+			out.Attrs["style"] = fmt.Sprintf("width: %s;", width)
+		}
+		if colspan, ok := getArgInt(node, "colspan", 1, 100); ok {
+			out.Attrs["colspan"] = strconv.Itoa(colspan)
+		}
+		if rowspan, ok := getArgInt(node, "rowspan", 1, 100); ok {
+			out.Attrs["rowspan"] = strconv.Itoa(rowspan)
+		}
+		return out, true
+	})
+
 	compiler.SetTag("img", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
 		out := bbcode.NewHTMLTag("")
 		out.Name = "img"
@@ -352,6 +445,9 @@ func GetBBCompiler() bbcode.Compiler {
 				out.Attrs["alt"] = text
 				out.Attrs["title"] = text
 			}
+		}
+		if title, ok := getRawArg(node, "title"); ok {
+			out.Attrs["title"] = title
 		}
 		out.Attrs["loading"] = "lazy"
 		out.Attrs["referrerpolicy"] = "no-referrer"

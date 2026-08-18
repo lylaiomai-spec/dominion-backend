@@ -14,4 +14,6 @@ const (
 	ExternalAppPermissionPost            ExternalAppPermission = "post"
 	ExternalAppPermissionGetActiveTopics ExternalAppPermission = "get_active_topics"
 	ExternalAppPermissionGetFirstPost    ExternalAppPermission = "get_first_post"
+	ExternalAppPermissionGetPost         ExternalAppPermission = "get_post"
+	ExternalAppPermissionUpdatePost      ExternalAppPermission = "update_post"
 )

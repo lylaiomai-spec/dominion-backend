@@ -14,12 +14,21 @@ var angularBooleanAttrs = []string{"app-ulinks", "appRouterLinks", "app-navlinks
 
 // angularAttrCasefix restores Angular attribute casing that bluemonday lowercases.
 var angularAttrCasefix = map[string]string{
-	"[innerhtml]": "[innerHTML]",
+	"[innerhtml]":         "[innerHTML]",
+	"routerlink":          "routerLink",
+	"[routerlink]":        "[routerLink]",
+	"[queryparams]":       "[queryParams]",
+	"viewbox":             "viewBox",
+	"preserveaspectratio": "preserveAspectRatio",
+	"gradientunits":       "gradientUnits",
+	"gradienttransform":   "gradientTransform",
+	"clippathunits":       "clipPathUnits",
+	"patternunits":        "patternUnits",
 }
 
 // angularCustomElements are Angular component tags that the HTML parser discards
 // as unknown elements. We preserve them via pre/post processing.
-var angularCustomElements = []string{"app-notifications"}
+var angularCustomElements = []string{"app-notifications", "app-field-display"}
 
 var angularElementRegexps = func() map[string]*regexp.Regexp {
 	m := make(map[string]*regexp.Regexp, len(angularCustomElements))
@@ -60,34 +69,58 @@ var templatePolicy = func() *bluemonday.Policy {
 
 	p.AllowElements(
 		"acronym", "address", "article", "aside",
-		"b", "blockquote", "br",
+		"b", "blockquote", "br", "button",
 		"caption", "cite", "col", "colgroup",
 		"dd", "del", "details", "dfn", "div", "dl", "dt",
 		"em",
 		"figcaption", "figure", "footer",
+		"a",
 		"h1", "h2", "h3", "h4", "h5", "h6", "header", "hr",
-		"i", "ins",
+		"i", "img", "ins",
 		"kbd",
 		"li",
 		"main", "mark",
-		"nav",
+		"nav", "ng-container",
 		"ol",
 		"q",
+		"p",
 		"s", "samp", "section", "small", "source", "span", "strong", "sub", "summary", "sup",
+		"svg", "path", "g", "circle", "ellipse", "rect", "line", "polyline", "polygon",
+		"text", "tspan", "defs", "use", "symbol", "desc",
+		"clippath", "mask", "lineargradient", "radialgradient", "stop",
+		"table", "tbody", "td", "tfoot", "th", "thead", "tr",
 		"u", "ul",
 		"var",
 		"wbr",
 	)
 
+	p.AllowAttrs("href", "target", "rel").OnElements("a")
+	p.AllowAttrs("type").OnElements("button")
+	p.AllowAttrs("src", "alt", "width", "height").OnElements("img")
 	p.AllowAttrs("cite").OnElements("blockquote", "q", "del", "ins")
 	p.AllowAttrs("datetime").OnElements("time", "del", "ins")
 	p.AllowAttrs("open").OnElements("details")
 	p.AllowAttrs("span", "width").OnElements("col", "colgroup")
+	p.AllowAttrs("cellspacing", "cellpadding", "border").OnElements("table")
 	p.AllowAttrs("colspan", "rowspan", "headers", "scope").OnElements("td", "th")
 	p.AllowAttrs("class", "id", "style", "data-angular-placeholder").Globally()
 
+	// SVG presentation and structural attributes
+	p.AllowAttrs(
+		"xmlns", "viewBox", "preserveAspectRatio",
+		"fill", "fill-opacity", "fill-rule",
+		"stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "stroke-opacity",
+		"d", "points",
+		"cx", "cy", "r", "rx", "ry",
+		"x", "y", "x1", "y1", "x2", "y2",
+		"transform", "clip-path", "opacity",
+		"offset", "stop-color", "stop-opacity",
+		"gradientUnits", "gradientTransform", "clipPathUnits", "patternUnits",
+		"aria-hidden", "aria-label", "role",
+	).Globally()
+
 	// Angular structural/directive attributes
-	p.AllowAttrs("app-ulinks", "appRouterLinks", "app-navlinks", "[innerHTML]", "i18n").Globally()
+	p.AllowAttrs("app-ulinks", "appRouterLinks", "app-navlinks", "[innerHTML]", "i18n", "routerLink", "[routerLink]", "[queryParams]", "[class.has-new-messages]", "[class.active]", "(click)").Globally()
 
 	p.AllowStyles("color", "background-color", "background",
 		"font-size", "font-weight", "font-style", "font-family",
@@ -96,7 +129,7 @@ var templatePolicy = func() *bluemonday.Policy {
 		"padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
 		"border", "border-radius",
 		"width", "height", "max-width", "max-height",
-		"display", "flex-direction", "align-items", "justify-content", "gap",
+		"display", "flex-direction", "flex-shrink", "align-items", "justify-content", "gap",
 		"list-style", "list-style-type",
 	).Globally()
 
@@ -115,5 +148,9 @@ func SanitizeTemplate(html string) string {
 	for lower, correct := range angularAttrCasefix {
 		result = strings.ReplaceAll(result, lower, correct)
 	}
+	result = strings.ReplaceAll(result, "&#39;", "'")
+	result = strings.ReplaceAll(result, "&amp;", "&")
+	result = strings.ReplaceAll(result, "&gt;", ">")
+	result = strings.ReplaceAll(result, "&lt;", "<")
 	return result
 }

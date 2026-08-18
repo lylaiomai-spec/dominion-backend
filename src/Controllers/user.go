@@ -75,6 +75,8 @@ type UpdateSettingsRequest struct {
 	Password        *string        `json:"password"`
 	InterfaceDesign NullableString `json:"interface_design"`
 	Signature       NullableString `json:"signature"`
+	EditorType      *int           `json:"editor_type"`
+	DoNotBlur       *bool          `json:"do_not_blur"`
 }
 
 type CreateUserRequest struct {
@@ -220,8 +222,8 @@ func Login(c *gin.Context, db *sql.DB) {
 	}
 
 	var user Entities.User
-	query := "SELECT id, username, avatar, password, interface_language, interface_timezone, interface_font_size, user_status, interface_design, archive_reason, signature FROM users WHERE username = ?"
-	err := db.QueryRow(query, creds.Username).Scan(&user.Id, &user.Username, &user.Avatar, &user.Password, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.InterfaceDesign, &user.ArchiveReason, &user.Signature)
+	query := "SELECT id, username, avatar, password, interface_language, interface_timezone, interface_font_size, user_status, interface_design, archive_reason, signature, editor_type, do_not_blur FROM users WHERE username = ?"
+	err := db.QueryRow(query, creds.Username).Scan(&user.Id, &user.Username, &user.Avatar, &user.Password, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.InterfaceDesign, &user.ArchiveReason, &user.Signature, &user.EditorType, &user.DoNotBlur)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Invalid credentials"})
@@ -268,6 +270,9 @@ func Login(c *gin.Context, db *sql.DB) {
 		}
 		role.Permissions = Services.GetRoleFrontendPermissions(role.Id, db)
 		user.Roles = append(user.Roles, role)
+	}
+	if Services.IsSuperuserID(user.Id) {
+		user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup"}})
 	}
 
 	// Check for errors during iteration
@@ -359,8 +364,8 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 
 	// Fetch user details
 	var user Entities.User
-	query := "SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature FROM users WHERE id = ?"
-	err = db.QueryRow(query, claims.UserID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature)
+	query := "SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature, editor_type, do_not_blur FROM users WHERE id = ?"
+	err = db.QueryRow(query, claims.UserID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature, &user.EditorType, &user.DoNotBlur)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch user details"})
 		c.Abort()
@@ -389,6 +394,9 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 				role.Permissions = Services.GetRoleFrontendPermissions(role.Id, db)
 				user.Roles = append(user.Roles, role)
 			}
+		}
+		if Services.IsSuperuser(c) {
+			user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup"}})
 		}
 	}
 
@@ -640,6 +648,14 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 		updates = append(updates, "signature = ?")
 		args = append(args, req.Signature.Value)
 	}
+	if req.EditorType != nil {
+		updates = append(updates, "editor_type = ?")
+		args = append(args, *req.EditorType)
+	}
+	if req.DoNotBlur != nil {
+		updates = append(updates, "do_not_blur = ?")
+		args = append(args, *req.DoNotBlur)
+	}
 	if req.Password != nil {
 		// Hash the password before updating
 		dummyUser := Entities.User{}
@@ -669,7 +685,7 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 
 	// Fetch updated user details
 	var user Entities.User
-	err = db.QueryRow("SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature FROM users WHERE id = ?", userID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature)
+	err = db.QueryRow("SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature, editor_type, do_not_blur FROM users WHERE id = ?", userID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature, &user.EditorType, &user.DoNotBlur)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch updated user details"})
 		c.Abort()
@@ -693,12 +709,43 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 				user.Roles = append(user.Roles, role)
 			}
 		}
+		if Services.IsSuperuser(c) {
+			user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup"}})
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Settings updated successfully",
 		"user":    user,
 	})
+}
+
+type SetDoNotBlurRequest struct {
+	DoNotBlur bool `json:"do_not_blur"`
+}
+
+func SetDoNotBlur(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
+		c.Abort()
+		return
+	}
+
+	var req SetDoNotBlurRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if _, err := db.Exec("UPDATE users SET do_not_blur = ? WHERE id = ?", req.DoNotBlur, userID); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update setting: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"do_not_blur": req.DoNotBlur})
 }
 
 type AdminUserListItem struct {
@@ -1202,6 +1249,7 @@ func PrivateKeyCheck(c *gin.Context, db *sql.DB) {
 type ActiveUserInfo struct {
 	UserID              int     `json:"user_id"`
 	Username            string  `json:"username"`
+	IsGuest             bool    `json:"is_guest,omitempty"`
 	CurrentPageType     string  `json:"current_page_type"`
 	CurrentPageId       *string `json:"current_page_id"`
 	CurrentPageName     *string `json:"current_page_name"`
@@ -1245,6 +1293,27 @@ func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
 		result = append(result, info)
 	}
 
+	for _, g := range Services.GuestActivity.GetActiveGuests() {
+		info := ActiveUserInfo{
+			IsGuest:             true,
+			Username:            "Guest#" + g.ShortID,
+			CurrentPageType:     g.CurrentPageType,
+			LastActiveLocalized: Services.LocalizeTime(g.LastActive, timezone),
+		}
+		if g.CurrentPageType == "topic" && g.CurrentPageId != "" {
+			var subforumID int
+			var topicName string
+			err := db.QueryRow("SELECT subforum_id, name FROM topics WHERE id = ?", g.CurrentPageId).Scan(&subforumID, &topicName)
+			if err == nil && visibleSubforumSet[subforumID] {
+				info.CurrentPageId = &g.CurrentPageId
+				info.CurrentPageName = &topicName
+			}
+		} else if g.CurrentPageType != "" && g.CurrentPageId != "" {
+			info.CurrentPageId = &g.CurrentPageId
+		}
+		result = append(result, info)
+	}
+
 	return result
 }
 
@@ -1264,6 +1333,21 @@ func BroadcastActiveUserActivity(db *sql.DB) {
 func GetActiveUserActivity(c *gin.Context, db *sql.DB) {
 	currentUserID := Services.GetUserIdFromContext(c)
 	c.JSON(http.StatusOK, buildActiveUserActivity(currentUserID, db))
+}
+
+func UpdateGuestLocation(c *gin.Context) {
+	var req struct {
+		PageType string `json:"page_type" binding:"required"`
+		PageId   string `json:"page_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	fingerprint := Services.GuestFingerprint(c.Request)
+	Services.GuestActivity.UpdateLocation(fingerprint, req.PageType, req.PageId)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func GetUserRoles(c *gin.Context, db *sql.DB) {

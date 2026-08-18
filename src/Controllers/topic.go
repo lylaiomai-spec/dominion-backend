@@ -121,7 +121,7 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 		LEFT JOIN users u2 ON topics.last_post_author_user_id = u2.id
 		LEFT JOIN user_topic_view utv ON topics.id = utv.topic_id AND utv.user_id = ?
 		WHERE subforum_id = ? AND topics.status != ?
-		ORDER BY COALESCE(topics.is_sticky, false) DESC, date_last_post DESC
+		ORDER BY COALESCE(topics.is_sticky, false) DESC, topics.date_last_post DESC
 		LIMIT ? OFFSET ?
 	`
 	rows, err := db.Query(query, userID, userID, subforum, Entities.DeletedTopic, limit, page*limit)
@@ -1735,9 +1735,9 @@ func GetActiveTopics(c *gin.Context, db *sql.DB) {
 
 	placeholders := strings.Repeat("?,", len(filteredSubforumIDs)-1) + "?"
 	query := fmt.Sprintf(`
-		SELECT t.id, t.status, t.name, t.type, t.date_last_post, t.post_number, 
+		SELECT t.id, t.status, t.name, t.type, t.date_last_post, t.post_number,
 		       t.author_user_id, u.username as author_username,
-		       t.last_post_author_user_id, u2.username as last_post_author_username, 
+		       t.last_post_author_user_id, u2.username as last_post_author_username,
 		       (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0)) as last_post_id,
 		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0))) THEN 1 ELSE 0 END) as not_viewed,
 		       utv.post_id as last_viewed_id

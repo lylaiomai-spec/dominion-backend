@@ -24,6 +24,11 @@ func IsSuperuser(c *gin.Context) bool {
 	return superuserID != 0 && GetUserIdFromContext(c) == superuserID
 }
 
+// IsSuperuserID returns true if the given user ID is the superuser.
+func IsSuperuserID(id int) bool {
+	return superuserID != 0 && id == superuserID
+}
+
 // LocalizeTime converts t into the user's IANA timezone and returns a formatted string.
 // Falls back to UTC if the timezone is nil, empty, or unrecognised.
 func LocalizeTime(t time.Time, timezone *string) string {

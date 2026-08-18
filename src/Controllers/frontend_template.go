@@ -36,6 +36,24 @@ var frontendComponentDefs = []frontendComponentDef{
 		DefaultTemplatePath: "src/app/components/header/header.component.html",
 		DescriptionKey:      "frontend_component.src_app_components_header.description",
 	},
+	{
+		Name:                "src/app/components/category",
+		TemplatePath:        "src/app/components/category/category.custom.component.html",
+		DefaultTemplatePath: "src/app/components/category/category.component.html",
+		DescriptionKey:      "frontend_component.src_app_components_category.description",
+	},
+	{
+		Name:                "src/app/components/footer-statistics",
+		TemplatePath:        "src/app/components/footer-statistics/footer-statistics.custom.component.html",
+		DefaultTemplatePath: "src/app/components/footer-statistics/footer-statistics.component.html",
+		DescriptionKey:      "frontend_component.src_app_components_footer_statistics.description",
+	},
+	{
+		Name:                "src/app/components/episode-header",
+		TemplatePath:        "src/app/components/episode-header/episode-header.custom.component.html",
+		DefaultTemplatePath: "src/app/components/episode-header/episode-header.component.html",
+		DescriptionKey:      "frontend_component.src_app_components_episode_header.description",
+	},
 }
 
 func findComponentDef(name string) (frontendComponentDef, bool) {

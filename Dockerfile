@@ -1,5 +1,7 @@
 FROM golang:alpine
 
+RUN apk add --no-cache mysql-client
+
 WORKDIR /app
 
 COPY go.mod go.sum ./

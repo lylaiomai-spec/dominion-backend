@@ -177,7 +177,9 @@ func RegisterEpisodeEventHandlers() {
 			return
 		}
 
-		_, err := db.Exec("UPDATE subforums SET topic_number = COALESCE(topic_number, 0) + 1, show_last_topic = true, last_post_topic_id = ?, last_post_topic_name = ? WHERE id = ?", event.TopicID, event.TopicName, event.SubforumID)
+		var username string
+		_ = db.QueryRow("SELECT username FROM users WHERE id = ?", event.UserID).Scan(&username)
+		_, err := db.Exec("UPDATE subforums SET topic_number = COALESCE(topic_number, 0) + 1, show_last_topic = true, last_post_topic_id = ?, last_post_topic_name = ?, date_last_post = NOW(), last_post_author_user_name = ? WHERE id = ?", event.TopicID, event.TopicName, username, event.SubforumID)
 		if err != nil {
 			fmt.Printf("Error updating subforum topic count for episode: %v\n", err)
 		}

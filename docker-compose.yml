@@ -12,6 +12,7 @@ services:
       - DB_USER=user
       - DB_PASSWORD=password
       - DB_NAME=cuento
+      - SUPERUSER_ID=3
       - SONIC_HOST=sonic
       - SONIC_PORT=1491
       - SONIC_PASSWORD=SecretPassword

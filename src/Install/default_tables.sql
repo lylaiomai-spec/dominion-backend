@@ -17,6 +17,8 @@ create table users
     total_posts        int default 0 not null,
     total_general_posts int default 0 not null,
     signature          text         null,
+    editor_type        int          not null default 0,
+    do_not_blur        tinyint(1)   not null default 0,
     constraint users_pk_2
         unique (username)
 );
@@ -141,7 +143,13 @@ INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser
 VALUES ('use_rating_system', 'y', 0);
 
 INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
+VALUES ('show_content_warnings', 'y', 0);
+
+INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
 VALUES ('site_max_rating', 'L1V1S1', 0);
+
+INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
+VALUES ('blur_content_starting_from_rate', NULL, 0);
 
 INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
 VALUES ('global_free_format_date_id', NULL, 0);
@@ -565,10 +573,11 @@ create table direct_chats
 
 create table direct_chat_users
 (
-    direct_chat_id       int not null,
-    user_id              int not null,
-    last_read_message_id int null,
-    unread_count         int not null default 0,
+    direct_chat_id          int      not null,
+    user_id                 int      not null,
+    last_read_message_id    int      null,
+    unread_count            int      not null default 0,
+    chat_blocked_since_date datetime null,
     constraint direct_chat_users_pk primary key (direct_chat_id, user_id),
     constraint fk_direct_chat_users_chat foreign key (direct_chat_id) references direct_chats (id) on delete cascade,
     constraint fk_direct_chat_users_user foreign key (user_id) references users (id) on delete cascade
@@ -952,17 +961,18 @@ CREATE TABLE design_drafts
     session_key      VARCHAR(12)  NOT NULL,
     date_created     DATETIME     NOT NULL,
     date_last_changed DATETIME    NOT NULL,
-    main_css         TEXT         NULL,
-    custom_style_css TEXT         NULL,
+    main_css         MEDIUMTEXT   NULL,
+    custom_style_css MEDIUMTEXT   NULL,
     CONSTRAINT design_drafts_session_key_unique UNIQUE (session_key)
 );
 
 CREATE TABLE absent_users
 (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
-    user_id             INT      NOT NULL,
-    absence_start_date  DATETIME NOT NULL,
-    absence_end_date    DATETIME NOT NULL,
+    user_id             INT        NOT NULL,
+    absence_start_date  DATETIME   NOT NULL,
+    absence_end_date    DATETIME   NOT NULL,
+    is_deleted          TINYINT(1) NOT NULL DEFAULT 0,
     CONSTRAINT fk_absent_users_user FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
@@ -1091,4 +1101,24 @@ create table resized_image_cache
     height       int           not null,
     resized_url  varchar(2048) not null,
     unique key uq_resized (original_url(191), width, height)
+);
+create table puzzles
+(
+    id           int          auto_increment primary key,
+    title        varchar(255) not null,
+    iframe_code  text         not null,
+    date_created datetime     not null default current_timestamp,
+    is_public    tinyint(1)   not null default 0,
+    is_active    tinyint(1)   not null default 1
+);
+
+create table puzzle_achievements
+(
+    id             int          auto_increment primary key,
+    puzzle_id      int          not null,
+    user_id        int          not null,
+    date           datetime     not null default current_timestamp,
+    screenshot_url varchar(2048) not null,
+    constraint fk_puzzle_achievements_puzzle foreign key (puzzle_id) references puzzles (id) on delete cascade,
+    constraint fk_puzzle_achievements_user   foreign key (user_id)   references users (id)   on delete cascade
 );

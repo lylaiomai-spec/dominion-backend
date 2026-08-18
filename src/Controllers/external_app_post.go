@@ -129,6 +129,130 @@ func ExternalAppPost(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusCreated, gin.H{"post_id": postId})
 }
 
+func ExternalAppGetPost(c *gin.Context, db *sql.DB) {
+	appId, ok := authenticateExternalApp(c, db)
+	if !ok {
+		return
+	}
+
+	postId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || postId <= 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid post id"})
+		c.Abort()
+		return
+	}
+
+	var subforumId sql.NullInt64
+	var content string
+	var authorUserId int
+	err = db.QueryRow(`
+		SELECT t.subforum_id, p.content, p.author_user_id
+		FROM posts p
+		JOIN topics t ON t.id = p.topic_id
+		WHERE p.id = ? AND (p.is_deleted IS NULL OR p.is_deleted = 0)
+	`, postId).Scan(&subforumId, &content, &authorUserId)
+	if err == sql.ErrNoRows {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Post not found"})
+		c.Abort()
+		return
+	}
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get post"})
+		c.Abort()
+		return
+	}
+
+	var hasPermission bool
+	if err := db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM external_app_permissions WHERE external_app_id = ? AND subforum_id = ? AND permission = ?)",
+		appId, subforumId, string(Entities.ExternalAppPermissionGetPost),
+	).Scan(&hasPermission); err != nil || !hasPermission {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "External app does not have get_post permission for this subforum"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"post_id":        postId,
+		"post_content":   content,
+		"post_author_id": authorUserId,
+	})
+}
+
+func ExternalAppUpdatePost(c *gin.Context, db *sql.DB) {
+	appId, ok := authenticateExternalApp(c, db)
+	if !ok {
+		return
+	}
+
+	var appUserId sql.NullInt64
+	if err := db.QueryRow("SELECT user_id FROM external_apps WHERE id = ?", appId).Scan(&appUserId); err != nil || !appUserId.Valid {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "External app has no associated user"})
+		c.Abort()
+		return
+	}
+
+	postId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || postId <= 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid post id"})
+		c.Abort()
+		return
+	}
+
+	var req struct {
+		Content string `json:"content" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	var subforumId sql.NullInt64
+	var authorUserId int
+	err = db.QueryRow(`
+		SELECT t.subforum_id, p.author_user_id
+		FROM posts p
+		JOIN topics t ON t.id = p.topic_id
+		WHERE p.id = ? AND (p.is_deleted IS NULL OR p.is_deleted = 0)
+	`, postId).Scan(&subforumId, &authorUserId)
+	if err == sql.ErrNoRows {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Post not found"})
+		c.Abort()
+		return
+	}
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get post"})
+		c.Abort()
+		return
+	}
+
+	if authorUserId != int(appUserId.Int64) {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "Post does not belong to this app's user"})
+		c.Abort()
+		return
+	}
+
+	var hasPermission bool
+	if err := db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM external_app_permissions WHERE external_app_id = ? AND subforum_id = ? AND permission = ?)",
+		appId, subforumId, string(Entities.ExternalAppPermissionUpdatePost),
+	).Scan(&hasPermission); err != nil || !hasPermission {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "External app does not have update_post permission for this subforum"})
+		c.Abort()
+		return
+	}
+
+	content := html.EscapeString(req.Content)
+	if _, err := db.Exec("UPDATE posts SET content = ? WHERE id = ?", content, postId); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update post"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func ExternalAppGetTopicFirstPost(c *gin.Context, db *sql.DB) {
 	appId, ok := authenticateExternalApp(c, db)
 	if !ok {

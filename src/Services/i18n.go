@@ -51,3 +51,26 @@ func T(localizer *i18n.Localizer, messageID string) string {
 	}
 	return msg
 }
+
+func TData(localizer *i18n.Localizer, messageID string, data map[string]interface{}) string {
+	msg, err := localizer.Localize(&i18n.LocalizeConfig{
+		MessageID:    messageID,
+		TemplateData: data,
+	})
+	if err != nil {
+		return messageID
+	}
+	return msg
+}
+
+func TPlural(localizer *i18n.Localizer, messageID string, count int, data map[string]interface{}) string {
+	msg, err := localizer.Localize(&i18n.LocalizeConfig{
+		MessageID:    messageID,
+		PluralCount:  count,
+		TemplateData: data,
+	})
+	if err != nil {
+		return messageID
+	}
+	return msg
+}

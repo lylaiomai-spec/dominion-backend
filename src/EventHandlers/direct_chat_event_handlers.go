@@ -28,9 +28,9 @@ func RegisterDirectChatEventHandlers() {
 			return
 		}
 
-		// Get all participants of this chat
+		// Get all participants of this chat along with their block date
 		rows, err := db.Query(
-			"SELECT user_id FROM direct_chat_users WHERE direct_chat_id = ?",
+			"SELECT user_id, chat_blocked_since_date FROM direct_chat_users WHERE direct_chat_id = ?",
 			event.ChatID,
 		)
 		if err != nil {
@@ -43,7 +43,13 @@ func RegisterDirectChatEventHandlers() {
 
 		for rows.Next() {
 			var participantID int
-			if err := rows.Scan(&participantID); err != nil {
+			var blockedSince *time.Time
+			if err := rows.Scan(&participantID, &blockedSince); err != nil {
+				continue
+			}
+
+			// Skip notification if the message is newer than the block date
+			if blockedSince != nil && event.DateSend.After(*blockedSince) {
 				continue
 			}
 

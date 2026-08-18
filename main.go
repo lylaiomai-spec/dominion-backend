@@ -190,6 +190,9 @@ func main() {
 	optionalAuthRouter.GET("/active-users/activity", "Get full activity info for active users", func(c *gin.Context) {
 		Controllers.GetActiveUserActivity(c, Services.DB)
 	})
+	publicRouter.POST("/guest/activity", "Update guest location for active users list", func(c *gin.Context) {
+		Controllers.UpdateGuestLocation(c)
+	})
 	optionalAuthRouter.GET("/search", "Search across buckets", func(c *gin.Context) {
 		Controllers.Search(c, Services.DB)
 	})
@@ -293,6 +296,18 @@ func main() {
 	})
 	optionalAuthRouter.GET("/additional-navlink/list", "Get additional navlinks visible to the current user", func(c *gin.Context) {
 		Controllers.GetAdditionalNavlinkListByUser(c, Services.DB)
+	})
+
+	// Auth-only routes (JWT required, no per-route permission check — controller handles authorization)
+	authOnlyGroup := r.Group("/")
+	authOnlyGroup.Use(Middlewares.AuthMiddleware())
+	authOnlyRouter := Router.NewCustomRouter(authOnlyGroup)
+
+	authOnlyRouter.GET("/admin/backup", "Download a full SQL backup of the database", func(c *gin.Context) {
+		Controllers.BackupDB(c)
+	})
+	authOnlyRouter.POST("/admin/backup/restore", "Restore the database from an uploaded SQL file", func(c *gin.Context) {
+		Controllers.RestoreDB(c)
 	})
 
 	// Protected routes
@@ -527,11 +542,17 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	protectedRouter.POST("/user/avatar", "Upload and save the current user's avatar", func(c *gin.Context) {
 		Controllers.UploadUserAvatar(c, Services.DB)
 	})
+	protectedRouter.POST("/user/do-not-blur", "Set do-not-blur preference for the current user", func(c *gin.Context) {
+		Controllers.SetDoNotBlur(c, Services.DB)
+	})
 	protectedRouter.POST("/user/settings/update", "Update user settings", func(c *gin.Context) {
 		Controllers.UpdateSettings(c, Services.DB)
 	})
 	protectedRouter.POST("/user/absence", "Create an absence record for the current user", func(c *gin.Context) {
 		Controllers.CreateAbsence(c, Services.DB)
+	})
+	protectedRouter.DELETE("/user/absence/:id", "Delete (soft-delete) an absence record owned by the current user", func(c *gin.Context) {
+		Controllers.DeleteAbsence(c, Services.DB)
 	})
 	protectedRouter.POST("/admin/user/:user_id/absence", "Create an absence record for any user (admin)", func(c *gin.Context) {
 		Controllers.AdminCreateAbsence(c, Services.DB)
@@ -613,6 +634,12 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	})
 	protectedRouter.GET("/direct-chat/:chatID/messages/:messageID/after", "Get messages after a given message", func(c *gin.Context) {
 		Controllers.GetMessagesAfter(c, Services.DB)
+	})
+	protectedRouter.POST("/direct-chat/:chatID/block", "Block a direct chat", func(c *gin.Context) {
+		Controllers.BlockDirectChat(c, Services.DB)
+	})
+	protectedRouter.POST("/direct-chat/:chatID/unblock", "Unblock a direct chat", func(c *gin.Context) {
+		Controllers.UnblockDirectChat(c, Services.DB)
 	})
 	protectedRouter.GET("/direct-chats", "Get list of current user's direct chats", func(c *gin.Context) {
 		Controllers.GetDirectChatList(c, Services.DB)
@@ -728,6 +755,9 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	})
 	protectedRouter.POST("/admin/design-draft/update/:id", "Update a design draft by ID", func(c *gin.Context) {
 		Controllers.UpdateDesignDraft(c, Services.DB)
+	})
+	protectedRouter.DELETE("/admin/design-draft/delete/:id", "Delete a design draft by ID", func(c *gin.Context) {
+		Controllers.DeleteDesignDraft(c, Services.DB)
 	})
 	protectedRouter.POST("/admin/design-draft/publish/:id", "Publish a design draft to the live CSS files", func(c *gin.Context) {
 		Controllers.PublishDesignDraft(c, Services.DB)
@@ -881,11 +911,45 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	publicRouter.POST("/external-app/post", "Create a post as an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
 		Controllers.ExternalAppPost(c, Services.DB)
 	})
+	optionalAuthRouter.GET("/puzzles", "Get list of puzzles", func(c *gin.Context) {
+		Controllers.GetPuzzles(c, Services.DB)
+	})
+	optionalAuthRouter.GET("/puzzle/:id", "Get a single puzzle by ID", func(c *gin.Context) {
+		Controllers.GetPuzzle(c, Services.DB)
+	})
+	optionalAuthRouter.GET("/user/:user_id/puzzle-achievements", "Get puzzle achievements for a user", func(c *gin.Context) {
+		Controllers.GetUserPuzzleAchievements(c, Services.DB)
+	})
+	protectedRouter.POST("/puzzle/:id/achievement", "Save a puzzle achievement", func(c *gin.Context) {
+		Controllers.SavePuzzleAchievement(c, Services.DB)
+	})
+	protectedRouter.DELETE("/puzzle/achievement/:id", "Delete own puzzle achievement", func(c *gin.Context) {
+		Controllers.DeletePuzzleAchievement(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/puzzle/list", "Get all puzzles including inactive (admin)", func(c *gin.Context) {
+		Controllers.AdminGetPuzzles(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/puzzle/:id", "Get a single puzzle by ID (admin)", func(c *gin.Context) {
+		Controllers.AdminGetPuzzle(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/puzzle/create", "Create a new puzzle (admin)", func(c *gin.Context) {
+		Controllers.AdminCreatePuzzle(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/puzzle/update/:id", "Update a puzzle (admin)", func(c *gin.Context) {
+		Controllers.AdminUpdatePuzzle(c, Services.DB)
+	})
+
 	publicRouter.GET("/external-app/active-topics", "Get active topics for an external app (authenticated via X-Api-Key header)", func(c *gin.Context) {
 		Controllers.ExternalAppGetActiveTopics(c, Services.DB)
 	})
 	publicRouter.GET("/external-app/topic-first-post", "Get the first post content of a topic (authenticated via X-Api-Key header)", func(c *gin.Context) {
 		Controllers.ExternalAppGetTopicFirstPost(c, Services.DB)
+	})
+	publicRouter.GET("/external-app/get-post/:id", "Get a post by ID (authenticated via X-Api-Key header)", func(c *gin.Context) {
+		Controllers.ExternalAppGetPost(c, Services.DB)
+	})
+	publicRouter.POST("/external-app/update-post/:id", "Update a post by ID (authenticated via X-Api-Key header)", func(c *gin.Context) {
+		Controllers.ExternalAppUpdatePost(c, Services.DB)
 	})
 
 	// External apps routes

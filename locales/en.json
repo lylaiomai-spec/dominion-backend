@@ -41,5 +41,17 @@
   "permission.show_character_sheet_admin_block": "Show character sheet admin block",
   "permission.show_ai_chat_navlink": "Show AI chat navigation link",
 
-  "frontend_component.src_app_components_header.description": "The top part of the page from title to divider"
+  "frontend_component.src_app_components_header.description": "The top part of the page from title to divider",
+
+  "auto_archiving.immunity_expiry_warning": {
+    "one": "Your character {{.Name}}'s protection expires in {{.Count}} day. Write a game post or your character will be deactivated.",
+    "other": "Your character {{.Name}}'s protection expires in {{.Count}} days. Write a game post or your character will be deactivated."
+  },
+
+  "auto_archiving.archiving_warning": {
+    "one": "Your character {{.Name}} is about to be deactivated automatically if you do not write a game post in {{.Count}} day.",
+    "other": "Your character {{.Name}} is about to be deactivated automatically if you do not write a game post in {{.Count}} days."
+  },
+
+  "auto_archiving.deactivated": "Your character {{.Name}} has been automatically deactivated due to inactivity."
 }

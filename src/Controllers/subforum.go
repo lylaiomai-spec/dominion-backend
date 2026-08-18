@@ -59,6 +59,8 @@ func scanCategoryRows(rows *sql.Rows, userTimezone *string) ([]Entities.Category
 		sub.TopicNumber = int(topicNumber.Int64)
 		sub.PostNumber = int(postNumber.Int64)
 		if dateLastPost != nil {
+			raw := dateLastPost.Format(time.RFC3339)
+			sub.DateLastPost = &raw
 			localized := Services.LocalizeTime(*dateLastPost, userTimezone)
 			sub.DateLastPostLocalized = &localized
 		}
@@ -521,6 +523,8 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 	}
 
 	if dateLastPost != nil {
+		raw := dateLastPost.UTC().Format("2006-01-02 15:04:05")
+		subforum.DateLastPost = &raw
 		localized := Services.LocalizeTime(*dateLastPost, Services.GetUserTimezone(userID, db))
 		subforum.DateLastPostLocalized = &localized
 	}

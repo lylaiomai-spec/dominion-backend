@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -275,6 +276,30 @@ func PublishDesignDraft(c *gin.Context, db *sql.DB) {
 	Events.Publish(db, Events.StaticFileUploaded, Events.StaticFileUploadedEvent{FileType: "custom_style.css"})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Design draft published"})
+}
+
+func DeleteDesignDraft(c *gin.Context, db *sql.DB) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid draft ID"})
+		c.Abort()
+		return
+	}
+
+	res, err := db.Exec("DELETE FROM design_drafts WHERE id = ?", id)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to delete design draft: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if n, _ := res.RowsAffected(); n == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Design draft not found"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Design draft deleted"})
 }
 
 func notifyDraftSubscribers(sessionKey string) {

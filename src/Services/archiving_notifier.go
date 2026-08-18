@@ -4,7 +4,6 @@ import (
 	"cuento-backend/src/Entities"
 	"cuento-backend/src/Events"
 	"database/sql"
-	"fmt"
 	"log"
 	"time"
 )
@@ -45,7 +44,7 @@ func runAutoArchiving(db *sql.DB) {
 		JOIN topics t ON t.id = cb.topic_id
 		JOIN users u ON u.id = cb.user_id
 		LEFT JOIN absent_users au ON au.user_id = cb.user_id
-			AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW()
+			AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 		LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
 			AND aai.start_date <= NOW() AND aai.end_date >= NOW()
 		WHERE cb.character_status = ?
@@ -86,10 +85,14 @@ func runAutoArchiving(db *sql.DB) {
 
 		_, _ = db.Exec("UPDATE global_stats SET stat_value = GREATEST(stat_value - 1, 0) WHERE stat_name = 'total_character_number'")
 
+		lang := GetUserLanguage(ch.userID, db)
+		localizer := NewLocalizer(lang)
 		Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
-			UserID:  ch.userID,
-			Type:    "auto_archiving",
-			Message: fmt.Sprintf("Your character %s has been automatically deactivated due to inactivity.", ch.name),
+			UserID: ch.userID,
+			Type:   "auto_archiving",
+			Message: TData(localizer, "auto_archiving.deactivated", map[string]interface{}{
+				"Name": ch.name,
+			}),
 			Data: map[string]interface{}{
 				"character_id":   ch.id,
 				"character_name": ch.name,
@@ -119,11 +122,11 @@ func runArchivingNotifications(db *sql.DB) {
 			JOIN (
 				SELECT character_id, MAX(end_date) AS end_date
 				FROM auto_archiving_immunity
-				WHERE start_date <= NOW() AND end_date >= NOW()
+				WHERE end_date >= NOW()
 				GROUP BY character_id
 			) aai_exp ON aai_exp.character_id = cb.id
 			LEFT JOIN absent_users au ON au.user_id = cb.user_id
-				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW()
+				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND DATEDIFF(aai_exp.end_date, NOW()) = ?
@@ -161,13 +164,15 @@ func runArchivingNotifications(db *sql.DB) {
 				continue
 			}
 
+			lang := GetUserLanguage(ch.userID, db)
+			localizer := NewLocalizer(lang)
 			Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
 				UserID: ch.userID,
 				Type:   "auto_archiving",
-				Message: fmt.Sprintf(
-					"Your character %s's protection expires in %d day(s). Write a game post or your character will be deactivated.",
-					ch.name, threshold,
-				),
+				Message: TPlural(localizer, "auto_archiving.immunity_expiry_warning", threshold, map[string]interface{}{
+					"Name":  ch.name,
+					"Count": threshold,
+				}),
 				Data: map[string]interface{}{
 					"character_id":   ch.id,
 					"character_name": ch.name,
@@ -195,7 +200,7 @@ func runArchivingNotifications(db *sql.DB) {
 			JOIN topics t ON t.id = cb.topic_id
 			JOIN users u ON u.id = cb.user_id
 			LEFT JOIN absent_users au ON au.user_id = cb.user_id
-				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW()
+				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 			LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
 				AND aai.start_date <= NOW() AND aai.end_date >= NOW()
 			WHERE cb.character_status = ?
@@ -235,13 +240,15 @@ func runArchivingNotifications(db *sql.DB) {
 				continue
 			}
 
+			lang := GetUserLanguage(ch.userID, db)
+			localizer := NewLocalizer(lang)
 			Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
 				UserID: ch.userID,
 				Type:   "auto_archiving",
-				Message: fmt.Sprintf(
-					"Your character %s is about to be deactivated automatically if you do not write a game post in %d day(s)",
-					ch.name, threshold,
-				),
+				Message: TPlural(localizer, "auto_archiving.archiving_warning", threshold, map[string]interface{}{
+					"Name":  ch.name,
+					"Count": threshold,
+				}),
 				Data: map[string]interface{}{
 					"character_id":   ch.id,
 					"character_name": ch.name,
