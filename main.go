@@ -74,7 +74,7 @@ func main() {
 	r := gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
-	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Screen-Resolution", "Sec-CH-UA"}
+	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Screen-Resolution", "Sec-CH-UA", "X-Color-Depth"}
 	r.Use(cors.New(config))
 
 	// Apply error middleware globally
@@ -451,6 +451,27 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	})
 	protectedRouter.POST("/post/delete/:id", "Soft-delete a post by ID", func(c *gin.Context) {
 		Controllers.DeletePost(c, Services.DB)
+	})
+	protectedRouter.GET("/post-draft/topic/:topic_id/latest", "Get the latest unpublished draft for a topic", func(c *gin.Context) {
+		Controllers.GetLatestPostDraft(c, Services.DB)
+	})
+	protectedRouter.GET("/post-draft/list/:draft_id", "List all versions of a draft", func(c *gin.Context) {
+		Controllers.ListPostDrafts(c, Services.DB)
+	})
+	protectedRouter.GET("/post-draft/:id", "Get a single draft version by ID", func(c *gin.Context) {
+		Controllers.GetPostDraft(c, Services.DB)
+	})
+	protectedRouter.POST("/post-draft/create", "Create a new draft version", func(c *gin.Context) {
+		Controllers.CreatePostDraft(c, Services.DB)
+	})
+	protectedRouter.POST("/post-draft/update/:id", "Update a draft version", func(c *gin.Context) {
+		Controllers.UpdatePostDraft(c, Services.DB)
+	})
+	protectedRouter.GET("/post-draft/delete/:id", "Delete a single draft version", func(c *gin.Context) {
+		Controllers.DeletePostDraft(c, Services.DB)
+	})
+	protectedRouter.GET("/post-draft/delete-group/:draft_id", "Delete all versions of a draft", func(c *gin.Context) {
+		Controllers.DeletePostDraftGroup(c, Services.DB)
 	})
 	protectedRouter.POST("/character-profile/update/:id", "Update character profile by ID", func(c *gin.Context) {
 		Controllers.CharacterProfileUpdate(c, Services.DB)
@@ -1010,6 +1031,32 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	})
 	protectedRouter.POST("/user-data-migration/update-character-map", "Set character IDs for original user IDs in a processing record", func(c *gin.Context) {
 		Controllers.UpdateUserCharacterMap(c, Services.DB)
+	})
+
+	// AI Agent routes (admin only)
+	protectedRouter.GET("/admin/ai-agent/list", "Get list of all AI agents", func(c *gin.Context) {
+		Controllers.AdminListAiAgents(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/ai-agent/:id", "Get a single AI agent by ID", func(c *gin.Context) {
+		Controllers.AdminGetAiAgent(c, Services.DB)
+	})
+protectedRouter.GET("/admin/ai-agent-implementation/list", "Get list of all AI agent implementations", func(c *gin.Context) {
+		Controllers.AdminListAiAgentImplementations(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/ai-agent-implementation/:id", "Get a single AI agent implementation by ID", func(c *gin.Context) {
+		Controllers.AdminGetAiAgentImplementation(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/ai-agent-implementation/create", "Create a new AI agent implementation", func(c *gin.Context) {
+		Controllers.AdminCreateAiAgentImplementation(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/ai-agent-implementation/update/:id", "Update an AI agent implementation", func(c *gin.Context) {
+		Controllers.AdminUpdateAiAgentImplementation(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/ai-agent-implementation/delete/:id", "Delete an AI agent implementation", func(c *gin.Context) {
+		Controllers.AdminDeleteAiAgentImplementation(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/ai-agent-implementation/:id/call", "Trigger an AI agent implementation", func(c *gin.Context) {
+		Controllers.AdminCallAiAgentImplementation(c, Services.DB)
 	})
 
 	// WebSocket route with special authentication

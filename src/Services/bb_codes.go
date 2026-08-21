@@ -330,6 +330,12 @@ func GetBBCompiler() bbcode.Compiler {
 		return out, true
 	})
 
+	compiler.SetTag("list", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "ul"
+		return out, true
+	})
+
 	compiler.SetTag("ol", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
 		out := bbcode.NewHTMLTag("")
 		out.Name = "ol"
@@ -337,6 +343,12 @@ func GetBBCompiler() bbcode.Compiler {
 	})
 
 	compiler.SetTag("li", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "li"
+		return out, true
+	})
+
+	compiler.SetTag("*", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
 		out := bbcode.NewHTMLTag("")
 		out.Name = "li"
 		return out, true

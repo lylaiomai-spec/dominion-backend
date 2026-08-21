@@ -55,6 +55,7 @@ type CreatePostRequest struct {
 	UseCharacterProfile bool    `json:"use_character_profile"`
 	CharacterProfileID  *int    `json:"character_profile_id"`
 	GuestName           *string `json:"guest_name"`
+	FromDraftID         *string `json:"from_draft_id"`
 }
 
 type UpdatePostRequest struct {
@@ -1088,6 +1089,13 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 				Post:       *fullPost,
 			})
 		}
+	}
+
+	if req.FromDraftID != nil && *req.FromDraftID != "" {
+		_, _ = db.Exec(
+			`UPDATE post_drafts SET is_published = 1, post_id = ? WHERE draft_id = ?`,
+			postID, *req.FromDraftID,
+		)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Post created successfully", "post_id": postID})

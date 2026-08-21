@@ -109,9 +109,12 @@ func processNextTask(db *sql.DB) (bool, error) {
 		return false, fmt.Errorf("fetching claimed task: %w", err)
 	}
 
-	if taskType == "embedding" {
+	switch taskType {
+	case "embedding":
 		executeEmbeddingQueueTask(db, taskID)
-	} else {
+	case "GameDigest":
+		executeGameDigestTask(db, taskID)
+	default:
 		executeTask(db, taskID, int(userID.Int64))
 	}
 	return true, nil

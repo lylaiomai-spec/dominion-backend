@@ -1122,3 +1122,57 @@ create table puzzle_achievements
     constraint fk_puzzle_achievements_puzzle foreign key (puzzle_id) references puzzles (id) on delete cascade,
     constraint fk_puzzle_achievements_user   foreign key (user_id)   references users (id)   on delete cascade
 );
+
+create table ai_agents
+(
+    id                int           auto_increment primary key,
+    title             varchar(255)  not null,
+    short_description varchar(255)  null,
+    handler           varchar(255)  not null
+);
+
+create table ai_agent_implementation
+(
+    id        int          auto_increment primary key,
+    agent_id  int          not null,
+    title     varchar(255) not null,
+    config    json         null,
+    is_active tinyint(1)   not null default 1,
+    constraint fk_ai_agent_implementation_agent foreign key (agent_id) references ai_agents (id) on delete cascade
+);
+
+create table game_digest_context
+(
+    id                int             auto_increment primary key,
+    implementation_id int             not null,
+    topic_id          bigint unsigned not null,
+    context_text      text            null,
+    date_updated      datetime        not null default current_timestamp on update current_timestamp,
+    unique key uq_gdc_impl_topic (implementation_id, topic_id),
+    constraint fk_gdc_implementation foreign key (implementation_id) references ai_agent_implementation (id) on delete cascade
+);
+
+INSERT IGNORE INTO ai_agents (id, title, short_description, handler) VALUES (
+    1,
+    'Game digest',
+    'Creates a summary of game events for the given period of time',
+    'GameDigest'
+);
+
+create table post_drafts
+(
+    id           int             auto_increment primary key,
+    draft_id     varchar(36)     not null,
+    user_id      int             not null,
+    character_id bigint unsigned  null,
+    topic_id     bigint unsigned null,
+    date_created datetime        not null default current_timestamp,
+    is_manual    tinyint(1)      not null default 0,
+    is_published tinyint(1)      not null default 0,
+    post_id      bigint unsigned null,
+    content      text            null,
+    index idx_post_drafts_draft_id (draft_id),
+    index idx_post_drafts_user_id (user_id),
+    constraint fk_post_drafts_user      foreign key (user_id)      references users (id) on delete cascade,
+    constraint fk_post_drafts_character foreign key (character_id) references character_base (id) on delete set null
+);
