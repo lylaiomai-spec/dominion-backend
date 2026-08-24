@@ -292,7 +292,11 @@ func getCharacterArchivalDate(characterID int, db *sql.DB) (time.Time, error) {
 		JOIN topics t ON t.id = cb.topic_id
 		WHERE cb.id = ?
 	`, characterID, autoArchivingDays, characterID).Scan(&archivalDate)
-	return archivalDate, err
+	if err != nil {
+		return archivalDate, err
+	}
+	archivalDate = time.Date(archivalDate.Year(), archivalDate.Month(), archivalDate.Day(), 23, 59, 59, 0, archivalDate.Location())
+	return archivalDate, nil
 }
 
 type AddImmunityRequest struct {
@@ -331,9 +335,10 @@ func AdminAddImmunity(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	startDate := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
 	_, err = db.Exec(
 		"INSERT INTO auto_archiving_immunity (character_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)",
-		req.CharacterID, start, end, req.Reason,
+		req.CharacterID, startDate, end, req.Reason,
 	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to add immunity: " + err.Error()})
@@ -557,10 +562,11 @@ func BuyAutoArchivingImmunity(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
+	startDate := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
 	end := start.Add(time.Duration(req.DurationDays) * 24 * time.Hour)
 	_, err = tx.Exec(
 		"INSERT INTO auto_archiving_immunity (character_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)",
-		req.CharacterID, start, end, "Currency purchase",
+		req.CharacterID, startDate, end, "Currency purchase",
 	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to grant immunity: " + err.Error()})
