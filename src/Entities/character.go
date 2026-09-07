@@ -105,6 +105,7 @@ type CharacterListItem struct {
 	Avatar              *string `json:"avatar"`
 	IsClaim             bool    `json:"is_claim"`
 	WantedCharacterId   *int    `json:"wanted_character_id"`
+	TopicId             *int    `json:"topic_id,omitempty"`
 	ClaimRecordId       *int    `json:"claim_record_id,omitempty"`
 	ClaimAuthorId       *int    `json:"claim_author_id,omitempty"`
 	ClaimAuthorUsername *string `json:"claim_author_username,omitempty"`

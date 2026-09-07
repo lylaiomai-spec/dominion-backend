@@ -28,7 +28,8 @@ var angularAttrCasefix = map[string]string{
 
 // angularCustomElements are Angular component tags that the HTML parser discards
 // as unknown elements. We preserve them via pre/post processing.
-var angularCustomElements = []string{"app-notifications", "app-field-display"}
+var angularCustomElements = []string{"app-notifications", "app-field-display", "app-episode-actions-modal"}
+
 
 var angularElementRegexps = func() map[string]*regexp.Regexp {
 	m := make(map[string]*regexp.Regexp, len(angularCustomElements))

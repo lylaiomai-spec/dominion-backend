@@ -1103,6 +1103,121 @@ func DeactivateEpisode(c *gin.Context, db *sql.DB) {
 	})
 }
 
+type UpdateEpisodeStatusRequest struct {
+	Status *Entities.EpisodeStatus `json:"status" binding:"required"`
+}
+
+func UpdateEpisodeStatus(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid episode ID"})
+		c.Abort()
+		return
+	}
+
+	var req UpdateEpisodeStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+	status := *req.Status
+	if status != Entities.ActiveEpisode && status != Entities.InactiveEpisode && status != Entities.FinishedEpisode {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid status value"})
+		c.Abort()
+		return
+	}
+
+	var participantCount int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM episode_character ec JOIN character_base cb ON ec.character_id = cb.id WHERE ec.episode_id = ? AND cb.user_id = ?",
+		id, userID,
+	).Scan(&participantCount); err != nil || participantCount == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "You are not a participant of this episode"})
+		c.Abort()
+		return
+	}
+
+	topicStatus := Entities.ActiveTopic
+	if status != Entities.ActiveEpisode {
+		topicStatus = Entities.InactiveTopic
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
+		c.Abort()
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec("UPDATE episode_base SET episode_status = ? WHERE id = ?", status, id)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update episode status: " + err.Error()})
+		c.Abort()
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Episode not found"})
+		c.Abort()
+		return
+	}
+
+	if _, err := tx.Exec("UPDATE topics SET status = ? WHERE id = (SELECT topic_id FROM episode_base WHERE id = ?)", topicStatus, id); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update episode topic status: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
+		c.Abort()
+		return
+	}
+
+	// Notify all other participants
+	var episodeName string
+	_ = db.QueryRow("SELECT name FROM episode_base WHERE id = ?", id).Scan(&episodeName)
+
+	var initiatorName string
+	_ = db.QueryRow("SELECT username FROM users WHERE id = ?", userID).Scan(&initiatorName)
+
+	participantRows, err := db.Query(
+		"SELECT DISTINCT cb.user_id FROM episode_character ec JOIN character_base cb ON ec.character_id = cb.id WHERE ec.episode_id = ? AND cb.user_id != ?",
+		id, userID,
+	)
+	if err == nil {
+		defer participantRows.Close()
+		notifData := Entities.NotificationEpisodeStatusChange{
+			EpisodeId:     id,
+			EpisodeName:   episodeName,
+			NewStatus:     int(status),
+			InitiatorId:   userID,
+			InitiatorName: initiatorName,
+		}
+		for participantRows.Next() {
+			var recipientID int
+			if participantRows.Scan(&recipientID) == nil {
+				Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
+					UserID:  recipientID,
+					Type:    "episode_status_change",
+					Message: fmt.Sprintf("%s changed the status of %s", initiatorName, episodeName),
+					Data:    notifData,
+				})
+			}
+		}
+	}
+
+	go Services.RecalculateAbsenceTimerStartForEpisode(id, db)
+
+	c.JSON(http.StatusOK, gin.H{
+		"episode_status": status,
+		"topic_status":   topicStatus,
+	})
+}
+
 func ActivateEpisode(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1280,4 +1395,126 @@ func GetEpisodeAutocomplete(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+type EpisodeCustomAvatarEntry struct {
+	CharacterId   int     `json:"character_id"`
+	CharacterName string  `json:"character_name"`
+	CustomAvatar  *string `json:"custom_avatar"`
+}
+
+func GetMyEpisodeCustomAvatars(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	episodeID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid episode ID"})
+		c.Abort()
+		return
+	}
+
+	rows, err := db.Query(
+		`SELECT cb.id, cb.name, ec.custom_avatar
+		 FROM episode_character ec
+		 JOIN character_base cb ON ec.character_id = cb.id
+		 WHERE ec.episode_id = ? AND cb.user_id = ?`,
+		episodeID, userID,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to load custom avatars: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	result := []EpisodeCustomAvatarEntry{}
+	for rows.Next() {
+		var entry EpisodeCustomAvatarEntry
+		var customAvatar sql.NullString
+		if err := rows.Scan(&entry.CharacterId, &entry.CharacterName, &customAvatar); err != nil {
+			continue
+		}
+		if customAvatar.Valid {
+			entry.CustomAvatar = &customAvatar.String
+		}
+		result = append(result, entry)
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+type SetEpisodeCustomAvatarRequest struct {
+	Avatar string `json:"avatar" binding:"required"`
+}
+
+func SetEpisodeCustomAvatar(c *gin.Context, db *sql.DB) {
+	episodeID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid episode ID"})
+		c.Abort()
+		return
+	}
+	characterID, err := strconv.Atoi(c.Param("character_id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid character ID"})
+		c.Abort()
+		return
+	}
+
+	var req SetEpisodeCustomAvatarRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	result, err := db.Exec(
+		"UPDATE episode_character SET custom_avatar = ? WHERE episode_id = ? AND character_id = ?",
+		req.Avatar, episodeID, characterID,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to set custom avatar: " + err.Error()})
+		c.Abort()
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Episode-character link not found"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"custom_avatar": req.Avatar})
+}
+
+func DeleteEpisodeCustomAvatar(c *gin.Context, db *sql.DB) {
+	episodeID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid episode ID"})
+		c.Abort()
+		return
+	}
+	characterID, err := strconv.Atoi(c.Param("character_id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid character ID"})
+		c.Abort()
+		return
+	}
+
+	result, err := db.Exec(
+		"UPDATE episode_character SET custom_avatar = NULL WHERE episode_id = ? AND character_id = ?",
+		episodeID, characterID,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to remove custom avatar: " + err.Error()})
+		c.Abort()
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Episode-character link not found"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Custom avatar removed"})
 }

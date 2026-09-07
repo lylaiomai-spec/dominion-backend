@@ -205,7 +205,7 @@ func GetWantedCharacterTreeList(c *gin.Context, db *sql.DB) {
 			JOIN factions f ON ccf.faction_id = f.id
 			WHERE cc.is_claimed IS NOT TRUE
 		)
-		SELECT r.id, r.name, r.faction_id, wc.topic_id
+		SELECT r.id, r.name, r.faction_id, wc.id, wc.topic_id
 		FROM RankedFactions r
 		JOIN wanted_character_base wc ON wc.character_claim_id = r.id
 		JOIN topics t_wc ON t_wc.id = wc.topic_id AND t_wc.status != ?
@@ -224,7 +224,7 @@ func GetWantedCharacterTreeList(c *gin.Context, db *sql.DB) {
 	for rows.Next() {
 		var item Entities.CharacterListItem
 		var factionID int
-		if err := rows.Scan(&item.Id, &item.Name, &factionID, &item.WantedCharacterId); err != nil {
+		if err := rows.Scan(&item.Id, &item.Name, &factionID, &item.WantedCharacterId, &item.TopicId); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan wanted character: " + err.Error()})
 			c.Abort()
 			return
@@ -264,7 +264,7 @@ func GetWantedCharacterTreeList(c *gin.Context, db *sql.DB) {
 	noFaction := Entities.Faction{Id: 0, Name: "No Faction", Characters: []Entities.CharacterListItem{}}
 
 	noFactionRows, err := db.Query(`
-		SELECT cc.id, cc.name, wc.topic_id
+		SELECT cc.id, cc.name, wc.id, wc.topic_id
 		FROM character_claim cc
 		JOIN wanted_character_base wc ON wc.character_claim_id = cc.id
 		JOIN topics t_wc ON t_wc.id = wc.topic_id AND t_wc.status != ?
@@ -278,7 +278,7 @@ func GetWantedCharacterTreeList(c *gin.Context, db *sql.DB) {
 		defer noFactionRows.Close()
 		for noFactionRows.Next() {
 			var item Entities.CharacterListItem
-			if err := noFactionRows.Scan(&item.Id, &item.Name, &item.WantedCharacterId); err == nil {
+			if err := noFactionRows.Scan(&item.Id, &item.Name, &item.WantedCharacterId, &item.TopicId); err == nil {
 				item.IsClaim = true
 				noFaction.Characters = append(noFaction.Characters, item)
 			}

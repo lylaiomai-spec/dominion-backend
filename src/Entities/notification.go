@@ -114,3 +114,16 @@ type NotificationPageChanged struct {
 	PageType string  `json:"page_type"`
 	Id       *string `json:"id,omitempty"`
 }
+
+type NotificationEpisodeStatusChange struct {
+	EpisodeId    int            `json:"episode_id"`
+	EpisodeName  string         `json:"episode_name"`
+	NewStatus    int            `json:"new_status"`
+	InitiatorId  int            `json:"initiator_id"`
+	InitiatorName string        `json:"initiator_name"`
+}
+
+type EpisodeStatusChangeNotification struct {
+	NotificationBase
+	Data NotificationEpisodeStatusChange `json:"data"`
+}

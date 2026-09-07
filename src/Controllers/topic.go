@@ -352,7 +352,8 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			u.username, u.avatar, u.total_posts, u.total_general_posts, p.guest_name,
 			cp.id as character_profile_id, cp.character_id, cb.name as character_name, cp.avatar as character_avatar, cp.mask_name, cp.is_mask, cp.signature as character_signature,
 			u.signature as user_signature,
-			t.subforum_id, t.type as topic_type
+			t.subforum_id, t.type as topic_type,
+			ec.custom_avatar as episode_custom_avatar
 			%s
 		FROM posts p
 		JOIN topics t ON p.topic_id = t.id
@@ -360,6 +361,8 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		LEFT JOIN character_profile_base cp ON p.character_profile_id = cp.id
 		LEFT JOIN character_base cb ON cp.character_id = cb.id
 		LEFT JOIN character_profile_flattened cpf ON cp.id = cpf.entity_id
+		LEFT JOIN episode_base eb ON eb.topic_id = t.id
+		LEFT JOIN episode_character ec ON ec.episode_id = eb.id AND ec.character_id = cb.id
 		%s
 		WHERE p.topic_id = ? AND (p.is_deleted IS NULL OR p.is_deleted <> 1)
 	`, colsSelect, currencyJoin)
@@ -497,6 +500,10 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			}
 			if avatar, ok := rowMap["character_avatar"]; ok {
 				avatarStr := avatar.(string)
+				charProfile.Avatar = &avatarStr
+			}
+			if customAvatar, ok := rowMap["episode_custom_avatar"]; ok && customAvatar.(string) != "" {
+				avatarStr := customAvatar.(string)
 				charProfile.Avatar = &avatarStr
 			}
 			if maskName, ok := rowMap["mask_name"]; ok {

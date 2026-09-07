@@ -327,6 +327,7 @@ create table episode_main
 create table episode_character
 		(episode_id bigint unsigned          null,
 		character_id bigint unsigned          null,
+		custom_avatar varchar(500)            null,
          foreign key (episode_id) references episode_base (id),
          foreign key (character_id) references character_base (id)
 		);
@@ -1159,6 +1160,14 @@ INSERT IGNORE INTO ai_agents (id, title, short_description, handler) VALUES (
     'GameDigest'
 );
 
+CREATE TABLE absence_timer_start
+(
+    character_id BIGINT UNSIGNED NOT NULL,
+    start_date   DATE            NOT NULL,
+    PRIMARY KEY (character_id),
+    CONSTRAINT fk_absence_timer_start_character FOREIGN KEY (character_id) REFERENCES character_base (id) ON DELETE CASCADE
+);
+
 create table post_drafts
 (
     id           int             auto_increment primary key,
@@ -1169,7 +1178,8 @@ create table post_drafts
     date_created datetime        not null default current_timestamp,
     is_manual    tinyint(1)      not null default 0,
     is_published tinyint(1)      not null default 0,
-    post_id      bigint unsigned null,
+    entity_id    bigint unsigned null,
+    entity_type  varchar(50)     not null default 'post',
     content      text            null,
     index idx_post_drafts_draft_id (draft_id),
     index idx_post_drafts_user_id (user_id),

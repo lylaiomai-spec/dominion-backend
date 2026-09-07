@@ -176,12 +176,24 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 	type fieldSize struct{ width, height int }
 	fieldSizes := make(map[string]fieldSize)
 
+	fieldConfigs, _ := GetFieldConfig(entityType, db)
+	fieldRenderTypeMap := make(map[string]string, len(fieldConfigs))
+	for _, fc := range fieldConfigs {
+		fieldRenderTypeMap[fc.MachineFieldName] = fc.ContentFieldType
+	}
+
 	var configFields []string
 	for i, key := range []string{"entity_field_1", "entity_field_2"} {
 		if v, err := extractStringValue(config, key); err == nil && v != "" && safeFieldName.MatchString(v) {
 			configFields = append(configFields, v)
-			w, _ := extractIntValue(config, fmt.Sprintf("entity_field_%d_width", i+1))
-			h, _ := extractIntValue(config, fmt.Sprintf("entity_field_%d_height", i+1))
+			w, werr := extractIntValue(config, fmt.Sprintf("entity_field_%d_width", i+1))
+			h, herr := extractIntValue(config, fmt.Sprintf("entity_field_%d_height", i+1))
+			rt := fieldRenderTypeMap[v]
+			if rt == "image" || rt == "cropped_image" {
+				if werr != nil || herr != nil || w == 0 || h == 0 {
+					return "", fmt.Errorf("entity_field_%d (%s) is an image field: width and height are required", i+1, v)
+				}
+			}
 			if w > 0 || h > 0 {
 				fieldSizes[v] = fieldSize{width: w, height: h}
 			}
@@ -275,6 +287,8 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 		FieldName  string      `json:"field_name"`
 		Value      interface{} `json:"value"`
 		RenderType string      `json:"render_type"`
+		Width      *int        `json:"width,omitempty"`
+		Height     *int        `json:"height,omitempty"`
 	}
 	type entityItem struct {
 		Id           int           `json:"id"`
@@ -304,12 +318,7 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 
 	// Fetch custom fields for all entities in one query
 	if len(allRaw) > 0 && len(configFields) > 0 {
-		fieldRenderType := make(map[string]string)
-		if fieldConfigs, err := GetFieldConfig(entityType, db); err == nil {
-			for _, fc := range fieldConfigs {
-				fieldRenderType[fc.MachineFieldName] = fc.ContentFieldType
-			}
-		}
+		fieldRenderType := fieldRenderTypeMap
 
 		idPlaceholders := strings.Repeat("?,", len(allRaw))
 		idPlaceholders = idPlaceholders[:len(idPlaceholders)-1]
@@ -359,20 +368,27 @@ func WidgetRandomEntities(config map[string]interface{}, db *sql.DB) (string, er
 					continue
 				}
 				renderType := fieldRenderType[fieldName]
-				if renderType == "cropped_image" {
-					if dims, ok := fieldSizes[fieldName]; ok && (dims.width > 0 || dims.height > 0) {
-						if s, ok := value.(string); ok && s != "" {
-							if resized, err := GetResizedImageURL(s, dims.width, dims.height, db); err == nil {
-								value = resized
+				cf := customField{FieldName: fieldName, Value: value, RenderType: renderType}
+				if renderType == "cropped_image" || renderType == "image" {
+					if dims, ok := fieldSizes[fieldName]; ok {
+						if renderType == "cropped_image" && (dims.width > 0 || dims.height > 0) {
+							if s, ok := value.(string); ok && s != "" {
+								if resized, err := GetResizedImageURL(s, dims.width, dims.height, db); err == nil {
+									cf.Value = resized
+								}
 							}
+						}
+						if dims.width > 0 {
+							w := dims.width
+							cf.Width = &w
+						}
+						if dims.height > 0 {
+							h := dims.height
+							cf.Height = &h
 						}
 					}
 				}
-				fieldsByEntity[entityID] = append(fieldsByEntity[entityID], customField{
-					FieldName:  fieldName,
-					Value:      value,
-					RenderType: renderType,
-				})
+				fieldsByEntity[entityID] = append(fieldsByEntity[entityID], cf)
 			}
 			for i := range allRaw {
 				if fields, ok := fieldsByEntity[allRaw[i].rawId]; ok {

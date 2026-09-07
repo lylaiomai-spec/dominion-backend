@@ -255,7 +255,8 @@ func GetBBCompiler() bbcode.Compiler {
 		out := bbcode.NewHTMLTag("")
 		out.Name = "div"
 
-		style := "display: grid;"
+		out.Attrs["class"] = "grid"
+		style := "display: grid; max-width: 100%;"
 		if cols, ok := getArgInt(node, "columns", 1, 12); ok {
 			style += fmt.Sprintf(" grid-template-columns: repeat(%d, 1fr);", cols)
 		}
@@ -277,7 +278,7 @@ func GetBBCompiler() bbcode.Compiler {
 		out := bbcode.NewHTMLTag("")
 		out.Name = "div"
 
-		var style string
+		style := "min-width: 0;"
 		if col, ok := getArgInt(node, "col", 1, 12); ok {
 			style += fmt.Sprintf("grid-column-start: %d;", col)
 		}
@@ -460,6 +461,12 @@ func GetBBCompiler() bbcode.Compiler {
 		}
 		if title, ok := getRawArg(node, "title"); ok {
 			out.Attrs["title"] = title
+		}
+		if width, ok := getArgInt(node, "width", 1, 9999); ok {
+			out.Attrs["width"] = strconv.Itoa(width)
+		}
+		if height, ok := getArgInt(node, "height", 1, 9999); ok {
+			out.Attrs["height"] = strconv.Itoa(height)
 		}
 		out.Attrs["loading"] = "lazy"
 		out.Attrs["referrerpolicy"] = "no-referrer"

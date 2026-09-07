@@ -4,6 +4,7 @@ import (
 	"cuento-backend/src/Middlewares"
 	"cuento-backend/src/Services"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -20,7 +21,8 @@ type PostDraftResponse struct {
 	DateCreated string  `json:"date_created"`
 	IsManual    bool    `json:"is_manual"`
 	IsPublished bool    `json:"is_published"`
-	PostID      *int64  `json:"post_id"`
+	EntityID    *int64  `json:"entity_id"`
+	EntityType  string  `json:"entity_type"`
 	Content     *string `json:"content"`
 }
 
@@ -33,7 +35,8 @@ type PostDraftListResponse struct {
 	DateCreated string `json:"date_created"`
 	IsManual    bool   `json:"is_manual"`
 	IsPublished bool   `json:"is_published"`
-	PostID      *int64 `json:"post_id"`
+	EntityID    *int64 `json:"entity_id"`
+	EntityType  string `json:"entity_type"`
 }
 
 type CreatePostDraftRequest struct {
@@ -41,6 +44,7 @@ type CreatePostDraftRequest struct {
 	CharacterID *int64  `json:"character_id"`
 	TopicID     *int64  `json:"topic_id"`
 	IsManual    bool    `json:"is_manual"`
+	EntityType  *string `json:"entity_type"`
 	Content     *string `json:"content"`
 }
 
@@ -48,7 +52,22 @@ type UpdatePostDraftRequest struct {
 	CharacterID *int64  `json:"character_id"`
 	TopicID     *int64  `json:"topic_id"`
 	IsManual    *bool   `json:"is_manual"`
+	EntityType  *string `json:"entity_type"`
 	Content     *string `json:"content"`
+}
+
+type EntityDraftResponse struct {
+	ID          int             `json:"id"`
+	DraftID     string          `json:"draft_id"`
+	UserID      int             `json:"user_id"`
+	CharacterID *int64          `json:"character_id"`
+	TopicID     *int64          `json:"topic_id"`
+	DateCreated string          `json:"date_created"`
+	IsManual    bool            `json:"is_manual"`
+	IsPublished bool            `json:"is_published"`
+	EntityID    *int64          `json:"entity_id"`
+	EntityType  string          `json:"entity_type"`
+	Content     json.RawMessage `json:"content"`
 }
 
 func scanDraft(row *sql.Row) (PostDraftResponse, error) {
@@ -56,9 +75,9 @@ func scanDraft(row *sql.Row) (PostDraftResponse, error) {
 	var dateCreated []byte
 	var characterID sql.NullInt64
 	var topicID sql.NullInt64
-	var postID sql.NullInt64
+	var entityID sql.NullInt64
 	var content sql.NullString
-	err := row.Scan(&d.ID, &d.DraftID, &d.UserID, &characterID, &topicID, &dateCreated, &d.IsManual, &d.IsPublished, &postID, &content)
+	err := row.Scan(&d.ID, &d.DraftID, &d.UserID, &characterID, &topicID, &dateCreated, &d.IsManual, &d.IsPublished, &entityID, &d.EntityType, &content)
 	if err != nil {
 		return d, err
 	}
@@ -69,8 +88,8 @@ func scanDraft(row *sql.Row) (PostDraftResponse, error) {
 	if topicID.Valid {
 		d.TopicID = &topicID.Int64
 	}
-	if postID.Valid {
-		d.PostID = &postID.Int64
+	if entityID.Valid {
+		d.EntityID = &entityID.Int64
 	}
 	if content.Valid {
 		d.Content = &content.String
@@ -83,8 +102,8 @@ func scanDraftFromRows(rows *sql.Rows) (PostDraftListResponse, error) {
 	var dateCreated []byte
 	var characterID sql.NullInt64
 	var topicID sql.NullInt64
-	var postID sql.NullInt64
-	err := rows.Scan(&d.ID, &d.DraftID, &d.UserID, &characterID, &topicID, &dateCreated, &d.IsManual, &d.IsPublished, &postID)
+	var entityID sql.NullInt64
+	err := rows.Scan(&d.ID, &d.DraftID, &d.UserID, &characterID, &topicID, &dateCreated, &d.IsManual, &d.IsPublished, &entityID, &d.EntityType)
 	if err != nil {
 		return d, err
 	}
@@ -95,14 +114,41 @@ func scanDraftFromRows(rows *sql.Rows) (PostDraftListResponse, error) {
 	if topicID.Valid {
 		d.TopicID = &topicID.Int64
 	}
-	if postID.Valid {
-		d.PostID = &postID.Int64
+	if entityID.Valid {
+		d.EntityID = &entityID.Int64
 	}
 	return d, nil
 }
 
-const draftSelectFields = `id, draft_id, user_id, character_id, topic_id, date_created, is_manual, is_published, post_id, content`
-const draftListSelectFields = `id, draft_id, user_id, character_id, topic_id, date_created, is_manual, is_published, post_id`
+const draftSelectFields = `id, draft_id, user_id, character_id, topic_id, date_created, is_manual, is_published, entity_id, entity_type, content`
+const draftListSelectFields = `id, draft_id, user_id, character_id, topic_id, date_created, is_manual, is_published, entity_id, entity_type`
+
+func scanEntityDraftFromRows(rows *sql.Rows) (EntityDraftResponse, error) {
+	var d EntityDraftResponse
+	var dateCreated []byte
+	var characterID sql.NullInt64
+	var topicID sql.NullInt64
+	var entityID sql.NullInt64
+	var content sql.NullString
+	err := rows.Scan(&d.ID, &d.DraftID, &d.UserID, &characterID, &topicID, &dateCreated, &d.IsManual, &d.IsPublished, &entityID, &d.EntityType, &content)
+	if err != nil {
+		return d, err
+	}
+	d.DateCreated = string(dateCreated)
+	if characterID.Valid {
+		d.CharacterID = &characterID.Int64
+	}
+	if topicID.Valid {
+		d.TopicID = &topicID.Int64
+	}
+	if entityID.Valid {
+		d.EntityID = &entityID.Int64
+	}
+	if content.Valid && content.String != "" {
+		d.Content = json.RawMessage(content.String)
+	}
+	return d, nil
+}
 
 // GetLatestPostDraft returns all versions of the latest unpublished draft group for a given topic, owned by the current user.
 func GetLatestPostDraft(c *gin.Context, db *sql.DB) {
@@ -122,7 +168,7 @@ func GetLatestPostDraft(c *gin.Context, db *sql.DB) {
 
 	var latestDraftID string
 	err = db.QueryRow(
-		`SELECT draft_id FROM post_drafts WHERE topic_id = ? AND user_id = ? AND is_published = 0 ORDER BY id DESC LIMIT 1`,
+		`SELECT draft_id FROM post_drafts WHERE topic_id = ? AND user_id = ? AND is_published = 0 AND entity_type = 'post' ORDER BY id DESC LIMIT 1`,
 		topicID, userID,
 	).Scan(&latestDraftID)
 	if err != nil {
@@ -236,9 +282,14 @@ func CreatePostDraft(c *gin.Context, db *sql.DB) {
 		draftID = *req.DraftID
 	}
 
+	entityType := "post"
+	if req.EntityType != nil && *req.EntityType != "" {
+		entityType = *req.EntityType
+	}
+
 	res, err := db.Exec(
-		`INSERT INTO post_drafts (draft_id, user_id, character_id, topic_id, is_manual, content) VALUES (?, ?, ?, ?, ?, ?)`,
-		draftID, userID, req.CharacterID, req.TopicID, req.IsManual, req.Content,
+		`INSERT INTO post_drafts (draft_id, user_id, character_id, topic_id, is_manual, entity_type, content) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		draftID, userID, req.CharacterID, req.TopicID, req.IsManual, entityType, req.Content,
 	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create draft: " + err.Error()})
@@ -288,6 +339,9 @@ func UpdatePostDraft(c *gin.Context, db *sql.DB) {
 	if req.IsManual != nil {
 		db.Exec(`UPDATE post_drafts SET is_manual = ? WHERE id = ? AND user_id = ?`, *req.IsManual, id, userID)
 	}
+	if req.EntityType != nil && *req.EntityType != "" {
+		db.Exec(`UPDATE post_drafts SET entity_type = ? WHERE id = ? AND user_id = ?`, *req.EntityType, id, userID)
+	}
 	if req.Content != nil {
 		db.Exec(`UPDATE post_drafts SET content = ? WHERE id = ? AND user_id = ?`, *req.Content, id, userID)
 	}
@@ -330,6 +384,57 @@ func DeletePostDraft(c *gin.Context, db *sql.DB) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Draft deleted"})
+}
+
+// GetLatestEntityDraft returns all versions of the latest unpublished draft for a given entity type (character, wanted_character).
+func GetLatestEntityDraft(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
+		c.Abort()
+		return
+	}
+
+	entityType := c.Param("entity_type")
+	if entityType != "character" && entityType != "wanted_character" {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid entity type: must be character or wanted_character"})
+		c.Abort()
+		return
+	}
+
+	var latestDraftID string
+	err := db.QueryRow(
+		`SELECT draft_id FROM post_drafts WHERE entity_type = ? AND user_id = ? AND is_published = 0 ORDER BY id DESC LIMIT 1`,
+		entityType, userID,
+	).Scan(&latestDraftID)
+	if err != nil {
+		c.JSON(http.StatusOK, []EntityDraftResponse{})
+		return
+	}
+
+	rows, err := db.Query(
+		`SELECT `+draftSelectFields+` FROM post_drafts WHERE draft_id = ? AND user_id = ? ORDER BY id ASC`,
+		latestDraftID, userID,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to load draft group: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	var drafts []EntityDraftResponse
+	for rows.Next() {
+		d, err := scanEntityDraftFromRows(rows)
+		if err != nil {
+			continue
+		}
+		drafts = append(drafts, d)
+	}
+	if drafts == nil {
+		drafts = []EntityDraftResponse{}
+	}
+	c.JSON(http.StatusOK, drafts)
 }
 
 // DeletePostDraftGroup deletes all versions of a draft (by draft_id).

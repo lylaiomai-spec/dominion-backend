@@ -17,4 +17,5 @@ func RegisterEventHandlers(db *sql.DB) {
 	RegisterReactionEventHandlers()
 	RegisterSonicEventHandlers()
 	RegisterQdrantEventHandlers()
+	RegisterAbsenceTimerEventHandlers()
 }

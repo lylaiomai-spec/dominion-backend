@@ -41,15 +41,15 @@ func runAutoArchiving(db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT cb.id, cb.name, cb.user_id
 		FROM character_base cb
-		JOIN topics t ON t.id = cb.topic_id
 		JOIN users u ON u.id = cb.user_id
+		JOIN absence_timer_start ats ON ats.character_id = cb.id
 		LEFT JOIN absent_users au ON au.user_id = cb.user_id
 			AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 		LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
 			AND aai.start_date <= NOW() AND aai.end_date >= NOW()
 		WHERE cb.character_status = ?
 		AND u.user_status = ?
-		AND DATEDIFF(NOW(), COALESCE(cb.date_last_post, t.date_created)) >= ?
+		AND DATEDIFF(NOW(), ats.start_date) >= ?
 		AND au.id IS NULL
 		AND aai.id IS NULL
 	`, Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays)
@@ -117,8 +117,8 @@ func runArchivingNotifications(db *sql.DB) {
 				cb.user_id,
 				DATE(aai_exp.end_date) AS base_date
 			FROM character_base cb
-			JOIN topics t ON t.id = cb.topic_id
 			JOIN users u ON u.id = cb.user_id
+			JOIN absence_timer_start ats ON ats.character_id = cb.id
 			JOIN (
 				SELECT character_id, MAX(end_date) AS end_date
 				FROM auto_archiving_immunity
@@ -130,7 +130,7 @@ func runArchivingNotifications(db *sql.DB) {
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND DATEDIFF(aai_exp.end_date, NOW()) = ?
-			AND ? - DATEDIFF(aai_exp.end_date, COALESCE(cb.date_last_post, t.date_created)) <= 0
+			AND ? - DATEDIFF(aai_exp.end_date, ats.start_date) <= 0
 			AND au.id IS NULL
 		`, Entities.ActiveCharacter, Entities.ActiveUser, threshold, autoArchivingDays)
 		if err != nil {
@@ -195,17 +195,17 @@ func runArchivingNotifications(db *sql.DB) {
 				cb.id,
 				cb.name,
 				cb.user_id,
-				DATE(COALESCE(cb.date_last_post, t.date_created)) AS base_date
+				ats.start_date AS base_date
 			FROM character_base cb
-			JOIN topics t ON t.id = cb.topic_id
 			JOIN users u ON u.id = cb.user_id
+			JOIN absence_timer_start ats ON ats.character_id = cb.id
 			LEFT JOIN absent_users au ON au.user_id = cb.user_id
 				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 			LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
 				AND aai.start_date <= NOW() AND aai.end_date >= NOW()
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
-			AND ? - DATEDIFF(NOW(), COALESCE(cb.date_last_post, t.date_created)) = ?
+			AND ? - DATEDIFF(NOW(), ats.start_date) = ?
 			AND au.id IS NULL
 			AND aai.id IS NULL
 		`, Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays, threshold)

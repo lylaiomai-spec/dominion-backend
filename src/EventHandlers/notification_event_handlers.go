@@ -35,6 +35,8 @@ func RegisterNotificationEventHandlers() {
 			title = "New Reaction"
 		case "auto_archiving":
 			title = "Auto Archiving"
+		case "episode_status_change":
+			title = "Episode Status Changed"
 		}
 
 		res, err := db.Exec("INSERT INTO notifications (user_id, type, title, message, data, date_created, is_read) VALUES (?, ?, ?, ?, ?, NOW(), FALSE)",
@@ -84,6 +86,10 @@ func RegisterNotificationEventHandlers() {
 			notification = n
 		case "reaction":
 			n := Entities.ReactionNotification{NotificationBase: base}
+			json.Unmarshal(dataJSON, &n.Data)
+			notification = n
+		case "episode_status_change":
+			n := Entities.EpisodeStatusChangeNotification{NotificationBase: base}
 			json.Unmarshal(dataJSON, &n.Data)
 			notification = n
 		default:

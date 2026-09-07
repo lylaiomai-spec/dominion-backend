@@ -5,6 +5,7 @@ type EpisodeStatus int
 const (
 	ActiveEpisode   EpisodeStatus = 0
 	InactiveEpisode EpisodeStatus = 1
+	FinishedEpisode EpisodeStatus = 2
 )
 
 type Episode struct {

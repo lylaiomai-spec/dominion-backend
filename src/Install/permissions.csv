@@ -30,6 +30,10 @@ role_id,type,permission
 2,0,/episode/activate/:id
 2,0,/episode/create
 2,0,/episode/deactivate/:id
+2,0,/episode/:id/status
+2,0,/episode/:id/my-custom-avatars
+2,0,/episode/:id/character/:character_id/custom-avatar
+2,0,/episode/:id/character/:character_id/custom-avatar/remove
 2,0,/episode/preview
 2,0,/episode/update/:id
 2,0,/features
@@ -179,6 +183,7 @@ role_id,type,permission
 3,0,/admin/qdrant/subforum-matrix/update
 3,0,/admin/smile/upload
 3,0,/character-claim/delete/:id
+3,0,/admin/claim-record/:id/close
 3,0,/admin/character-list
 3,0,/admin/character/:id/protection-history
 3,0,/admin/character/database-field-schema
@@ -241,6 +246,7 @@ role_id,type,permission
 3,0,/admin/ai-agent-implementation/delete/:id
 3,0,/admin/ai-agent-implementation/:id/call
 2,0,/post-draft/topic/:topic_id/latest
+2,0,/post-draft/entity/:entity_type/latest
 2,0,/post-draft/list/:draft_id
 2,0,/post-draft/:id
 2,0,/post-draft/create

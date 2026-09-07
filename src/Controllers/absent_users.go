@@ -211,6 +211,7 @@ func CreateAbsence(c *gin.Context, db *sql.DB) {
 	}
 
 	grantPostAbsenceImmunity(userID, end, db)
+	go Services.RecalculateAbsenceTimerStartForUser(userID, db)
 	c.JSON(http.StatusOK, gin.H{"absence_start_date": start, "absence_end_date": end})
 }
 
@@ -277,6 +278,7 @@ func AdminCreateAbsence(c *gin.Context, db *sql.DB) {
 	}
 
 	grantPostAbsenceImmunity(targetUserID, end, db)
+	go Services.RecalculateAbsenceTimerStartForUser(targetUserID, db)
 	c.JSON(http.StatusOK, gin.H{"absence_start_date": start, "absence_end_date": end})
 }
 
@@ -286,12 +288,18 @@ func getCharacterArchivalDate(characterID int, db *sql.DB) (time.Time, error) {
 	err := db.QueryRow(`
 		SELECT COALESCE(
 			(SELECT MAX(end_date) FROM auto_archiving_immunity WHERE character_id = ? AND end_date > NOW()),
-			DATE_ADD(COALESCE(cb.date_last_post, t.date_created), INTERVAL ? DAY)
+			DATE_ADD(
+				COALESCE(
+					(SELECT start_date FROM absence_timer_start WHERE character_id = ?),
+					COALESCE(cb.date_last_post, t.date_created)
+				),
+				INTERVAL ? DAY
+			)
 		)
 		FROM character_base cb
 		JOIN topics t ON t.id = cb.topic_id
 		WHERE cb.id = ?
-	`, characterID, autoArchivingDays, characterID).Scan(&archivalDate)
+	`, characterID, characterID, autoArchivingDays, characterID).Scan(&archivalDate)
 	if err != nil {
 		return archivalDate, err
 	}
@@ -346,6 +354,7 @@ func AdminAddImmunity(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	go Services.RecalculateAbsenceTimerStart(req.CharacterID, db)
 	c.JSON(http.StatusOK, gin.H{"character_id": req.CharacterID, "start_date": start, "end_date": end, "reason": req.Reason})
 }
 
@@ -594,5 +603,6 @@ func BuyAutoArchivingImmunity(c *gin.Context, db *sql.DB) {
 		},
 	})
 
+	go Services.RecalculateAbsenceTimerStart(req.CharacterID, db)
 	c.JSON(http.StatusOK, gin.H{"start_date": start, "end_date": end, "cost": totalCost, "new_balance": newTotal})
 }

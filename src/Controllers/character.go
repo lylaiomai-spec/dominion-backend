@@ -1788,6 +1788,61 @@ func DeleteCharacterClaim(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"message": "Claim deleted"})
 }
 
+// CloseActiveClaimRecord expires the active claim record for a given claim and cleans up references on character_claim and wanted_character_base.
+func CloseActiveClaimRecord(c *gin.Context, db *sql.DB) {
+	claimID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid claim ID"})
+		c.Abort()
+		return
+	}
+
+	var recordID int
+	err = db.QueryRow(
+		"SELECT id FROM claim_record WHERE claim_id = ? AND (claim_expiration_date IS NULL OR claim_expiration_date > NOW()) LIMIT 1",
+		claimID,
+	).Scan(&recordID)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "No active claim record found for this claim"})
+		c.Abort()
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
+		c.Abort()
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("UPDATE claim_record SET claim_expiration_date = NOW() WHERE id = ?", recordID); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to expire claim record: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if _, err := tx.Exec("UPDATE character_claim SET claim_record_id = NULL WHERE claim_record_id = ?", recordID); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to unlink claim record from claim: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if _, err := tx.Exec("UPDATE wanted_character_base SET is_claimed = false WHERE character_claim_id = ?", claimID); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to reset wanted character claim status: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Claim record closed"})
+}
+
 func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -2315,18 +2370,18 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 				cb.user_id,
 				u.username,
 				cb.date_last_post,
-				? - DATEDIFF(NOW(), COALESCE(cb.date_last_post, t.date_created)) AS days_left,
-				DATE_FORMAT(DATE_ADD(COALESCE(cb.date_last_post, t.date_created), INTERVAL ? DAY), '%Y-%m-%d') AS archival_date
+				? - DATEDIFF(NOW(), ats.start_date) AS days_left,
+				DATE_FORMAT(DATE_ADD(ats.start_date, INTERVAL ? DAY), '%Y-%m-%d') AS archival_date
 			FROM character_base cb
 			JOIN users u ON u.id = cb.user_id
-			JOIN topics t ON t.id = cb.topic_id
+			JOIN absence_timer_start ats ON ats.character_id = cb.id
 			LEFT JOIN absent_users au ON au.user_id = cb.user_id
 				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 			LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
 				AND aai.end_date >= NOW()
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
-			AND DATEDIFF(NOW(), COALESCE(cb.date_last_post, t.date_created)) >= ?
+			AND DATEDIFF(NOW(), ats.start_date) >= ?
 			AND au.id IS NULL
 			AND aai.id IS NULL
 		)
@@ -2342,7 +2397,7 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 				DATE_FORMAT(aai_exp.end_date, '%Y-%m-%d') AS archival_date
 			FROM character_base cb
 			JOIN users u ON u.id = cb.user_id
-			JOIN topics t ON t.id = cb.topic_id
+			JOIN absence_timer_start ats ON ats.character_id = cb.id
 			JOIN (
 				SELECT character_id, MAX(end_date) AS end_date
 				FROM auto_archiving_immunity
@@ -2354,7 +2409,7 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND DATEDIFF(aai_exp.end_date, NOW()) <= 10
-			AND ? - DATEDIFF(aai_exp.end_date, COALESCE(cb.date_last_post, t.date_created)) <= 0
+			AND ? - DATEDIFF(aai_exp.end_date, ats.start_date) <= 0
 			AND au.id IS NULL
 		)
 		ORDER BY days_left ASC
