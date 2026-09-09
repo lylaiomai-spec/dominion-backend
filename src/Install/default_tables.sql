@@ -1160,6 +1160,27 @@ INSERT IGNORE INTO ai_agents (id, title, short_description, handler) VALUES (
     'GameDigest'
 );
 
+CREATE TABLE custom_templates
+(
+    id                 INT AUTO_INCREMENT PRIMARY KEY,
+    name               VARCHAR(255) NOT NULL,
+    template_file_name VARCHAR(500) NOT NULL,
+    template_text      TEXT         NULL,
+    is_active          TINYINT(1)   NOT NULL DEFAULT 0
+);
+
+CREATE TABLE locales
+(
+    id                 INT AUTO_INCREMENT PRIMARY KEY,
+    human_name         VARCHAR(100) NOT NULL,
+    front_end_file_name VARCHAR(100) NOT NULL,
+    back_end_file_name  VARCHAR(100) NOT NULL
+);
+
+INSERT INTO locales (human_name, front_end_file_name, back_end_file_name) VALUES
+    ('English', 'en.ts', 'en.json'),
+    ('Russian', 'ru.ts', 'ru.json');
+
 CREATE TABLE absence_timer_start
 (
     character_id BIGINT UNSIGNED NOT NULL,

@@ -852,14 +852,26 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	protectedRouter.GET("/admin/frontend-templates/components", "List customizable frontend components", func(c *gin.Context) {
 		Controllers.GetFrontendComponents(c, Services.DB)
 	})
-	protectedRouter.GET("/admin/frontend-templates/components/*name", "Get the custom template for a frontend component", func(c *gin.Context) {
+	protectedRouter.GET("/admin/frontend-templates/components/*name", "Get the latest saved template for a frontend component (falls back to default)", func(c *gin.Context) {
 		Controllers.GetFrontendComponentTemplate(c, Services.DB)
 	})
 	protectedRouter.GET("/admin/frontend-templates/components-default/*name", "Get the default template for a frontend component", func(c *gin.Context) {
 		Controllers.GetFrontendComponentDefaultTemplate(c, Services.DB)
 	})
-	protectedRouter.POST("/admin/frontend-templates/component/update", "Commit an update to a custom frontend component template", func(c *gin.Context) {
-		Controllers.UpdateFrontendComponentTemplate(c, Services.DB)
+	protectedRouter.GET("/admin/frontend-templates/components-versions/*name", "List saved versions for a frontend component", func(c *gin.Context) {
+		Controllers.GetFrontendComponentVersions(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/frontend-templates/component/version/:id", "Get a specific saved template version by ID", func(c *gin.Context) {
+		Controllers.GetFrontendComponentVersion(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/frontend-templates/component/save", "Save a new template version to the database", func(c *gin.Context) {
+		Controllers.SaveFrontendComponentTemplate(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/frontend-templates/component/:id/publish", "Publish a saved template version to GitHub", func(c *gin.Context) {
+		Controllers.PublishFrontendComponentTemplate(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/frontend-templates/component/unpublish/*name", "Remove a component from the active custom templates and revert to default", func(c *gin.Context) {
+		Controllers.UnpublishFrontendComponentTemplate(c, Services.DB)
 	})
 	protectedRouter.POST("/admin/frontend-templates/env/update", "Update and commit the frontend environment file", func(c *gin.Context) {
 		Controllers.UpdateFrontendEnv(c, Services.DB)
@@ -1032,6 +1044,17 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	})
 	protectedRouter.GET("/admin/standard-warning/delete/:id/:locale", "Delete standard warning by ID and locale", func(c *gin.Context) {
 		Controllers.DeleteStandardWarning(c, Services.DB)
+	})
+
+	// Locale routes
+	publicRouter.GET("/locales", "Get list of available locales", func(c *gin.Context) {
+		Controllers.GetLocales(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/locale/:id/download/frontend", "Download frontend locale file", func(c *gin.Context) {
+		Controllers.DownloadFrontEndLocaleFile(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/locale/:id/download/backend", "Download backend locale file", func(c *gin.Context) {
+		Controllers.DownloadBackEndLocaleFile(c, Services.DB)
 	})
 
 	// User data migration routes

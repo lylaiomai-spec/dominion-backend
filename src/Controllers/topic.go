@@ -293,7 +293,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 		if err == nil {
 			// Determine the page based on the post's position in the topic
 			var position int
-			query := "SELECT COUNT(*) FROM posts WHERE topic_id = ? AND id <= ?"
+			query := "SELECT COUNT(*) FROM posts WHERE topic_id = ? AND id <= ? AND (is_deleted IS NULL OR is_deleted != 1)"
 			err = db.QueryRow(query, topicID, postID).Scan(&position)
 			if err == nil {
 				page = int(math.Ceil(float64(position) / float64(postsPerPage)))
@@ -1005,75 +1005,80 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 	var topicNameForNotif string
 	_ = db.QueryRow("SELECT name FROM topics WHERE id = ?", req.TopicID).Scan(&topicNameForNotif)
 
-	// Handle Mentions — format is @<username>\u200A or [quote={username}]
-	mentionRe := regexp.MustCompile(`@([^\x{200A}]+)\x{200A}`)
-	quoteRe := regexp.MustCompile(`\[quote=([^\]]+)\]`)
-	mentionMatches := mentionRe.FindAllStringSubmatch(req.Content, -1)
-	quoteMatches := quoteRe.FindAllStringSubmatch(req.Content, -1)
-	matches := append(mentionMatches, quoteMatches...)
+	// Handle Mentions — format is @<username>\u200A or [quote ... user-id=X ...]
+	// Resolve author info once for all notifications in this post.
+	var authorName string
+	var authorCharacterID *int
+	var authorCharacterName *string
+	_ = db.QueryRow("SELECT username FROM users WHERE id = ?", userID).Scan(&authorName)
+	if req.UseCharacterProfile && req.CharacterProfileID != nil {
+		var charID int
+		var charName string
+		if err := db.QueryRow(
+			"SELECT character_id, cb.name FROM character_profile_base cpb JOIN character_base cb ON cpb.character_id = cb.id WHERE cpb.id = ?",
+			*req.CharacterProfileID,
+		).Scan(&charID, &charName); err == nil {
+			authorCharacterID = &charID
+			authorCharacterName = &charName
+		}
+	}
 
-	if len(matches) > 0 {
-		seen := make(map[string]bool)
-		var usernames []string
-		for _, match := range matches {
-			if len(match) > 1 {
-				username := match[1]
-				if !seen[username] {
-					usernames = append(usernames, username)
-					seen[username] = true
-				}
+	sendMentionNotif := func(recipientID int) {
+		if recipientID == userID {
+			return
+		}
+		Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
+			UserID:  recipientID,
+			Type:    "mention",
+			Message: fmt.Sprintf("%s mentioned you in %s", authorName, topicNameForNotif),
+			Data: Entities.NotificationMention{
+				UserId:        userID,
+				UserName:      authorName,
+				CharacterId:   authorCharacterID,
+				CharacterName: authorCharacterName,
+				PostId:        int(postID),
+				TopicId:       req.TopicID,
+				TopicName:     topicNameForNotif,
+			},
+		})
+	}
+
+	notifiedUserIDs := map[int]bool{userID: true}
+
+	// 1. Quote tags with explicit user-id attribute: [quote ... user-id=X ...]
+	quoteUserIDRe := regexp.MustCompile(`\[quote[^\]]*\buser-id=(\d+)`)
+	for _, match := range quoteUserIDRe.FindAllStringSubmatch(req.Content, -1) {
+		if len(match) > 1 {
+			if uid, err := strconv.Atoi(match[1]); err == nil && !notifiedUserIDs[uid] {
+				notifiedUserIDs[uid] = true
+				sendMentionNotif(uid)
 			}
 		}
+	}
 
-		if len(usernames) > 0 {
-			query := "SELECT id, username FROM users WHERE username IN (?" + strings.Repeat(",?", len(usernames)-1) + ")"
-			args := make([]interface{}, len(usernames))
-			for i, u := range usernames {
-				args[i] = u
-			}
-
-			rows, err := db.Query(query, args...)
-			if err == nil {
-				defer rows.Close()
-				for rows.Next() {
-					var mUserID int
-					var mUsername string
-					if err := rows.Scan(&mUserID, &mUsername); err == nil {
-						if mUserID != userID {
-							// Fetch author details for the mention
-							var authorName string
-							var authorCharacterID *int
-							var authorCharacterName *string
-
-							err = db.QueryRow("SELECT username FROM users WHERE id = ?", userID).Scan(&authorName)
-							if req.UseCharacterProfile && req.CharacterProfileID != nil {
-								var charID int
-								var charName string
-								err = db.QueryRow("SELECT character_id, cb.name FROM character_profile_base cpb JOIN character_base cb ON cpb.character_id = cb.id WHERE cpb.id = ?", *req.CharacterProfileID).Scan(&charID, &charName)
-								if err == nil {
-									authorCharacterID = &charID
-									authorCharacterName = &charName
-								}
-							}
-
-							mentionData := Entities.NotificationMention{
-								UserId:        userID,
-								UserName:      authorName,
-								CharacterId:   authorCharacterID,
-								CharacterName: authorCharacterName,
-								PostId:        int(postID),
-								TopicId:       req.TopicID,
-								TopicName:     topicNameForNotif,
-							}
-
-							Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
-								UserID:  mUserID,
-								Type:    "mention",
-								Message: fmt.Sprintf("%s mentioned you in %s", authorName, topicNameForNotif),
-								Data:    mentionData,
-							})
-						}
-					}
+	// 2. @mentions (username-based, skip already-notified users)
+	mentionRe := regexp.MustCompile(`@([^\x{200A}]+)\x{200A}`)
+	var usernames []string
+	seenNames := map[string]bool{}
+	for _, match := range mentionRe.FindAllStringSubmatch(req.Content, -1) {
+		if len(match) > 1 && !seenNames[match[1]] {
+			seenNames[match[1]] = true
+			usernames = append(usernames, match[1])
+		}
+	}
+	if len(usernames) > 0 {
+		query := "SELECT id FROM users WHERE username IN (?" + strings.Repeat(",?", len(usernames)-1) + ")"
+		args := make([]interface{}, len(usernames))
+		for i, u := range usernames {
+			args[i] = u
+		}
+		if rows, err := db.Query(query, args...); err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var uid int
+				if rows.Scan(&uid) == nil && !notifiedUserIDs[uid] {
+					notifiedUserIDs[uid] = true
+					sendMentionNotif(uid)
 				}
 			}
 		}

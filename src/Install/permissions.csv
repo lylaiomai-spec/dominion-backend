@@ -207,7 +207,10 @@ role_id,type,permission
 3,0,/admin/frontend-templates/components
 3,0,/admin/frontend-templates/components/*name
 3,0,/admin/frontend-templates/components-default/*name
-3,0,/admin/frontend-templates/component/update
+3,0,/admin/frontend-templates/components-versions/*name
+3,0,/admin/frontend-templates/component/save
+3,0,/admin/frontend-templates/component/:id/publish
+3,0,/admin/frontend-templates/component/unpublish/*name
 3,0,/admin/frontend-templates/env/update
 3,0,/admin/github/commit
 
@@ -253,3 +256,6 @@ role_id,type,permission
 2,0,/post-draft/update/:id
 2,0,/post-draft/delete/:id
 2,0,/post-draft/delete-group/:draft_id
+3,0,/admin/locale/:id/download/frontend
+3,0,/admin/locale/:id/download/backend
+3,0,/admin/frontend-templates/component/version/:id
