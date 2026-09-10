@@ -43,6 +43,7 @@ type CreatePostDraftRequest struct {
 	DraftID     *string `json:"draft_id"`
 	CharacterID *int64  `json:"character_id"`
 	TopicID     *int64  `json:"topic_id"`
+	EntityID    *int64  `json:"entity_id"`
 	IsManual    bool    `json:"is_manual"`
 	EntityType  *string `json:"entity_type"`
 	Content     *string `json:"content"`
@@ -288,8 +289,8 @@ func CreatePostDraft(c *gin.Context, db *sql.DB) {
 	}
 
 	res, err := db.Exec(
-		`INSERT INTO post_drafts (draft_id, user_id, character_id, topic_id, is_manual, entity_type, content) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		draftID, userID, req.CharacterID, req.TopicID, req.IsManual, entityType, req.Content,
+		`INSERT INTO post_drafts (draft_id, user_id, character_id, topic_id, is_manual, entity_type, entity_id, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		draftID, userID, req.CharacterID, req.TopicID, req.IsManual, entityType, req.EntityID, req.Content,
 	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create draft: " + err.Error()})
@@ -396,17 +397,27 @@ func GetLatestEntityDraft(c *gin.Context, db *sql.DB) {
 	}
 
 	entityType := c.Param("entity_type")
-	if entityType != "character" && entityType != "wanted_character" {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid entity type: must be character or wanted_character"})
+	if entityType != "character" && entityType != "wanted_character" && entityType != "character_profile" {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid entity type: must be character, wanted_character, or character_profile"})
 		c.Abort()
 		return
 	}
 
+	entityIDStr := c.Query("entity_id")
+
 	var latestDraftID string
-	err := db.QueryRow(
-		`SELECT draft_id FROM post_drafts WHERE entity_type = ? AND user_id = ? AND is_published = 0 ORDER BY id DESC LIMIT 1`,
-		entityType, userID,
-	).Scan(&latestDraftID)
+	var err error
+	if entityIDStr != "" {
+		err = db.QueryRow(
+			`SELECT draft_id FROM post_drafts WHERE entity_type = ? AND entity_id = ? AND user_id = ? AND is_published = 0 ORDER BY id DESC LIMIT 1`,
+			entityType, entityIDStr, userID,
+		).Scan(&latestDraftID)
+	} else {
+		err = db.QueryRow(
+			`SELECT draft_id FROM post_drafts WHERE entity_type = ? AND user_id = ? AND is_published = 0 ORDER BY id DESC LIMIT 1`,
+			entityType, userID,
+		).Scan(&latestDraftID)
+	}
 	if err != nil {
 		c.JSON(http.StatusOK, []EntityDraftResponse{})
 		return

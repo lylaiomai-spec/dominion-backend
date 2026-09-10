@@ -67,6 +67,12 @@ var frontendComponentDefs = []frontendComponentDef{
 		DefaultTemplatePath: "src/app/components/wanted-character-header/wanted-character-header.component.html",
 		DescriptionKey:      "frontend_component.src_app_components_wanted_character_header.description",
 	},
+	{
+		Name:                "src/app/components/wanted-character-card",
+		TemplatePath:        "src/app/components/wanted-character-card/wanted-character-card.custom.component.html",
+		DefaultTemplatePath: "src/app/components/wanted-character-card/wanted-character-card.component.html",
+		DescriptionKey:      "frontend_component.src_app_components_wanted_character_card.description",
+	},
 }
 
 func getComponentFile(c *gin.Context, db *sql.DB, path string) {
@@ -93,6 +99,15 @@ func getComponentFile(c *gin.Context, db *sql.DB, path string) {
 func findComponentDef(name string) (frontendComponentDef, bool) {
 	for _, def := range frontendComponentDefs {
 		if def.Name == name {
+			return def, true
+		}
+	}
+	return frontendComponentDef{}, false
+}
+
+func findComponentDefByTemplatePath(templatePath string) (frontendComponentDef, bool) {
+	for _, def := range frontendComponentDefs {
+		if def.TemplatePath == templatePath {
 			return def, true
 		}
 	}
@@ -392,6 +407,13 @@ func PublishFrontendComponentTemplate(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	def, ok := findComponentDefByTemplatePath(templateFileName)
+	if !ok {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Unknown component for template: " + templateFileName})
+		c.Abort()
+		return
+	}
+
 	cfg, err := Services.GetGitHubConfig(db)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "GitHub config error: " + err.Error()})
@@ -399,7 +421,32 @@ func PublishFrontendComponentTemplate(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	// Add this component to custom_templates.json only if not already listed.
+	active := readActiveCustomTemplates(cfg)
 	files := []Services.GitHubFile{{Path: templateFileName, Content: templateText}}
+	if !active[def.Name] {
+		active[def.Name] = true
+		var entries []customTemplateEntry
+		for _, d := range frontendComponentDefs {
+			if active[d.Name] {
+				entries = append(entries, customTemplateEntry{
+					Component:       d.Name,
+					DefaultTemplate: d.DefaultTemplatePath,
+					Template:        d.TemplatePath,
+				})
+			}
+		}
+		if entries == nil {
+			entries = []customTemplateEntry{}
+		}
+		configContent, err := json.MarshalIndent(entries, "", "  ")
+		if err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to serialize custom templates"})
+			c.Abort()
+			return
+		}
+		files = append(files, Services.GitHubFile{Path: customTemplatesFile, Content: string(configContent)})
+	}
 	if err := Services.GitHubCommit(cfg, "Publish custom template: "+templateFileName, files); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "GitHub commit failed: " + err.Error()})
 		c.Abort()
