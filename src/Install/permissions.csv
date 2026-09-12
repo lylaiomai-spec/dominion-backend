@@ -258,4 +258,9 @@ role_id,type,permission
 2,0,/post-draft/delete-group/:draft_id
 3,0,/admin/locale/:id/download/frontend
 3,0,/admin/locale/:id/download/backend
+3,0,/admin/locale/upload
+3,0,/admin/locale/:id/install
+3,0,/admin/locale/:id/uninstall
 3,0,/admin/frontend-templates/component/version/:id
+2,0,/push/subscribe
+2,0,/push/unsubscribe

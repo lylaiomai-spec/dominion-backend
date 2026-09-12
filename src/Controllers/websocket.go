@@ -100,10 +100,14 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 			conn.Close()
 		}()
 
-		// Set up Ping/Pong handlers to keep connection alive
+		// Client pings every 20s; drop connection if no ping received within 45s.
 		conn.SetReadLimit(512)
-		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		conn.SetPongHandler(func(string) error { conn.SetReadDeadline(time.Now().Add(30 * time.Second)); return nil })
+		conn.SetReadDeadline(time.Now().Add(45 * time.Second))
+		conn.SetPingHandler(func(string) error {
+			conn.SetReadDeadline(time.Now().Add(45 * time.Second))
+			conn.WriteMessage(websocket.PongMessage, nil)
+			return nil
+		})
 
 		for {
 			_, p, err := conn.ReadMessage()
@@ -124,6 +128,11 @@ func HandleWebSocket(c *gin.Context, db *sql.DB) {
 				DraftId             string      `json:"draft_id"`
 			}
 			if err := json.Unmarshal(p, &msg); err == nil {
+				if msg.Type == "ping" {
+					conn.SetReadDeadline(time.Now().Add(45 * time.Second))
+					client.Send <- map[string]string{"type": "pong"}
+					continue
+				}
 				if msg.Type == "page_change" {
 					var pageIdStr string
 					switch v := msg.PageId.(type) {

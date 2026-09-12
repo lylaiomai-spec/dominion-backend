@@ -36,8 +36,6 @@ func (c *Client) writePump() {
 		c.Conn.Close()
 		c.Hub.unregister <- c
 	}()
-	ticker := time.NewTicker(20 * time.Second)
-	defer ticker.Stop()
 
 	for {
 		select {
@@ -53,11 +51,6 @@ func (c *Client) writePump() {
 			// If writing to the connection fails, the client is considered disconnected.
 			// We return from the function, which will trigger the deferred cleanup.
 			if err := c.Conn.WriteJSON(message); err != nil {
-				return
-			}
-		case <-ticker.C:
-			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}

@@ -22,6 +22,7 @@ type GitHubConfig struct {
 type GitHubFile struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	Delete  bool   `json:"delete,omitempty"`
 }
 
 func GetGitHubConfig(db *sql.DB) (GitHubConfig, error) {
@@ -162,15 +163,19 @@ func GitHubCommit(cfg GitHubConfig, message string, files []GitHubFile) error {
 	}
 	baseTreeSHA := commit.Tree.SHA
 
-	// 3. Create a blob for each file.
+	// 3. Create a blob for each file (or mark for deletion with null SHA).
 	type treeEntry struct {
-		Path string `json:"path"`
-		Mode string `json:"mode"`
-		Type string `json:"type"`
-		SHA  string `json:"sha"`
+		Path string  `json:"path"`
+		Mode string  `json:"mode"`
+		Type string  `json:"type"`
+		SHA  *string `json:"sha"` // null = delete the file
 	}
 	entries := make([]treeEntry, 0, len(files))
 	for _, f := range files {
+		if f.Delete {
+			entries = append(entries, treeEntry{Path: f.Path, Mode: "100644", Type: "blob", SHA: nil})
+			continue
+		}
 		blobData, err := githubRequest("POST", base+"/git/blobs", cfg.Token, map[string]string{
 			"content":  base64.StdEncoding.EncodeToString([]byte(f.Content)),
 			"encoding": "base64",
@@ -184,12 +189,8 @@ func GitHubCommit(cfg GitHubConfig, message string, files []GitHubFile) error {
 		if err := json.Unmarshal(blobData, &blob); err != nil {
 			return fmt.Errorf("parse blob for %s: %w", f.Path, err)
 		}
-		entries = append(entries, treeEntry{
-			Path: f.Path,
-			Mode: "100644",
-			Type: "blob",
-			SHA:  blob.SHA,
-		})
+		sha := blob.SHA
+		entries = append(entries, treeEntry{Path: f.Path, Mode: "100644", Type: "blob", SHA: &sha})
 	}
 
 	// 4. Create a new tree on top of the base tree.

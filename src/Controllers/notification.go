@@ -106,7 +106,7 @@ func GetNotificationSettings(c *gin.Context, db *sql.DB) {
 	}
 
 	rows, err := db.Query(
-		"SELECT notification_type, disable_toast, disable_sound, disable_all FROM user_notification_setting WHERE user_id = ?",
+		"SELECT notification_type, disable_toast, disable_sound, disable_all, disable_push FROM user_notification_setting WHERE user_id = ?",
 		userID,
 	)
 	if err != nil {
@@ -119,7 +119,7 @@ func GetNotificationSettings(c *gin.Context, db *sql.DB) {
 	saved := make(map[string]Entities.UserNotificationSetting)
 	for rows.Next() {
 		var s Entities.UserNotificationSetting
-		if err := rows.Scan(&s.NotificationType, &s.DisableToast, &s.DisableSound, &s.DisableAll); err != nil {
+		if err := rows.Scan(&s.NotificationType, &s.DisableToast, &s.DisableSound, &s.DisableAll, &s.DisablePush); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan notification setting: " + err.Error()})
 			c.Abort()
 			return
@@ -157,10 +157,10 @@ func UpdateNotificationSetting(c *gin.Context, db *sql.DB) {
 
 	for _, s := range req {
 		_, err := db.Exec(`
-			INSERT INTO user_notification_setting (user_id, notification_type, disable_toast, disable_sound, disable_all)
-			VALUES (?, ?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE disable_toast = VALUES(disable_toast), disable_sound = VALUES(disable_sound), disable_all = VALUES(disable_all)`,
-			userID, s.NotificationType, s.DisableToast, s.DisableSound, s.DisableAll,
+			INSERT INTO user_notification_setting (user_id, notification_type, disable_toast, disable_sound, disable_all, disable_push)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE disable_toast = VALUES(disable_toast), disable_sound = VALUES(disable_sound), disable_all = VALUES(disable_all), disable_push = VALUES(disable_push)`,
+			userID, s.NotificationType, s.DisableToast, s.DisableSound, s.DisableAll, s.DisablePush,
 		)
 		if err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update notification setting: " + err.Error()})

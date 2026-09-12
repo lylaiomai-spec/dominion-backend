@@ -30,6 +30,12 @@ func RegisterPostEventHandlers() {
 		topicIDStr := strconv.FormatInt(event.TopicID, 10)
 		users := Services.ActivityStorage.GetUsersOnPage("topic", topicIDStr)
 
+		var totalPosts int
+		db.QueryRow(
+			"SELECT COUNT(*) FROM posts WHERE topic_id = ? AND (is_deleted IS NULL OR is_deleted != 1)",
+			event.TopicID,
+		).Scan(&totalPosts)
+
 		// Send to each user on the page with their localized date and per-user CanEdit
 		for _, u := range users {
 			userPost := event.Post
@@ -52,8 +58,9 @@ func RegisterPostEventHandlers() {
 			userPost.CanEdit = &canEdit
 
 			Websockets.MainHub.SendNotification(u.UserID, map[string]interface{}{
-				"type": msgType,
-				"data": userPost,
+				"type":        msgType,
+				"data":        userPost,
+				"total_posts": totalPosts,
 			})
 		}
 	})

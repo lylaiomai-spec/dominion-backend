@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"strings"
 
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"golang.org/x/text/language"
@@ -20,7 +21,7 @@ func InitI18n(localesDir string) error {
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
 			bundle.MustLoadMessageFile(localesDir + "/" + entry.Name())
 		}
 	}

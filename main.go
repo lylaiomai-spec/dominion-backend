@@ -35,6 +35,7 @@ func main() {
 
 	// Backfill absence_timer_start for any active characters that don't have an entry yet.
 	go Services.InitializeAbsenceTimerStart(Services.DB)
+	go Services.GetOrCreateVAPIDKeys(Services.DB)
 
 	// Start archiving warning notifier (checks daily, sends notifications at 10/5/3/2/1 days before archiving)
 	Services.StartArchivingNotifier(Services.DB)
@@ -538,6 +539,15 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	})
 	protectedRouter.POST("/notifications/dismiss/:id", "Mark a notification as read", func(c *gin.Context) {
 		Controllers.DismissNotification(c, Services.DB)
+	})
+	publicRouter.GET("/push/vapid-public-key", "Get VAPID public key for push notification subscription", func(c *gin.Context) {
+		Controllers.GetVAPIDPublicKey(c, Services.DB)
+	})
+	protectedRouter.POST("/push/subscribe", "Save a push notification subscription", func(c *gin.Context) {
+		Controllers.SubscribePushNotifications(c, Services.DB)
+	})
+	protectedRouter.POST("/push/unsubscribe", "Remove a push notification subscription", func(c *gin.Context) {
+		Controllers.UnsubscribePushNotifications(c, Services.DB)
 	})
 	protectedRouter.POST("/character/accept/:id", "Accept a character", func(c *gin.Context) {
 		Controllers.AcceptCharacter(c, Services.DB)
@@ -1055,6 +1065,15 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	})
 	protectedRouter.GET("/admin/locale/:id/download/backend", "Download backend locale file", func(c *gin.Context) {
 		Controllers.DownloadBackEndLocaleFile(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/locale/upload", "Upload a new locale (.ts and .json files)", func(c *gin.Context) {
+		Controllers.UploadLocale(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/locale/:id/install", "Install a locale (commit to frontend repo)", func(c *gin.Context) {
+		Controllers.InstallLocale(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/locale/:id/uninstall", "Uninstall a locale (remove from frontend repo)", func(c *gin.Context) {
+		Controllers.UninstallLocale(c, Services.DB)
 	})
 
 	// User data migration routes

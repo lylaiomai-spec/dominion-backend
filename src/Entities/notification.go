@@ -108,6 +108,7 @@ type UserNotificationSetting struct {
 	DisableToast     bool   `json:"disable_toast"`
 	DisableSound     bool   `json:"disable_sound"`
 	DisableAll       bool   `json:"disable_all"`
+	DisablePush      bool   `json:"disable_push"`
 }
 
 type NotificationPageChanged struct {

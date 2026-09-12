@@ -537,6 +537,7 @@ create table user_notification_setting
     disable_toast     boolean      not null default false,
     disable_sound     boolean      not null default false,
     disable_all       boolean      not null default false,
+    disable_push      boolean      not null default false,
     primary key (user_id, notification_type),
     constraint fk_user_notification_setting_user
         foreign key (user_id) references users (id) on delete cascade
@@ -1171,15 +1172,17 @@ CREATE TABLE custom_templates
 
 CREATE TABLE locales
 (
-    id                 INT AUTO_INCREMENT PRIMARY KEY,
-    human_name         VARCHAR(100) NOT NULL,
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    human_name          VARCHAR(100) NOT NULL,
+    code                VARCHAR(20)  NOT NULL,
     front_end_file_name VARCHAR(100) NOT NULL,
-    back_end_file_name  VARCHAR(100) NOT NULL
+    back_end_file_name  VARCHAR(100) NOT NULL,
+    is_installed        TINYINT(1)   NOT NULL DEFAULT 0
 );
 
-INSERT INTO locales (human_name, front_end_file_name, back_end_file_name) VALUES
-    ('English', 'en.ts', 'en.json'),
-    ('Russian', 'ru.ts', 'ru.json');
+INSERT IGNORE INTO locales (human_name, code, front_end_file_name, back_end_file_name, is_installed) VALUES
+    ('English', 'en-CA', 'en.ts', 'en.json', 1),
+    ('Russian', 'ru-RU', 'ru.ts', 'ru.json', 1);
 
 CREATE TABLE absence_timer_start
 (
@@ -1206,4 +1209,18 @@ create table post_drafts
     index idx_post_drafts_user_id (user_id),
     constraint fk_post_drafts_user      foreign key (user_id)      references users (id) on delete cascade,
     constraint fk_post_drafts_character foreign key (character_id) references character_base (id) on delete set null
+);
+
+create table user_push_subscriptions
+(
+    id            int          auto_increment primary key,
+    user_id       int          not null,
+    endpoint      varchar(2048) not null,
+    endpoint_hash varchar(64)   generated always as (sha2(endpoint, 256)) stored,
+    p256dh        varchar(512) not null,
+    auth          varchar(256) not null,
+    date_created  datetime     not null default current_timestamp,
+    unique key uq_endpoint_hash (endpoint_hash),
+    index idx_user_push_subscriptions_user_id (user_id),
+    constraint fk_user_push_subscriptions_user foreign key (user_id) references users (id) on delete cascade
 );

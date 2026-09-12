@@ -72,6 +72,7 @@ func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
 	var startDate time.Time
 
 	if len(episodes) == 0 {
+		// No active episodes — timer from character's last post.
 		if lastPost != nil {
 			startDate = *lastPost
 		} else {
@@ -93,7 +94,16 @@ func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
 			_, _ = db.Exec("DELETE FROM absence_timer_start WHERE character_id = ?", characterID)
 			return
 		}
-		startDate = *earliest
+		// Timer starts from the later of: character's own last post, or earliest unanswered post.
+		charLastPost := topicCreatedAt
+		if lastPost != nil {
+			charLastPost = *lastPost
+		}
+		if charLastPost.After(*earliest) {
+			startDate = charLastPost
+		} else {
+			startDate = *earliest
+		}
 	}
 
 	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
