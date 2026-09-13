@@ -261,6 +261,7 @@ role_id,type,permission
 3,0,/admin/locale/upload
 3,0,/admin/locale/:id/install
 3,0,/admin/locale/:id/uninstall
+3,0,/admin/locale/:id/delete
 3,0,/admin/frontend-templates/component/version/:id
 2,0,/push/subscribe
 2,0,/push/unsubscribe

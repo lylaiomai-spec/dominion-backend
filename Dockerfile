@@ -9,7 +9,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o main .
+RUN go build -o main . && chmod 777 locales
 
 EXPOSE 8080
 

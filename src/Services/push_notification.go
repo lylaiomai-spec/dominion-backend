@@ -101,6 +101,7 @@ func SendPushToUser(db *sql.DB, userID int, notificationType, title, message str
 			VAPIDPrivateKey: privateKey,
 			Subscriber:      subject,
 			TTL:             86400,
+			Urgency:         webpush.UrgencyHigh,
 		})
 		if err != nil {
 			pushLogger.Printf("[push] send error for user %d endpoint %s: %v\n", userID, endpoint, err)

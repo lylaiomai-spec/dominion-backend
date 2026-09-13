@@ -3,6 +3,7 @@ package Services
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -22,7 +23,9 @@ func InitI18n(localesDir string) error {
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-			bundle.MustLoadMessageFile(localesDir + "/" + entry.Name())
+			if _, err := bundle.LoadMessageFile(localesDir + "/" + entry.Name()); err != nil {
+				fmt.Printf("[i18n] skipping %s: %v\n", entry.Name(), err)
+			}
 		}
 	}
 

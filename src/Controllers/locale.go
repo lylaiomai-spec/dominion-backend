@@ -5,6 +5,8 @@ import (
 	"cuento-backend/src/Services"
 	"database/sql"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 const backendLocaleDir = "./locales"
 const localeConfigPath = "src/locale_config.ts"
+const localeConfigDefaultPath = "src/locale_config_default.ts"
 
 var protectedLocaleCodes = map[string]bool{"en-CA": true}
 
@@ -158,18 +161,13 @@ func UploadLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	if err := os.MkdirAll(backendLocaleDir, 0755); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create locale directory"})
+	if err := saveUploadedFile(tsFile, filepath.Join(backendLocaleDir, tsName)); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save .ts file: " + err.Error()})
 		c.Abort()
 		return
 	}
-	if err := c.SaveUploadedFile(tsFile, filepath.Join(backendLocaleDir, tsName)); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save .ts file"})
-		c.Abort()
-		return
-	}
-	if err := c.SaveUploadedFile(jsonFile, filepath.Join(backendLocaleDir, jsonName)); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save .json file"})
+	if err := saveUploadedFile(jsonFile, filepath.Join(backendLocaleDir, jsonName)); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save .json file: " + err.Error()})
 		c.Abort()
 		return
 	}
@@ -229,7 +227,7 @@ func InstallLocale(c *gin.Context, db *sql.DB) {
 	}
 
 	// Read current locale_config.ts from GitHub.
-	configContent, err := Services.GitHubGetFile(cfg, localeConfigPath)
+	configContent, err := getLocaleConfig(cfg)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch locale_config.ts: " + err.Error()})
 		c.Abort()
@@ -293,7 +291,7 @@ func UninstallLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	configContent, err := Services.GitHubGetFile(cfg, localeConfigPath)
+	configContent, err := getLocaleConfig(cfg)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch locale_config.ts: " + err.Error()})
 		c.Abort()
@@ -318,6 +316,88 @@ func UninstallLocale(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"uninstalled": locale.Code})
 }
 
+func DeleteLocale(c *gin.Context, db *sql.DB) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid locale ID"})
+		c.Abort()
+		return
+	}
+
+	var locale LocaleItem
+	err = db.QueryRow(
+		"SELECT id, human_name, code, front_end_file_name, back_end_file_name, is_installed FROM locales WHERE id = ?", id,
+	).Scan(&locale.Id, &locale.HumanName, &locale.Code, &locale.FrontEndFileName, &locale.BackEndFileName, &locale.IsInstalled)
+	if err == sql.ErrNoRows {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Locale not found"})
+		c.Abort()
+		return
+	} else if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "DB error: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if protectedLocaleCodes[locale.Code] {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "Cannot delete default locale: " + locale.Code})
+		c.Abort()
+		return
+	}
+
+	if locale.IsInstalled {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusConflict, Message: "Uninstall the locale before deleting it"})
+		c.Abort()
+		return
+	}
+
+	_ = os.Remove(filepath.Join(backendLocaleDir, filepath.Base(locale.FrontEndFileName)))
+	_ = os.Remove(filepath.Join(backendLocaleDir, filepath.Base(locale.BackEndFileName)))
+
+	_, _ = db.Exec("DELETE FROM locales WHERE id = ?", id)
+	c.JSON(http.StatusOK, gin.H{"deleted": locale.Code})
+}
+
+// getLocaleConfig reads locale_config.ts from the repo.
+// If it doesn't exist (404), it falls back to locale_config_default.ts.
+func getLocaleConfig(cfg Services.GitHubConfig) (string, error) {
+	content, err := Services.GitHubGetFile(cfg, localeConfigPath)
+	if err == nil {
+		return content, nil
+	}
+	ghErr, ok := err.(*Services.GitHubError)
+	if !ok || ghErr.StatusCode != 404 {
+		return "", err
+	}
+	return Services.GitHubGetFile(cfg, localeConfigDefaultPath)
+}
+
+// saveUploadedFile writes a multipart file to dst without calling os.MkdirAll,
+// which would try to chmod the parent directory and fail in containers.
+func saveUploadedFile(fh *multipart.FileHeader, dst string) error {
+	src, err := fh.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, src)
+	return err
+}
+
+// angularLocaleKeys is the set of locale keys supported by the frontend's ANGULAR_LOCALES map.
+var angularLocaleKeys = map[string]bool{
+	"ru": true, "zh": true, "zh-Hans": true, "zh-Hant": true,
+	"de": true, "fr": true, "es": true, "pt": true, "it": true,
+	"ja": true, "ko": true, "pl": true, "uk": true, "tr": true,
+	"ar": true,
+}
+
 // addLocaleBlock inserts a new locale block into the LOCALES array in locale_config.ts.
 func addLocaleBlock(config, code string) string {
 	parts := strings.SplitN(code, "-", 2)
@@ -325,26 +405,48 @@ func addLocaleBlock(config, code string) string {
 	fileBase := langPrefix
 	translationConst := "TRANSLATIONS_" + strings.ToUpper(langPrefix)
 
+	angularLocale := ""
+	if angularLocaleKeys[langPrefix] {
+		angularLocale = fmt.Sprintf("\n  angularLocale: '%s',", langPrefix)
+	}
+
 	block := fmt.Sprintf(`  {
     code: '%s',
     langPrefixes: ['%s'],
-    translations: () => import('./locale/%s').then(m => m.%s),
-    angularLocale: () => import('@angular/common/locales/%s'),
+    translations: () => import('./locale/%s').then(m => m.%s),%s
   },
-`, code, langPrefix, fileBase, translationConst, langPrefix)
+`, code, langPrefix, fileBase, translationConst, angularLocale)
 
-	// Insert before the closing ];
-	return strings.Replace(config, "];", block+"];", 1)
+	// Locate the LOCALES array declaration, then find its closing ]; and insert before it.
+	localesIdx := strings.Index(config, "export const LOCALES")
+	if localesIdx == -1 {
+		return config
+	}
+	closeIdx := strings.Index(config[localesIdx:], "\n];")
+	if closeIdx == -1 {
+		return config
+	}
+	insertAt := localesIdx + closeIdx
+	return config[:insertAt] + "\n" + block + config[insertAt+1:]
 }
 
 // removeLocaleBlock removes a locale block for the given code from locale_config.ts.
+// Only operates inside the LOCALES array to avoid touching the rest of the file.
 func removeLocaleBlock(config, code string) string {
-	lines := strings.Split(config, "\n")
+	localesIdx := strings.Index(config, "export const LOCALES")
+	if localesIdx == -1 {
+		return config
+	}
+
+	before := config[:localesIdx]
+	arraySection := config[localesIdx:]
+
+	lines := strings.Split(arraySection, "\n")
 	var result []string
 	skip := false
 	for _, line := range lines {
 		if strings.Contains(line, fmt.Sprintf("code: '%s'", code)) {
-			// Remove the opening brace line we already added.
+			// Remove the opening brace line we already appended.
 			if len(result) > 0 && strings.TrimSpace(result[len(result)-1]) == "{" {
 				result = result[:len(result)-1]
 			}
@@ -352,14 +454,12 @@ func removeLocaleBlock(config, code string) string {
 			continue
 		}
 		if skip {
-			// Skip until closing },
 			if strings.TrimSpace(line) == "}," {
 				skip = false
-				continue
 			}
 			continue
 		}
 		result = append(result, line)
 	}
-	return strings.Join(result, "\n")
+	return before + strings.Join(result, "\n")
 }
