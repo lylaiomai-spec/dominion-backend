@@ -161,6 +161,14 @@ func UploadLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	for _, name := range []string{tsName, jsonName} {
+		if _, err := os.Stat(filepath.Join(backendLocaleDir, name)); err == nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusConflict, Message: "File already exists on server: " + name})
+			c.Abort()
+			return
+		}
+	}
+
 	if err := saveUploadedFile(tsFile, filepath.Join(backendLocaleDir, tsName)); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save .ts file: " + err.Error()})
 		c.Abort()
@@ -234,9 +242,10 @@ func InstallLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	updatedConfig := addLocaleBlock(configContent, locale.Code)
+	tsFileName := filepath.Base(locale.FrontEndFileName)
+	updatedConfig := addLocaleBlock(configContent, locale.Code, strings.TrimSuffix(tsFileName, ".ts"))
 
-	tsPath := "src/locale/" + filepath.Base(locale.FrontEndFileName)
+	tsPath := "src/locale/" + tsFileName
 	files := []Services.GitHubFile{
 		{Path: tsPath, Content: string(tsContent)},
 		{Path: localeConfigPath, Content: updatedConfig},
@@ -298,9 +307,10 @@ func UninstallLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	updatedConfig := removeLocaleBlock(configContent, locale.Code)
+	tsFileName := filepath.Base(locale.FrontEndFileName)
+	updatedConfig := removeLocaleBlock(configContent, strings.TrimSuffix(tsFileName, ".ts"))
 
-	tsPath := "src/locale/" + filepath.Base(locale.FrontEndFileName)
+	tsPath := "src/locale/" + tsFileName
 	files := []Services.GitHubFile{
 		{Path: localeConfigPath, Content: updatedConfig},
 		{Path: tsPath, Delete: true},
@@ -399,11 +409,11 @@ var angularLocaleKeys = map[string]bool{
 }
 
 // addLocaleBlock inserts a new locale block into the LOCALES array in locale_config.ts.
-func addLocaleBlock(config, code string) string {
+// fileBase is the filename without extension (e.g. "ru" or "russian") and drives the import path.
+func addLocaleBlock(config, code, fileBase string) string {
 	parts := strings.SplitN(code, "-", 2)
 	langPrefix := strings.ToLower(parts[0])
-	fileBase := langPrefix
-	translationConst := "TRANSLATIONS_" + strings.ToUpper(langPrefix)
+	translationConst := "TRANSLATIONS_" + strings.ToUpper(strings.ReplaceAll(fileBase, "-", "_"))
 
 	angularLocale := ""
 	if angularLocaleKeys[langPrefix] {
@@ -430,9 +440,9 @@ func addLocaleBlock(config, code string) string {
 	return config[:insertAt] + "\n" + block + config[insertAt+1:]
 }
 
-// removeLocaleBlock removes a locale block for the given code from locale_config.ts.
+// removeLocaleBlock removes the locale block whose import path matches fileBase from locale_config.ts.
 // Only operates inside the LOCALES array to avoid touching the rest of the file.
-func removeLocaleBlock(config, code string) string {
+func removeLocaleBlock(config, fileBase string) string {
 	localesIdx := strings.Index(config, "export const LOCALES")
 	if localesIdx == -1 {
 		return config
@@ -441,11 +451,12 @@ func removeLocaleBlock(config, code string) string {
 	before := config[:localesIdx]
 	arraySection := config[localesIdx:]
 
+	importMarker := fmt.Sprintf("import('./locale/%s')", fileBase)
 	lines := strings.Split(arraySection, "\n")
 	var result []string
 	skip := false
 	for _, line := range lines {
-		if strings.Contains(line, fmt.Sprintf("code: '%s'", code)) {
+		if strings.Contains(line, importMarker) {
 			// Remove the opening brace line we already appended.
 			if len(result) > 0 && strings.TrimSpace(result[len(result)-1]) == "{" {
 				result = result[:len(result)-1]
