@@ -2370,8 +2370,8 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 				cb.user_id,
 				u.username,
 				cb.date_last_post,
-				? - DATEDIFF(NOW(), ats.start_date) AS days_left,
-				DATE_FORMAT(DATE_ADD(ats.start_date, INTERVAL ? DAY), '%Y-%m-%d') AS archival_date
+				? + ats.extra_days - DATEDIFF(NOW(), ats.start_date) AS days_left,
+				DATE_FORMAT(DATE_ADD(ats.start_date, INTERVAL ? + ats.extra_days DAY), '%Y-%m-%d') AS archival_date
 			FROM character_base cb
 			JOIN users u ON u.id = cb.user_id
 			JOIN absence_timer_start ats ON ats.character_id = cb.id
@@ -2381,7 +2381,7 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 				AND aai.end_date >= NOW()
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
-			AND DATEDIFF(NOW(), ats.start_date) >= ?
+			AND DATEDIFF(NOW(), ats.start_date) - ats.extra_days >= ?
 			AND au.id IS NULL
 			AND aai.id IS NULL
 		)

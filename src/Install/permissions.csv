@@ -59,8 +59,14 @@ role_id,type,permission
 2,0,/lore-topic/create
 2,0,/lore-topic/update/:id
 2,0,/lore-page/create
-2,0,/lore-page/update/:post_id
-2,0,/lore-page/delete/:post_id
+2,0,/lore-page/update/:id
+2,0,/lore-page/delete/:id
+3,0,/lore-topic/:id/posts
+3,0,/lore-topic/create
+3,0,/lore-topic/update/:id
+3,0,/lore-page/create
+3,0,/lore-page/update/:id
+3,0,/lore-page/delete/:id
 2,0,/user-masks/:userID
 2,0,/user/character-profiles
 2,0,/user/character-profiles-topic/:topicID
@@ -265,3 +271,7 @@ role_id,type,permission
 3,0,/admin/frontend-templates/component/version/:id
 2,0,/push/subscribe
 2,0,/push/unsubscribe
+3,0,/admin/workflow/list
+3,0,/admin/workflow/create
+3,0,/admin/workflow/update/:id
+3,0,/admin/workflow/delete/:id

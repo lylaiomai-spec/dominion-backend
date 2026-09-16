@@ -454,23 +454,41 @@ func removeLocaleBlock(config, fileBase string) string {
 	importMarker := fmt.Sprintf("import('./locale/%s')", fileBase)
 	lines := strings.Split(arraySection, "\n")
 	var result []string
-	skip := false
+	var buf []string // lines of the current block being buffered
+	inBlock := false
+
 	for _, line := range lines {
-		if strings.Contains(line, importMarker) {
-			// Remove the opening brace line we already appended.
-			if len(result) > 0 && strings.TrimSpace(result[len(result)-1]) == "{" {
-				result = result[:len(result)-1]
-			}
-			skip = true
-			continue
-		}
-		if skip {
-			if strings.TrimSpace(line) == "}," {
-				skip = false
+		trimmed := strings.TrimSpace(line)
+
+		if !inBlock {
+			if trimmed == "{" {
+				inBlock = true
+				buf = []string{line}
+			} else {
+				result = append(result, line)
 			}
 			continue
 		}
-		result = append(result, line)
+
+		buf = append(buf, line)
+
+		if trimmed == "}," {
+			inBlock = false
+			// Discard the entire block if it contains the target import.
+			blockContainsMarker := false
+			for _, bl := range buf {
+				if strings.Contains(bl, importMarker) {
+					blockContainsMarker = true
+					break
+				}
+			}
+			if !blockContainsMarker {
+				result = append(result, buf...)
+			}
+			buf = nil
+		}
 	}
+	// Flush any remaining buffered lines (shouldn't happen in a well-formed file).
+	result = append(result, buf...)
 	return before + strings.Join(result, "\n")
 }

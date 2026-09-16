@@ -97,7 +97,7 @@ var templatePolicy = func() *bluemonday.Policy {
 
 	p.AllowAttrs("href", "target", "rel").OnElements("a")
 	p.AllowAttrs("type").OnElements("button")
-	p.AllowAttrs("src", "alt", "width", "height").OnElements("img")
+	p.AllowAttrs("src", "alt", "width", "height", "[src]", "[alt]").OnElements("img")
 	p.AllowAttrs("cite").OnElements("blockquote", "q", "del", "ins")
 	p.AllowAttrs("datetime").OnElements("time", "del", "ins")
 	p.AllowAttrs("open").OnElements("details")

@@ -16,14 +16,15 @@ import (
 //     such post date (the oldest post the character has yet to answer).
 func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
 	var charStatus int
+	var userID int
 	var topicCreatedAt time.Time
 	var lastPost *time.Time
 	err := db.QueryRow(`
-		SELECT cb.character_status, t.date_created, cb.date_last_post
+		SELECT cb.character_status, cb.user_id, t.date_created, cb.date_last_post
 		FROM character_base cb
 		JOIN topics t ON t.id = cb.topic_id
 		WHERE cb.id = ?
-	`, characterID).Scan(&charStatus, &topicCreatedAt, &lastPost)
+	`, characterID).Scan(&charStatus, &userID, &topicCreatedAt, &lastPost)
 	if err != nil {
 		log.Printf("AbsenceTimerStart: failed to load character %d: %v", characterID, err)
 		return
@@ -107,9 +108,21 @@ func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
 	}
 
 	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+
+	var extraDays int
+	_ = db.QueryRow(`
+		SELECT COALESCE(SUM(
+			GREATEST(0, DATEDIFF(LEAST(absence_end_date, NOW()), GREATEST(absence_start_date, ?)) + 1)
+		), 0)
+		FROM absent_users
+		WHERE user_id = ? AND is_deleted = 0
+		AND absence_end_date >= ?
+		AND absence_start_date <= NOW()
+	`, startDate, userID, startDate).Scan(&extraDays)
+
 	_, _ = db.Exec(
-		"INSERT INTO absence_timer_start (character_id, start_date) VALUES (?, ?) ON DUPLICATE KEY UPDATE start_date = ?",
-		characterID, startDate, startDate,
+		"INSERT INTO absence_timer_start (character_id, start_date, extra_days) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE start_date = ?, extra_days = ?",
+		characterID, startDate, extraDays, startDate, extraDays,
 	)
 }
 

@@ -29,16 +29,21 @@ type UpdateLoreTopicRequest struct {
 }
 
 type LorePageInfo struct {
-	Name     string `json:"name"`
-	IsHidden bool   `json:"is_hidden"`
-	Order    int    `json:"order"`
+	Name            string  `json:"name"`
+	IsHidden        bool    `json:"is_hidden"`
+	Order           int     `json:"order"`
+	IsExternalLink  *bool   `json:"is_external_link"`
+	ExternalLink    *string `json:"external_link"`
 }
 
 type LorePage struct {
-	PostId   int64  `json:"post_id"`
-	Name     string `json:"name"`
-	IsHidden bool   `json:"is_hidden"`
-	Order    int    `json:"order"`
+	Id              int64   `json:"id"`
+	PostId          *int64  `json:"post_id"`
+	Name            string  `json:"name"`
+	IsHidden        bool    `json:"is_hidden"`
+	Order           int     `json:"order"`
+	IsExternalLink  *bool   `json:"is_external_link"`
+	ExternalLink    *string `json:"external_link"`
 }
 
 func GetLorePagesByTopic(c *gin.Context, db *sql.DB) {
@@ -50,7 +55,7 @@ func GetLorePagesByTopic(c *gin.Context, db *sql.DB) {
 	}
 
 	rows, err := db.Query(
-		"SELECT post_id, name, is_hidden, position FROM lore_pages WHERE topic_id = ? AND is_hidden = false ORDER BY position ASC",
+		"SELECT id, post_id, name, is_hidden, position, is_external_link, external_link FROM lore_pages WHERE topic_id = ? AND is_hidden = false ORDER BY position ASC",
 		topicID,
 	)
 	if err != nil {
@@ -63,10 +68,19 @@ func GetLorePagesByTopic(c *gin.Context, db *sql.DB) {
 	var list []LorePage
 	for rows.Next() {
 		var p LorePage
-		if err := rows.Scan(&p.PostId, &p.Name, &p.IsHidden, &p.Order); err != nil {
+		var isExternalLink sql.NullBool
+		var externalLink sql.NullString
+		if err := rows.Scan(&p.Id, &p.PostId, &p.Name, &p.IsHidden, &p.Order, &isExternalLink, &externalLink); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan lore page: " + err.Error()})
 			c.Abort()
 			return
+		}
+		if isExternalLink.Valid {
+			v := isExternalLink.Bool
+			p.IsExternalLink = &v
+		}
+		if externalLink.Valid {
+			p.ExternalLink = &externalLink.String
 		}
 		list = append(list, p)
 	}
@@ -109,7 +123,7 @@ func GetLoreTopicPosts(c *gin.Context, db *sql.DB) {
 	}
 
 	rows, err := db.Query(`
-		SELECT p.id, p.date_created, lp.name, lp.is_hidden, lp.position
+		SELECT p.id, p.date_created, lp.name, lp.is_hidden, lp.position, lp.is_external_link, lp.external_link
 		FROM posts p
 		LEFT JOIN lore_pages lp ON lp.topic_id = p.topic_id AND lp.post_id = p.id
 		WHERE p.topic_id = ? AND (p.is_deleted IS NULL OR p.is_deleted = 0)
@@ -127,13 +141,27 @@ func GetLoreTopicPosts(c *gin.Context, db *sql.DB) {
 		var lpName sql.NullString
 		var lpIsHidden sql.NullBool
 		var lpOrder sql.NullInt64
-		if err := rows.Scan(&row.Id, &row.DateCreated, &lpName, &lpIsHidden, &lpOrder); err != nil {
+		var lpIsExternalLink sql.NullBool
+		var lpExternalLink sql.NullString
+		if err := rows.Scan(&row.Id, &row.DateCreated, &lpName, &lpIsHidden, &lpOrder, &lpIsExternalLink, &lpExternalLink); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan row: " + err.Error()})
 			c.Abort()
 			return
 		}
 		if lpName.Valid {
-			row.LorePage = &LorePageInfo{Name: lpName.String, IsHidden: lpIsHidden.Bool, Order: int(lpOrder.Int64)}
+			info := &LorePageInfo{
+				Name:     lpName.String,
+				IsHidden: lpIsHidden.Bool,
+				Order:    int(lpOrder.Int64),
+			}
+			if lpIsExternalLink.Valid {
+				v := lpIsExternalLink.Bool
+				info.IsExternalLink = &v
+			}
+			if lpExternalLink.Valid {
+				info.ExternalLink = &lpExternalLink.String
+			}
+			row.LorePage = info
 		}
 		list = append(list, row)
 	}
@@ -155,6 +183,11 @@ func CreateLoreTopic(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 	if userID == 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	if hasPerm, err := Services.HasPermission(userID, fmt.Sprintf("subforum_create_lore_topic:%d", req.SubforumId), db); err != nil || !hasPerm {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to create lore topics in this subforum"})
 		return
 	}
 
@@ -335,21 +368,34 @@ func UpdateLoreTopic(c *gin.Context, db *sql.DB) {
 		)
 	}
 
+	if req.Status != nil {
+		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
+			TopicID:    int64(topicID),
+			SubforumID: subforumID,
+			OldStatus:  int(currentStatus),
+			NewStatus:  int(*req.Status),
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Topic updated successfully"})
 }
 
 type CreateLorePageRequest struct {
-	TopicId  int64  `json:"topic_id" binding:"required"`
-	PostId   int64  `json:"post_id" binding:"required"`
-	Name     string `json:"name" binding:"required"`
-	IsHidden bool   `json:"is_hidden"`
-	Order    int    `json:"order"`
+	TopicId         int64   `json:"topic_id" binding:"required"`
+	PostId          *int64  `json:"post_id"`
+	Name            string  `json:"name" binding:"required"`
+	IsHidden        bool    `json:"is_hidden"`
+	Order           int     `json:"order"`
+	IsExternalLink  *bool   `json:"is_external_link"`
+	ExternalLink    *string `json:"external_link"`
 }
 
 type UpdateLorePageRequest struct {
-	Name     string `json:"name" binding:"required"`
-	IsHidden bool   `json:"is_hidden"`
-	Order    int    `json:"order"`
+	Name            string  `json:"name" binding:"required"`
+	IsHidden        bool    `json:"is_hidden"`
+	Order           int     `json:"order"`
+	IsExternalLink  *bool   `json:"is_external_link"`
+	ExternalLink    *string `json:"external_link"`
 }
 
 func CreateLorePage(c *gin.Context, db *sql.DB) {
@@ -360,9 +406,24 @@ func CreateLorePage(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	_, err := db.Exec(
-		"INSERT INTO lore_pages (topic_id, post_id, name, is_hidden, position) VALUES (?, ?, ?, ?, ?)",
-		req.TopicId, req.PostId, req.Name, req.IsHidden, req.Order,
+	isExternal := req.IsExternalLink != nil && *req.IsExternalLink
+	if isExternal {
+		if req.ExternalLink == nil || *req.ExternalLink == "" {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "external_link is required for external link pages"})
+			c.Abort()
+			return
+		}
+	} else {
+		if req.PostId == nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "post_id is required for non-external pages"})
+			c.Abort()
+			return
+		}
+	}
+
+	res, err := db.Exec(
+		"INSERT INTO lore_pages (topic_id, post_id, name, is_hidden, position, is_external_link, external_link) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		req.TopicId, req.PostId, req.Name, req.IsHidden, req.Order, req.IsExternalLink, req.ExternalLink,
 	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create lore page: " + err.Error()})
@@ -370,25 +431,34 @@ func CreateLorePage(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	c.JSON(http.StatusOK, LorePage{PostId: req.PostId, Name: req.Name, IsHidden: req.IsHidden, Order: req.Order})
+	id, _ := res.LastInsertId()
+	c.JSON(http.StatusOK, LorePage{
+		Id:             id,
+		PostId:         req.PostId,
+		Name:           req.Name,
+		IsHidden:       req.IsHidden,
+		Order:          req.Order,
+		IsExternalLink: req.IsExternalLink,
+		ExternalLink:   req.ExternalLink,
+	})
 }
 
-func isFirstLorePost(db *sql.DB, postId int64) (bool, error) {
-	var firstPostId int64
+func isFirstLorePage(db *sql.DB, pageID int64) (bool, error) {
+	var firstID int64
 	err := db.QueryRow(
-		"SELECT MIN(p.id) FROM posts p JOIN lore_pages lp ON lp.post_id = p.id WHERE p.topic_id = (SELECT topic_id FROM posts WHERE id = ?)",
-		postId,
-	).Scan(&firstPostId)
+		"SELECT MIN(id) FROM lore_pages WHERE topic_id = (SELECT topic_id FROM lore_pages WHERE id = ?)",
+		pageID,
+	).Scan(&firstID)
 	if err != nil {
 		return false, err
 	}
-	return postId == firstPostId, nil
+	return pageID == firstID, nil
 }
 
 func UpdateLorePage(c *gin.Context, db *sql.DB) {
-	postId, err := strconv.ParseInt(c.Param("post_id"), 10, 64)
+	pageID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid post ID"})
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid lore page ID"})
 		c.Abort()
 		return
 	}
@@ -400,9 +470,9 @@ func UpdateLorePage(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	isFirst, err := isFirstLorePost(db, postId)
+	isFirst, err := isFirstLorePage(db, pageID)
 	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check post position: " + err.Error()})
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check page position: " + err.Error()})
 		c.Abort()
 		return
 	}
@@ -414,9 +484,15 @@ func UpdateLorePage(c *gin.Context, db *sql.DB) {
 
 	var result sql.Result
 	if isFirst {
-		result, err = db.Exec("UPDATE lore_pages SET name = ?, position = ? WHERE post_id = ?", req.Name, req.Order, postId)
+		result, err = db.Exec(
+			"UPDATE lore_pages SET name = ?, position = ?, is_external_link = ?, external_link = ? WHERE id = ?",
+			req.Name, req.Order, req.IsExternalLink, req.ExternalLink, pageID,
+		)
 	} else {
-		result, err = db.Exec("UPDATE lore_pages SET name = ?, is_hidden = ?, position = ? WHERE post_id = ?", req.Name, req.IsHidden, req.Order, postId)
+		result, err = db.Exec(
+			"UPDATE lore_pages SET name = ?, is_hidden = ?, position = ?, is_external_link = ?, external_link = ? WHERE id = ?",
+			req.Name, req.IsHidden, req.Order, req.IsExternalLink, req.ExternalLink, pageID,
+		)
 	}
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update lore page: " + err.Error()})
@@ -430,24 +506,34 @@ func UpdateLorePage(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	isHidden := req.IsHidden
-	if isFirst {
-		isHidden = false
+	// Re-read updated row to return current state
+	var p LorePage
+	var isExternalLink sql.NullBool
+	var externalLink sql.NullString
+	_ = db.QueryRow(
+		"SELECT id, post_id, name, is_hidden, position, is_external_link, external_link FROM lore_pages WHERE id = ?", pageID,
+	).Scan(&p.Id, &p.PostId, &p.Name, &p.IsHidden, &p.Order, &isExternalLink, &externalLink)
+	if isExternalLink.Valid {
+		v := isExternalLink.Bool
+		p.IsExternalLink = &v
 	}
-	c.JSON(http.StatusOK, LorePage{PostId: postId, Name: req.Name, IsHidden: isHidden, Order: req.Order})
+	if externalLink.Valid {
+		p.ExternalLink = &externalLink.String
+	}
+	c.JSON(http.StatusOK, p)
 }
 
 func DeleteLorePage(c *gin.Context, db *sql.DB) {
-	postId, err := strconv.ParseInt(c.Param("post_id"), 10, 64)
+	pageID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid post ID"})
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid lore page ID"})
 		c.Abort()
 		return
 	}
 
-	isFirst, err := isFirstLorePost(db, postId)
+	isFirst, err := isFirstLorePage(db, pageID)
 	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check post position: " + err.Error()})
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to check page position: " + err.Error()})
 		c.Abort()
 		return
 	}
@@ -457,7 +543,7 @@ func DeleteLorePage(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	result, err := db.Exec("DELETE FROM lore_pages WHERE post_id = ?", postId)
+	result, err := db.Exec("DELETE FROM lore_pages WHERE id = ?", pageID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to delete lore page: " + err.Error()})
 		c.Abort()

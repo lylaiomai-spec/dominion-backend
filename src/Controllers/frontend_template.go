@@ -354,18 +354,20 @@ func SaveFrontendComponentTemplate(c *gin.Context, db *sql.DB) {
 
 	var rowID int64
 	if req.ID != nil {
-		res, err := db.Exec(
-			"UPDATE custom_templates SET name = ?, template_text = ? WHERE id = ? AND template_file_name = ?",
-			req.Name, sanitized, *req.ID, def.TemplatePath,
-		)
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update template: " + err.Error()})
+		var exists int
+		if err := db.QueryRow(
+			"SELECT COUNT(*) FROM custom_templates WHERE id = ? AND template_file_name = ?",
+			*req.ID, def.TemplatePath,
+		).Scan(&exists); err != nil || exists == 0 {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Template version not found"})
 			c.Abort()
 			return
 		}
-		affected, _ := res.RowsAffected()
-		if affected == 0 {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Template version not found"})
+		if _, err := db.Exec(
+			"UPDATE custom_templates SET name = ?, template_text = ? WHERE id = ? AND template_file_name = ?",
+			req.Name, sanitized, *req.ID, def.TemplatePath,
+		); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update template: " + err.Error()})
 			c.Abort()
 			return
 		}

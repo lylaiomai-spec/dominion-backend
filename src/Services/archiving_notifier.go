@@ -49,7 +49,7 @@ func runAutoArchiving(db *sql.DB) {
 			AND aai.start_date <= NOW() AND aai.end_date >= NOW()
 		WHERE cb.character_status = ?
 		AND u.user_status = ?
-		AND DATEDIFF(NOW(), ats.start_date) >= ?
+		AND DATEDIFF(NOW(), ats.start_date) - ats.extra_days >= ?
 		AND au.id IS NULL
 		AND aai.id IS NULL
 	`, Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays)
@@ -205,7 +205,7 @@ func runArchivingNotifications(db *sql.DB) {
 				AND aai.start_date <= NOW() AND aai.end_date >= NOW()
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
-			AND ? - DATEDIFF(NOW(), ats.start_date) = ?
+			AND ? - (DATEDIFF(NOW(), ats.start_date) - ats.extra_days) = ?
 			AND au.id IS NULL
 			AND aai.id IS NULL
 		`, Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays, threshold)

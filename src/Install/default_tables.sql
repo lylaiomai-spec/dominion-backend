@@ -891,12 +891,14 @@ create table smiles
 
 create table lore_pages
 (
-    topic_id  bigint unsigned not null,
-    post_id   bigint unsigned not null,
-    name      varchar(255)    not null,
-    is_hidden boolean         not null default false,
-    position  int             not null default 0,
-    primary key (topic_id, post_id),
+    id               bigint unsigned auto_increment primary key,
+    topic_id         bigint unsigned not null,
+    post_id          bigint unsigned null,
+    name             varchar(255)    not null,
+    is_hidden        boolean         not null default false,
+    position         int             not null default 0,
+    is_external_link boolean         null,
+    external_link    varchar(2048)   null,
     constraint fk_lore_pages_topic foreign key (topic_id) references topics (id) on delete cascade,
     constraint fk_lore_pages_post  foreign key (post_id)  references posts (id)  on delete cascade
 );
@@ -1188,6 +1190,7 @@ CREATE TABLE absence_timer_start
 (
     character_id BIGINT UNSIGNED NOT NULL,
     start_date   DATE            NOT NULL,
+    extra_days   INT             NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id),
     CONSTRAINT fk_absence_timer_start_character FOREIGN KEY (character_id) REFERENCES character_base (id) ON DELETE CASCADE
 );
@@ -1223,4 +1226,14 @@ create table user_push_subscriptions
     unique key uq_endpoint_hash (endpoint_hash),
     index idx_user_push_subscriptions_user_id (user_id),
     constraint fk_user_push_subscriptions_user foreign key (user_id) references users (id) on delete cascade
+);
+
+create table workflows
+(
+    id               int          auto_increment primary key,
+    event_name       varchar(100) not null,
+    subforum_ids     varchar(500) not null,
+    handler_function varchar(100) not null,
+    config           json         not null,
+    event_config     json         null
 );

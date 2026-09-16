@@ -101,6 +101,18 @@ func RegisterPostEventHandlers() {
 			fmt.Printf("Error updating topic stats: %v\n", err)
 		}
 
+		var newPostNumber int
+		var topicName string
+		if err := db.QueryRow("SELECT post_number, name FROM topics WHERE id = ?", event.TopicID).Scan(&newPostNumber, &topicName); err == nil {
+			if newPostNumber == Entities.TopicPostCap {
+				Events.Publish(db, Events.TopicFull, Events.TopicFullEvent{
+					TopicID:    event.TopicID,
+					SubforumID: event.SubforumID,
+					TopicName:  topicName,
+				})
+			}
+		}
+
 		// 3. Update Subforum Stats
 		var username string
 		err = db.QueryRow("SELECT username FROM users WHERE id = ?", event.Post.AuthorUserId).Scan(&username)
@@ -152,42 +164,50 @@ func RegisterPostEventHandlers() {
 	})
 
 	// Subscriber: Update user post counts on post created
-	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
-		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" {
-			return
-		}
-
-		var topicType Entities.TopicType
-		err := db.QueryRow("SELECT type FROM topics WHERE id = ?", event.TopicID).Scan(&topicType)
-		if err != nil {
-			fmt.Printf("Error fetching topic type for user post count: %v\n", err)
-			return
-		}
-
-		if topicType == Entities.EpisodeTopic {
-			_, err = db.Exec("UPDATE users SET total_posts = total_posts + 1 WHERE id = ?", event.Post.AuthorUserId)
-		} else {
-			_, err = db.Exec("UPDATE users SET total_general_posts = total_general_posts + 1 WHERE id = ?", event.Post.AuthorUserId)
-		}
-		if err != nil {
-			fmt.Printf("Error updating user post count: %v\n", err)
-		}
-	})
-
-	// Subscriber: Award currency for post milestones (100/500/1000)
+	// Subscriber: Increment post count, then emit PostCountUpdated.
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)
 		if !ok || event.Type == "post_updated" || event.Post.AuthorUserId == 0 {
 			return
 		}
 
-		if !Features.IsCurrencyActive(db) {
+		var topicType Entities.TopicType
+		if err := db.QueryRow("SELECT type FROM topics WHERE id = ?", event.TopicID).Scan(&topicType); err != nil {
+			fmt.Printf("Error fetching topic type for user post count: %v\n", err)
 			return
 		}
 
-		var topicType Entities.TopicType
-		if err := db.QueryRow("SELECT type FROM topics WHERE id = ?", event.TopicID).Scan(&topicType); err != nil {
+		var postCount int
+		isGame := topicType == Entities.EpisodeTopic
+		if isGame {
+			if _, err := db.Exec("UPDATE users SET total_posts = total_posts + 1 WHERE id = ?", event.Post.AuthorUserId); err != nil {
+				fmt.Printf("Error updating user post count: %v\n", err)
+				return
+			}
+			_ = db.QueryRow("SELECT total_posts FROM users WHERE id = ?", event.Post.AuthorUserId).Scan(&postCount)
+		} else {
+			if _, err := db.Exec("UPDATE users SET total_general_posts = total_general_posts + 1 WHERE id = ?", event.Post.AuthorUserId); err != nil {
+				fmt.Printf("Error updating user post count: %v\n", err)
+				return
+			}
+			_ = db.QueryRow("SELECT total_general_posts FROM users WHERE id = ?", event.Post.AuthorUserId).Scan(&postCount)
+		}
+
+		Events.Publish(db, Events.PostCountUpdated, Events.PostCountUpdatedEvent{
+			UserID:     event.Post.AuthorUserId,
+			TopicID:    event.TopicID,
+			SubforumID: event.SubforumID,
+			Post:       event.Post,
+			PostCount:  postCount,
+			IsGame:     isGame,
+		})
+	})
+
+	// Subscriber: Award currency for post milestones (100/500/1000).
+	// Listens to PostCountUpdated so the count is guaranteed to be already incremented.
+	Events.Subscribe(Events.PostCountUpdated, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.PostCountUpdatedEvent)
+		if !ok || !Features.IsCurrencyActive(db) {
 			return
 		}
 
@@ -196,22 +216,14 @@ func RegisterPostEventHandlers() {
 			key       string
 		}
 
-		var postCount int
 		var milestones []milestone
-
-		if topicType == Entities.EpisodeTopic {
-			if err := db.QueryRow("SELECT total_posts FROM users WHERE id = ?", event.Post.AuthorUserId).Scan(&postCount); err != nil {
-				return
-			}
+		if event.IsGame {
 			milestones = []milestone{
 				{1000, "currency_income_1000_game_posts"},
 				{500, "currency_income_500_game_posts"},
 				{100, "currency_income_100_game_posts"},
 			}
 		} else {
-			if err := db.QueryRow("SELECT total_general_posts FROM users WHERE id = ?", event.Post.AuthorUserId).Scan(&postCount); err != nil {
-				return
-			}
 			milestones = []milestone{
 				{1000, "currency_income_1000_general_posts"},
 				{500, "currency_income_500_general_posts"},
@@ -219,6 +231,7 @@ func RegisterPostEventHandlers() {
 			}
 		}
 
+		postCount := event.PostCount
 		for _, m := range milestones {
 			if postCount == 0 || postCount%m.threshold != 0 {
 				continue
@@ -239,7 +252,7 @@ func RegisterPostEventHandlers() {
 
 			_, err = tx.Exec(
 				"INSERT INTO currency_user_account (user_id, amount) VALUES (?, ?) ON DUPLICATE KEY UPDATE amount = amount + ?",
-				event.Post.AuthorUserId, amount, amount,
+				event.UserID, amount, amount,
 			)
 			if err != nil {
 				fmt.Printf("Error awarding milestone currency: %v\n", err)
@@ -249,7 +262,7 @@ func RegisterPostEventHandlers() {
 			metadataJSON, _ := json.Marshal(map[string]int{"post_count": postCount})
 			_, err = tx.Exec(
 				"INSERT INTO currency_user_transactions (user_id, type, amount, datetime, status, income_type_key, metadata) VALUES (?, ?, ?, NOW(), ?, ?, ?)",
-				event.Post.AuthorUserId, Features.CurrencyTransactionIncome, amount, Features.CurrencyTransactionApproved, m.key, metadataJSON,
+				event.UserID, Features.CurrencyTransactionIncome, amount, Features.CurrencyTransactionApproved, m.key, metadataJSON,
 			)
 			if err != nil {
 				fmt.Printf("Error writing milestone transaction: %v\n", err)
@@ -262,10 +275,10 @@ func RegisterPostEventHandlers() {
 			}
 
 			var newTotal int
-			_ = db.QueryRow("SELECT amount FROM currency_user_account WHERE user_id = ?", event.Post.AuthorUserId).Scan(&newTotal)
+			_ = db.QueryRow("SELECT amount FROM currency_user_account WHERE user_id = ?", event.UserID).Scan(&newTotal)
 
 			Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
-				UserID:  event.Post.AuthorUserId,
+				UserID:  event.UserID,
 				Type:    "account_update",
 				Message: fmt.Sprintf("You earned %d currency for reaching %d posts", amount, m.threshold),
 				Data: Entities.NotificationAccountUpdate{

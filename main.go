@@ -510,10 +510,10 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	protectedRouter.POST("/lore-page/create", "Create a lore page", func(c *gin.Context) {
 		Controllers.CreateLorePage(c, Services.DB)
 	})
-	protectedRouter.POST("/lore-page/update/:post_id", "Update lore page by post ID", func(c *gin.Context) {
+	protectedRouter.POST("/lore-page/update/:id", "Update lore page by ID", func(c *gin.Context) {
 		Controllers.UpdateLorePage(c, Services.DB)
 	})
-	protectedRouter.GET("/lore-page/delete/:post_id", "Delete lore page by post ID", func(c *gin.Context) {
+	protectedRouter.GET("/lore-page/delete/:id", "Delete lore page by ID", func(c *gin.Context) {
 		Controllers.DeleteLorePage(c, Services.DB)
 	})
 	protectedRouter.POST("/topics/move", "Move topics to a different subforum", func(c *gin.Context) {
@@ -1123,6 +1123,19 @@ protectedRouter.GET("/admin/ai-agent-implementation/list", "Get list of all AI a
 	})
 	protectedRouter.POST("/admin/ai-agent-implementation/:id/call", "Trigger an AI agent implementation", func(c *gin.Context) {
 		Controllers.AdminCallAiAgentImplementation(c, Services.DB)
+	})
+
+	protectedRouter.GET("/admin/workflow/list", "Get list of all workflows", func(c *gin.Context) {
+		Controllers.AdminListWorkflows(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/workflow/create", "Create a new workflow", func(c *gin.Context) {
+		Controllers.AdminCreateWorkflow(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/workflow/update/:id", "Update a workflow by ID", func(c *gin.Context) {
+		Controllers.AdminUpdateWorkflow(c, Services.DB)
+	})
+	protectedRouter.DELETE("/admin/workflow/delete/:id", "Delete a workflow by ID", func(c *gin.Context) {
+		Controllers.AdminDeleteWorkflow(c, Services.DB)
 	})
 
 	// WebSocket route with special authentication

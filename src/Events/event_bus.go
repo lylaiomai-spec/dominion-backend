@@ -34,6 +34,9 @@ const (
 	EpisodeUpdated         EventType = "EpisodeUpdated"
 	WantedCharacterUpdated EventType = "WantedCharacterUpdated"
 	SubforumUpdated        EventType = "SubforumUpdated"
+	PostCountUpdated       EventType = "PostCountUpdated"
+	TopicFull              EventType = "TopicFull"
+	TopicStatusChanged     EventType = "TopicStatusChanged"
 )
 
 type EventData interface{}
@@ -53,6 +56,15 @@ type PostCreatedEvent struct {
 	TopicID    int64         `json:"topic_id"`
 	SubforumID int           `json:"subforum_id"`
 	Post       Entities.Post `json:"post"`
+}
+
+type PostCountUpdatedEvent struct {
+	UserID    int
+	TopicID   int64
+	PostCount int
+	IsGame    bool // true = episode post, false = general post
+	Post      Entities.Post
+	SubforumID int
 }
 
 type NotificationEvent struct {
@@ -177,6 +189,19 @@ type WantedCharacterUpdatedEvent struct {
 
 type SubforumUpdatedEvent struct {
 	SubforumID int
+}
+
+type TopicFullEvent struct {
+	TopicID    int64
+	SubforumID int
+	TopicName  string
+}
+
+type TopicStatusChangedEvent struct {
+	TopicID    int64
+	SubforumID int
+	OldStatus  int
+	NewStatus  int
 }
 
 type ReactionCreatedEvent struct {

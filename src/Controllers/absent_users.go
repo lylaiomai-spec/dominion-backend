@@ -293,13 +293,13 @@ func getCharacterArchivalDate(characterID int, db *sql.DB) (time.Time, error) {
 					(SELECT start_date FROM absence_timer_start WHERE character_id = ?),
 					COALESCE(cb.date_last_post, t.date_created)
 				),
-				INTERVAL ? DAY
+				INTERVAL ? + COALESCE((SELECT extra_days FROM absence_timer_start WHERE character_id = ?), 0) DAY
 			)
 		)
 		FROM character_base cb
 		JOIN topics t ON t.id = cb.topic_id
 		WHERE cb.id = ?
-	`, characterID, characterID, autoArchivingDays, characterID).Scan(&archivalDate)
+	`, characterID, characterID, autoArchivingDays, characterID, characterID).Scan(&archivalDate)
 	if err != nil {
 		return archivalDate, err
 	}
@@ -462,6 +462,7 @@ func DeleteAbsence(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	go Services.RecalculateAbsenceTimerStartForUser(userID, db)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
