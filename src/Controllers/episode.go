@@ -1068,6 +1068,11 @@ func DeactivateEpisode(c *gin.Context, db *sql.DB) {
 	}
 	defer tx.Rollback()
 
+	var deactivateTopicID int64
+	var deactivateSubforumID int
+	var deactivateOldStatus int
+	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&deactivateTopicID, &deactivateSubforumID, &deactivateOldStatus)
+
 	result, err := tx.Exec("UPDATE episode_base SET episode_status = ? WHERE id = ?", Entities.InactiveEpisode, id)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to deactivate episode: " + err.Error()})
@@ -1096,6 +1101,15 @@ func DeactivateEpisode(c *gin.Context, db *sql.DB) {
 
 	var topicStatus Entities.TopicStatus
 	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM episode_base WHERE id = ?)", id).Scan(&topicStatus)
+
+	if deactivateTopicID > 0 && deactivateOldStatus != int(Entities.InactiveTopic) {
+		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
+			TopicID:    deactivateTopicID,
+			SubforumID: deactivateSubforumID,
+			OldStatus:  deactivateOldStatus,
+			NewStatus:  int(Entities.InactiveTopic),
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"episode_status": Entities.InactiveEpisode,
@@ -1143,6 +1157,11 @@ func UpdateEpisodeStatus(c *gin.Context, db *sql.DB) {
 	if status != Entities.ActiveEpisode {
 		topicStatus = Entities.InactiveTopic
 	}
+
+	var updateStatusTopicID int64
+	var updateStatusSubforumID int
+	var updateStatusOldStatus int
+	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&updateStatusTopicID, &updateStatusSubforumID, &updateStatusOldStatus)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -1212,6 +1231,15 @@ func UpdateEpisodeStatus(c *gin.Context, db *sql.DB) {
 
 	go Services.RecalculateAbsenceTimerStartForEpisode(id, db)
 
+	if updateStatusTopicID > 0 && updateStatusOldStatus != int(topicStatus) {
+		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
+			TopicID:    updateStatusTopicID,
+			SubforumID: updateStatusSubforumID,
+			OldStatus:  updateStatusOldStatus,
+			NewStatus:  int(topicStatus),
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"episode_status": status,
 		"topic_status":   topicStatus,
@@ -1233,6 +1261,11 @@ func ActivateEpisode(c *gin.Context, db *sql.DB) {
 		return
 	}
 	defer tx.Rollback()
+
+	var activateTopicID int64
+	var activateSubforumID int
+	var activateOldStatus int
+	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&activateTopicID, &activateSubforumID, &activateOldStatus)
 
 	result, err := tx.Exec("UPDATE episode_base SET episode_status = ? WHERE id = ?", Entities.ActiveEpisode, id)
 	if err != nil {
@@ -1265,6 +1298,15 @@ func ActivateEpisode(c *gin.Context, db *sql.DB) {
 
 	var topicStatus Entities.TopicStatus
 	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM episode_base WHERE id = ?)", id).Scan(&topicStatus)
+
+	if activateTopicID > 0 && activateOldStatus == int(Entities.InactiveTopic) {
+		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
+			TopicID:    activateTopicID,
+			SubforumID: activateSubforumID,
+			OldStatus:  activateOldStatus,
+			NewStatus:  int(Entities.ActiveTopic),
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"episode_status": Entities.ActiveEpisode,

@@ -24,16 +24,19 @@ const localeConfigDefaultPath = "src/locale_config_default.ts"
 var protectedLocaleCodes = map[string]bool{"en-CA": true}
 
 type LocaleItem struct {
-	Id                int    `json:"id"`
-	HumanName         string `json:"human_name"`
-	Code              string `json:"code"`
-	FrontEndFileName  string `json:"front_end_file_name"`
-	BackEndFileName   string `json:"back_end_file_name"`
-	IsInstalled       bool   `json:"is_installed"`
+	Id                  int    `json:"id"`
+	HumanName           string `json:"human_name"`
+	Code                string `json:"code"`
+	FrontEndFileName    string `json:"front_end_file_name"`
+	BackEndFileName     string `json:"back_end_file_name"`
+	IsInstalled         bool   `json:"is_installed"`
+	InstalledFileSizeFe *int64 `json:"installed_file_size_fe"`
+	FileSizeFe          *int64 `json:"file_size_fe"`
+	FileSizeBe          *int64 `json:"file_size_be"`
 }
 
 func GetLocales(c *gin.Context, db *sql.DB) {
-	rows, err := db.Query("SELECT id, human_name, code, front_end_file_name, back_end_file_name, is_installed FROM locales ORDER BY id ASC")
+	rows, err := db.Query("SELECT id, human_name, code, front_end_file_name, back_end_file_name, is_installed, installed_file_size_fe FROM locales ORDER BY id ASC")
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get locales: " + err.Error()})
 		c.Abort()
@@ -44,10 +47,18 @@ func GetLocales(c *gin.Context, db *sql.DB) {
 	locales := []LocaleItem{}
 	for rows.Next() {
 		var l LocaleItem
-		if err := rows.Scan(&l.Id, &l.HumanName, &l.Code, &l.FrontEndFileName, &l.BackEndFileName, &l.IsInstalled); err != nil {
+		if err := rows.Scan(&l.Id, &l.HumanName, &l.Code, &l.FrontEndFileName, &l.BackEndFileName, &l.IsInstalled, &l.InstalledFileSizeFe); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan locale: " + err.Error()})
 			c.Abort()
 			return
+		}
+		if info, err := os.Stat(filepath.Join(backendLocaleDir, filepath.Base(l.FrontEndFileName))); err == nil {
+			sz := info.Size()
+			l.FileSizeFe = &sz
+		}
+		if info, err := os.Stat(filepath.Join(backendLocaleDir, filepath.Base(l.BackEndFileName))); err == nil {
+			sz := info.Size()
+			l.FileSizeBe = &sz
 		}
 		locales = append(locales, l)
 	}
@@ -193,6 +204,69 @@ func UploadLocale(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"id": id, "front_end_file_name": tsName, "back_end_file_name": jsonName})
 }
 
+func ReuploadLocaleFiles(c *gin.Context, db *sql.DB) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid locale ID"})
+		c.Abort()
+		return
+	}
+
+	var feFileName, beFileName string
+	if err := db.QueryRow("SELECT front_end_file_name, back_end_file_name FROM locales WHERE id = ?", id).Scan(&feFileName, &beFileName); err == sql.ErrNoRows {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Locale not found"})
+		c.Abort()
+		return
+	} else if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "DB error: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	tsFile, tsErr := c.FormFile("frontend_file")
+	jsonFile, jsonErr := c.FormFile("backend_file")
+	if tsErr != nil && jsonErr != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "At least one of frontend_file or backend_file is required"})
+		c.Abort()
+		return
+	}
+
+	if tsErr == nil {
+		if !strings.HasSuffix(tsFile.Filename, ".ts") {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "frontend_file must be a .ts file"})
+			c.Abort()
+			return
+		}
+		if err := saveUploadedFile(tsFile, filepath.Join(backendLocaleDir, filepath.Base(feFileName))); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save frontend file: " + err.Error()})
+			c.Abort()
+			return
+		}
+	}
+
+	if jsonErr == nil {
+		if !strings.HasSuffix(jsonFile.Filename, ".json") {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "backend_file must be a .json file"})
+			c.Abort()
+			return
+		}
+		if err := saveUploadedFile(jsonFile, filepath.Join(backendLocaleDir, filepath.Base(beFileName))); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save backend file: " + err.Error()})
+			c.Abort()
+			return
+		}
+	}
+
+	resp := gin.H{}
+	if info, err := os.Stat(filepath.Join(backendLocaleDir, filepath.Base(feFileName))); err == nil {
+		resp["file_size_fe"] = info.Size()
+	}
+	if info, err := os.Stat(filepath.Join(backendLocaleDir, filepath.Base(beFileName))); err == nil {
+		resp["file_size_be"] = info.Size()
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 func InstallLocale(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -215,12 +289,8 @@ func InstallLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	if locale.IsInstalled {
-		c.JSON(http.StatusOK, gin.H{"installed": locale.Code})
-		return
-	}
-
-	tsContent, err := os.ReadFile(filepath.Join(backendLocaleDir, filepath.Base(locale.FrontEndFileName)))
+	tsPath := filepath.Join(backendLocaleDir, filepath.Base(locale.FrontEndFileName))
+	tsContent, err := os.ReadFile(tsPath)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Frontend locale file not found on disk"})
 		c.Abort()
@@ -245,9 +315,9 @@ func InstallLocale(c *gin.Context, db *sql.DB) {
 	tsFileName := filepath.Base(locale.FrontEndFileName)
 	updatedConfig := addLocaleBlock(configContent, locale.Code, strings.TrimSuffix(tsFileName, ".ts"))
 
-	tsPath := "src/locale/" + tsFileName
+	ghTsPath := "src/locale/" + tsFileName
 	files := []Services.GitHubFile{
-		{Path: tsPath, Content: string(tsContent)},
+		{Path: ghTsPath, Content: string(tsContent)},
 		{Path: localeConfigPath, Content: updatedConfig},
 	}
 	if err := Services.GitHubCommit(cfg, "Install locale: "+locale.Code, files); err != nil {
@@ -256,7 +326,8 @@ func InstallLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	_, _ = db.Exec("UPDATE locales SET is_installed = 1 WHERE id = ?", id)
+	fileSize := int64(len(tsContent))
+	_, _ = db.Exec("UPDATE locales SET is_installed = 1, installed_file_size_fe = ? WHERE id = ?", fileSize, id)
 	c.JSON(http.StatusOK, gin.H{"installed": locale.Code})
 }
 
@@ -322,7 +393,7 @@ func UninstallLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	_, _ = db.Exec("UPDATE locales SET is_installed = 0 WHERE id = ?", id)
+	_, _ = db.Exec("UPDATE locales SET is_installed = 0, installed_file_size_fe = NULL WHERE id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"uninstalled": locale.Code})
 }
 
@@ -427,17 +498,34 @@ func addLocaleBlock(config, code, fileBase string) string {
   },
 `, code, langPrefix, fileBase, translationConst, angularLocale)
 
-	// Locate the LOCALES array declaration, then find its closing ]; and insert before it.
 	localesIdx := strings.Index(config, "export const LOCALES")
 	if localesIdx == -1 {
 		return config
 	}
-	closeIdx := strings.Index(config[localesIdx:], "\n];")
-	if closeIdx == -1 {
+	eqIdx := strings.Index(config[localesIdx:], "=")
+	if eqIdx == -1 {
 		return config
 	}
-	insertAt := localesIdx + closeIdx
-	return config[:insertAt] + "\n" + block + config[insertAt+1:]
+	openAt := localesIdx + eqIdx + strings.Index(config[localesIdx+eqIdx:], "[")
+	depth, closeAt := 0, -1
+	for i := openAt; i < len(config); i++ {
+		switch config[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				closeAt = i
+			}
+		}
+		if closeAt != -1 {
+			break
+		}
+	}
+	if closeAt == -1 {
+		return config
+	}
+	return config[:closeAt] + "\n" + block + config[closeAt:]
 }
 
 // removeLocaleBlock removes the locale block whose import path matches fileBase from locale_config.ts.

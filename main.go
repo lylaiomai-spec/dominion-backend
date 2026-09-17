@@ -1069,6 +1069,9 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	protectedRouter.POST("/admin/locale/upload", "Upload a new locale (.ts and .json files)", func(c *gin.Context) {
 		Controllers.UploadLocale(c, Services.DB)
 	})
+	protectedRouter.POST("/admin/locale/:id/reupload", "Replace frontend and/or backend locale files on the server", func(c *gin.Context) {
+		Controllers.ReuploadLocaleFiles(c, Services.DB)
+	})
 	protectedRouter.POST("/admin/locale/:id/install", "Install a locale (commit to frontend repo)", func(c *gin.Context) {
 		Controllers.InstallLocale(c, Services.DB)
 	})

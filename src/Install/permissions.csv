@@ -265,6 +265,7 @@ role_id,type,permission
 3,0,/admin/locale/:id/download/frontend
 3,0,/admin/locale/:id/download/backend
 3,0,/admin/locale/upload
+3,0,/admin/locale/:id/reupload
 3,0,/admin/locale/:id/install
 3,0,/admin/locale/:id/uninstall
 3,0,/admin/locale/:id/delete

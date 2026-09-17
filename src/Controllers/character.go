@@ -1069,21 +1069,30 @@ func UploadCharacterProfileAvatar(c *gin.Context, db *sql.DB) {
 	}
 
 	var profileID, authorUserID int
-	if err := db.QueryRow(
-		"SELECT cpb.id, cb.user_id FROM character_profile_base cpb JOIN character_base cb ON cpb.character_id = cb.id WHERE cpb.character_id = ?",
-		characterID,
-	).Scan(&profileID, &authorUserID); err != nil {
-		if err == sql.ErrNoRows {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character profile not found"})
-		} else {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch character profile"})
+	maskErr := db.QueryRow(
+		"SELECT id FROM character_profile_base WHERE id = ? AND is_mask = true AND user_id = ?",
+		characterID, userID,
+	).Scan(&profileID)
+	if maskErr == sql.ErrNoRows {
+		if err := db.QueryRow(
+			"SELECT cpb.id, cb.user_id FROM character_profile_base cpb JOIN character_base cb ON cpb.character_id = cb.id WHERE cpb.character_id = ?",
+			characterID,
+		).Scan(&profileID, &authorUserID); err != nil {
+			if err == sql.ErrNoRows {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character profile not found"})
+			} else {
+				_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch character profile"})
+			}
+			c.Abort()
+			return
 		}
-		c.Abort()
-		return
-	}
-
-	if userID != authorUserID {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "You do not have permission to edit this character profile"})
+		if userID != authorUserID {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "You do not have permission to edit this character profile"})
+			c.Abort()
+			return
+		}
+	} else if maskErr != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch character profile"})
 		c.Abort()
 		return
 	}

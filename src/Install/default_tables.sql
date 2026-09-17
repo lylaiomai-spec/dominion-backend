@@ -1179,7 +1179,8 @@ CREATE TABLE locales
     code                VARCHAR(20)  NOT NULL,
     front_end_file_name VARCHAR(100) NOT NULL,
     back_end_file_name  VARCHAR(100) NOT NULL,
-    is_installed        TINYINT(1)   NOT NULL DEFAULT 0
+    is_installed        TINYINT(1)   NOT NULL DEFAULT 0,
+    installed_file_size_fe BIGINT NULL DEFAULT NULL
 );
 
 INSERT IGNORE INTO locales (human_name, code, front_end_file_name, back_end_file_name, is_installed) VALUES
