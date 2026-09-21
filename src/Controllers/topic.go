@@ -922,14 +922,18 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 	}
 
 	// Verify the character profile belongs to the current user and the character is active.
+	// Mask profiles have character_id=NULL and store their owner in character_profile_base.user_id.
 	if userID != 0 && req.UseCharacterProfile && req.CharacterProfileID != nil {
-		var ownerUserID, characterStatus int
+		var ownerUserID int
+		var characterStatus sql.NullInt64
+		var isMask sql.NullBool
 		err := tx.QueryRow(
-			`SELECT cb.user_id, cb.character_status FROM character_profile_base cpb
-			 JOIN character_base cb ON cb.id = cpb.character_id
+			`SELECT COALESCE(cb.user_id, cpb.user_id), cb.character_status, cpb.is_mask
+			 FROM character_profile_base cpb
+			 LEFT JOIN character_base cb ON cb.id = cpb.character_id
 			 WHERE cpb.id = ?`,
 			*req.CharacterProfileID,
-		).Scan(&ownerUserID, &characterStatus)
+		).Scan(&ownerUserID, &characterStatus, &isMask)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Character profile not found"})
 			return
@@ -941,7 +945,7 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "This character does not belong to you"})
 			return
 		}
-		if characterStatus != int(Entities.ActiveCharacter) {
+		if !(isMask.Valid && isMask.Bool) && (!characterStatus.Valid || characterStatus.Int64 != int64(Entities.ActiveCharacter)) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "This character is not active"})
 			return
 		}
@@ -1319,14 +1323,15 @@ func UpdatePost(c *gin.Context, db *sql.DB) {
 		var newCharacterID *int
 
 		if *req.UseCharacterProfile && req.CharacterProfileID != nil {
-			// Validate: profile must belong to the post's original author
+			// Validate: profile must belong to the post's original author.
+			// Masks have character_id=NULL; ownership is stored in cpb.user_id directly.
 			var profileOwnerUserID int
 			var characterID sql.NullInt64
 			var isMask sql.NullBool
 			err = db.QueryRow(`
-				SELECT cb.user_id, cpb.character_id, cpb.is_mask
+				SELECT COALESCE(cb.user_id, cpb.user_id), cpb.character_id, cpb.is_mask
 				FROM character_profile_base cpb
-				JOIN character_base cb ON cb.id = cpb.character_id
+				LEFT JOIN character_base cb ON cb.id = cpb.character_id
 				WHERE cpb.id = ?
 			`, *req.CharacterProfileID).Scan(&profileOwnerUserID, &characterID, &isMask)
 			if err != nil {
@@ -1612,6 +1617,7 @@ func UpdateTopic(c *gin.Context, db *sql.DB) {
 	}
 
 	if req.Status != nil {
+		Services.AddTopicActivityLog(db, userID, int64(topicID), "topic_status_changed", int(currentStatus), int(*req.Status))
 		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
 			TopicID:    int64(topicID),
 			SubforumID: subforumID,
@@ -1734,6 +1740,7 @@ func BulkUpdateTopics(c *gin.Context, db *sql.DB) {
 
 	if req.Status != nil {
 		for tID, meta := range topicMetaMap {
+			Services.AddTopicActivityLog(db, userID, int64(tID), "topic_status_changed", int(meta.status), int(*req.Status))
 			Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
 				TopicID:    int64(tID),
 				SubforumID: meta.subforumID,

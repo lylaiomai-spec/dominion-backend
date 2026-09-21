@@ -73,6 +73,7 @@ type FreeFormatDateFieldValue struct {
 	FormattedString  string                 `json:"formatted_string"`
 	Placeholders     map[string]interface{} `json:"placeholders"`
 	SortValue        int64                  `json:"sort_value"`
+	IsCustom         bool                   `json:"is_custom,omitempty"`
 }
 
 // Compile-time check or global compiler initialization

@@ -320,6 +320,25 @@ func main() {
 	protectedGroup.Use(Middlewares.PermissionsMiddleware(Services.DB))
 	protectedRouter := Router.NewProtectedCustomRouter(protectedGroup)
 
+	publicRouter.GET("/stats/overall", "Get overall game stats for a time period", func(c *gin.Context) {
+		Controllers.GetOverallStats(c, Services.DB)
+	})
+	publicRouter.GET("/stats/writing-activity", "Get daily post counts for a time period", func(c *gin.Context) {
+		Controllers.GetWritingActivity(c, Services.DB)
+	})
+	publicRouter.GET("/stats/top-writers", "Get top 10 users by post count for a time period", func(c *gin.Context) {
+		Controllers.GetTopWriters(c, Services.DB)
+	})
+	publicRouter.GET("/stats/top-characters", "Get top 10 characters and masks by post count for a time period", func(c *gin.Context) {
+		Controllers.GetTopCharacters(c, Services.DB)
+	})
+	publicRouter.GET("/stats/episodes-by-faction", "Get episode counts by faction (created/finished/archived) for a time period", func(c *gin.Context) {
+		Controllers.GetEpisodesByFaction(c, Services.DB)
+	})
+	publicRouter.GET("/stats/posts-by-faction", "Get post counts by faction for a time period", func(c *gin.Context) {
+		Controllers.GetPostsByFaction(c, Services.DB)
+	})
+
 	optionalAuthRouter.GET("/features", "Get list of all feature flags", func(c *gin.Context) {
 		Features.GetFeaturesHandler(c)
 	})

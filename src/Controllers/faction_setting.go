@@ -279,6 +279,32 @@ func GetFactionFreeFormatDateByCharacters(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	// 0 is a sentinel meaning "return all available date formats"
+	if len(req.CharacterIds) == 1 && req.CharacterIds[0] == 0 {
+		rows, err := db.Query("SELECT id, name, free_format_date FROM free_format_date_settings ORDER BY id ASC")
+		if err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query date formats: " + err.Error()})
+			c.Abort()
+			return
+		}
+		defer rows.Close()
+
+		result := []Entities.FreeFormatDateSetting{}
+		for rows.Next() {
+			var s Entities.FreeFormatDateSetting
+			var ffdJSON string
+			if err := rows.Scan(&s.Id, &s.Name, &ffdJSON); err != nil {
+				continue
+			}
+			if err := json.Unmarshal([]byte(ffdJSON), &s.FreeFormatDate); err != nil {
+				continue
+			}
+			result = append(result, s)
+		}
+		c.JSON(http.StatusOK, result)
+		return
+	}
+
 	placeholders := strings.Repeat("?,", len(req.CharacterIds)-1) + "?"
 	args := make([]interface{}, len(req.CharacterIds))
 	for i, id := range req.CharacterIds {

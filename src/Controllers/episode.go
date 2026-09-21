@@ -1071,7 +1071,8 @@ func DeactivateEpisode(c *gin.Context, db *sql.DB) {
 	var deactivateTopicID int64
 	var deactivateSubforumID int
 	var deactivateOldStatus int
-	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&deactivateTopicID, &deactivateSubforumID, &deactivateOldStatus)
+	var deactivateOldEpisodeStatus int
+	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status, e.episode_status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&deactivateTopicID, &deactivateSubforumID, &deactivateOldStatus, &deactivateOldEpisodeStatus)
 
 	result, err := tx.Exec("UPDATE episode_base SET episode_status = ? WHERE id = ?", Entities.InactiveEpisode, id)
 	if err != nil {
@@ -1093,11 +1094,15 @@ func DeactivateEpisode(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	Services.AddTopicActivityLog(tx, 0, deactivateTopicID, "episode_status_changed", deactivateOldEpisodeStatus, int(Entities.InactiveEpisode))
+
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
 		c.Abort()
 		return
 	}
+
+	go Services.RecalculateAbsenceTimerStartForEpisode(id, db)
 
 	var topicStatus Entities.TopicStatus
 	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM episode_base WHERE id = ?)", id).Scan(&topicStatus)
@@ -1161,7 +1166,8 @@ func UpdateEpisodeStatus(c *gin.Context, db *sql.DB) {
 	var updateStatusTopicID int64
 	var updateStatusSubforumID int
 	var updateStatusOldStatus int
-	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&updateStatusTopicID, &updateStatusSubforumID, &updateStatusOldStatus)
+	var updateStatusOldEpisodeStatus int
+	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status, e.episode_status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&updateStatusTopicID, &updateStatusSubforumID, &updateStatusOldStatus, &updateStatusOldEpisodeStatus)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -1189,6 +1195,8 @@ func UpdateEpisodeStatus(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
+
+	Services.AddTopicActivityLog(tx, userID, updateStatusTopicID, "episode_status_changed", updateStatusOldEpisodeStatus, int(status))
 
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
@@ -1265,7 +1273,8 @@ func ActivateEpisode(c *gin.Context, db *sql.DB) {
 	var activateTopicID int64
 	var activateSubforumID int
 	var activateOldStatus int
-	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&activateTopicID, &activateSubforumID, &activateOldStatus)
+	var activateOldEpisodeStatus int
+	_ = db.QueryRow("SELECT t.id, t.subforum_id, t.status, e.episode_status FROM topics t JOIN episode_base e ON e.topic_id = t.id WHERE e.id = ?", id).Scan(&activateTopicID, &activateSubforumID, &activateOldStatus, &activateOldEpisodeStatus)
 
 	result, err := tx.Exec("UPDATE episode_base SET episode_status = ? WHERE id = ?", Entities.ActiveEpisode, id)
 	if err != nil {
@@ -1290,11 +1299,15 @@ func ActivateEpisode(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	Services.AddTopicActivityLog(tx, 0, activateTopicID, "episode_status_changed", activateOldEpisodeStatus, int(Entities.ActiveEpisode))
+
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
 		c.Abort()
 		return
 	}
+
+	go Services.RecalculateAbsenceTimerStartForEpisode(id, db)
 
 	var topicStatus Entities.TopicStatus
 	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM episode_base WHERE id = ?)", id).Scan(&topicStatus)

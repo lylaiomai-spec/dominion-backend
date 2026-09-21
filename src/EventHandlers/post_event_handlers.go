@@ -459,6 +459,11 @@ func RegisterPostEventHandlers() {
 			return
 		}
 
+		// Mask posts are handled by the dedicated mask subscriber below
+		if event.Post.CharacterProfile != nil && event.Post.CharacterProfile.IsMask != nil && *event.Post.CharacterProfile.IsMask {
+			return
+		}
+
 		var topicType Entities.TopicType
 		if err := db.QueryRow("SELECT type FROM topics WHERE id = ?", event.TopicID).Scan(&topicType); err != nil || topicType != Entities.EpisodeTopic {
 			return
@@ -555,87 +560,4 @@ func RegisterPostEventHandlers() {
 		}
 	})
 
-	// Subscriber: Award currency for mask post
-	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
-		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" {
-			return
-		}
-
-		if event.Post.AuthorUserId == 0 {
-			return
-		}
-
-		if event.Post.CharacterProfile == nil || event.Post.CharacterProfile.IsMask == nil || !*event.Post.CharacterProfile.IsMask {
-			return
-		}
-
-		var topicType Entities.TopicType
-		if err := db.QueryRow("SELECT type FROM topics WHERE id = ?", event.TopicID).Scan(&topicType); err != nil || topicType != Entities.EpisodeTopic {
-			return
-		}
-
-		if !Features.IsCurrencyActive(db) {
-			return
-		}
-
-		var amount int
-		var isActive bool
-		err := db.QueryRow(
-			"SELECT amount, is_active FROM currency_income_types WHERE `key` = 'currency_income_game_post'",
-		).Scan(&amount, &isActive)
-		if err != nil || !isActive {
-			return
-		}
-
-		tx, err := db.Begin()
-		if err != nil {
-			fmt.Printf("Error starting transaction for mask post currency award: %v\n", err)
-			return
-		}
-		defer tx.Rollback()
-
-		_, err = tx.Exec(`
-			INSERT INTO currency_user_account (user_id, amount) VALUES (?, ?)
-			ON DUPLICATE KEY UPDATE amount = amount + ?
-		`, event.Post.AuthorUserId, amount, amount)
-		if err != nil {
-			fmt.Printf("Error awarding currency for mask post: %v\n", err)
-			return
-		}
-
-		metadataJSON, _ := json.Marshal(map[string]int{
-			"topic_id": int(event.TopicID),
-			"post_id":  event.Post.Id,
-		})
-		_, err = tx.Exec(`
-			INSERT INTO currency_user_transactions (user_id, type, amount, datetime, status, income_type_key, metadata)
-			VALUES (?, ?, ?, NOW(), ?, ?, ?)
-		`, event.Post.AuthorUserId, Features.CurrencyTransactionIncome, amount, Features.CurrencyTransactionApproved, "currency_income_game_post", metadataJSON)
-		if err != nil {
-			fmt.Printf("Error writing mask post currency transaction: %v\n", err)
-			return
-		}
-
-		if err := tx.Commit(); err != nil {
-			fmt.Printf("Error committing mask post currency award: %v\n", err)
-			return
-		}
-
-		var newTotal int
-		_ = db.QueryRow("SELECT amount FROM currency_user_account WHERE user_id = ?", event.Post.AuthorUserId).Scan(&newTotal)
-
-		Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
-			UserID:  event.Post.AuthorUserId,
-			Type:    "account_update",
-			Message: fmt.Sprintf("You earned %d currency for your mask post", amount),
-			Data: Entities.NotificationAccountUpdate{
-				IncomeTypeKey: "currency_income_game_post",
-				Amount:        amount,
-				TotalAmount:   newTotal,
-				PostId:        event.Post.Id,
-				TopicId:       int(event.TopicID),
-			},
-		})
-	})
 }

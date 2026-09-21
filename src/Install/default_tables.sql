@@ -1238,3 +1238,18 @@ create table workflows
     config           json         not null,
     event_config     json         null
 );
+
+create table topic_activity_log
+(
+    id        bigint unsigned auto_increment primary key,
+    user_id   int             null,
+    topic_id  bigint unsigned not null,
+    event     varchar(64)     not null,
+    old_state int             null,
+    new_state int             null,
+    date      datetime        not null default current_timestamp,
+    index idx_topic_activity_log_topic_id (topic_id),
+    index idx_topic_activity_log_date (date),
+    constraint fk_topic_activity_log_topic foreign key (topic_id) references topics (id) on delete cascade,
+    constraint fk_topic_activity_log_user  foreign key (user_id)  references users (id)  on delete set null
+);

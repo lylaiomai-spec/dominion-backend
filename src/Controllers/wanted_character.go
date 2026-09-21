@@ -619,6 +619,11 @@ func DeactivateWantedCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	var wcDeactivateTopicID int64
+	var wcDeactivateOldTopicStatus int
+	var wcDeactivateOldWcStatus int
+	_ = db.QueryRow("SELECT t.id, t.status, wcb.wanted_character_status FROM topics t JOIN wanted_character_base wcb ON wcb.topic_id = t.id WHERE wcb.id = ?", id).Scan(&wcDeactivateTopicID, &wcDeactivateOldTopicStatus, &wcDeactivateOldWcStatus)
+
 	tx, err := db.Begin()
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
@@ -647,6 +652,9 @@ func DeactivateWantedCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	Services.AddTopicActivityLog(tx, 0, wcDeactivateTopicID, "wanted_character_status_changed", wcDeactivateOldWcStatus, int(Entities.InactiveWantedCharacter))
+	Services.AddTopicActivityLog(tx, 0, wcDeactivateTopicID, "topic_status_changed", wcDeactivateOldTopicStatus, int(Entities.InactiveTopic))
+
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
 		c.Abort()
@@ -669,6 +677,11 @@ func ActivateWantedCharacter(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
+
+	var wcActivateTopicID int64
+	var wcActivateOldTopicStatus int
+	var wcActivateOldWcStatus int
+	_ = db.QueryRow("SELECT t.id, t.status, wcb.wanted_character_status FROM topics t JOIN wanted_character_base wcb ON wcb.topic_id = t.id WHERE wcb.id = ?", id).Scan(&wcActivateTopicID, &wcActivateOldTopicStatus, &wcActivateOldWcStatus)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -699,6 +712,11 @@ func ActivateWantedCharacter(c *gin.Context, db *sql.DB) {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to activate wanted character topic: " + err.Error()})
 		c.Abort()
 		return
+	}
+
+	Services.AddTopicActivityLog(tx, 0, wcActivateTopicID, "wanted_character_status_changed", wcActivateOldWcStatus, int(Entities.ActiveWantedCharacter))
+	if wcActivateOldTopicStatus == int(Entities.InactiveTopic) {
+		Services.AddTopicActivityLog(tx, 0, wcActivateTopicID, "topic_status_changed", wcActivateOldTopicStatus, int(Entities.ActiveTopic))
 	}
 
 	if err := tx.Commit(); err != nil {

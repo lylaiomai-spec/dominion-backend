@@ -455,6 +455,8 @@ func buildFreeFormatDateStoredValue(raw map[string]interface{}, entityId int64, 
 		}
 	}
 
+	isCustom, _ := raw["is_custom"].(bool)
+
 	stored := Entities.FreeFormatDateFieldValue{
 		EntityId:         int(entityId),
 		EntityType:       entityType,
@@ -463,6 +465,7 @@ func buildFreeFormatDateStoredValue(raw map[string]interface{}, entityId int64, 
 		FormattedString:  formattedString,
 		Placeholders:     placeholders,
 		SortValue:        sortVal,
+		IsCustom:         isCustom,
 	}
 
 	jsonBytes, err := json.Marshal(stored)

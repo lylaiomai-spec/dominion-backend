@@ -6,15 +6,16 @@ import (
 	"time"
 )
 
-// RecalculateAbsenceTimerStart recomputes when the archiving countdown begins for a character.
+// recalculateAbsenceTimerStart recomputes when the archiving countdown begins for a character.
 //
 // Rules:
 //   - Not active → remove from table (no archiving).
-//   - No active episodes → timer starts from date_last_post (or character topic creation date).
+//   - No active episodes → timer starts from the later of date_last_post or the most recent
+//     episode closure recorded in topic_activity_log.
 //   - All active episodes have this character as last poster → no timer (delete from table).
 //   - Any active episode has another character as last poster → timer starts from the earliest
 //     such post date (the oldest post the character has yet to answer).
-func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
+func recalculateAbsenceTimerStart(characterID int, db *sql.DB) {
 	var charStatus int
 	var userID int
 	var topicCreatedAt time.Time
@@ -73,11 +74,26 @@ func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
 	var startDate time.Time
 
 	if len(episodes) == 0 {
-		// No active episodes — timer from character's last post.
+		// No active episodes — base the timer on date_last_post, then floor it at the most
+		// recent episode closure date from the activity log so the character always gets a
+		// full N-day window from when their last episode actually ended.
 		if lastPost != nil {
 			startDate = *lastPost
 		} else {
 			startDate = topicCreatedAt
+		}
+		var lastClosure *time.Time
+		_ = db.QueryRow(`
+			SELECT MAX(tal.date)
+			FROM topic_activity_log tal
+			JOIN episode_base eb ON eb.topic_id = tal.topic_id
+			JOIN episode_character ec ON ec.episode_id = eb.id
+			WHERE ec.character_id = ?
+			  AND tal.event = 'episode_status_changed'
+			  AND tal.new_state IN (1, 2)
+		`, characterID).Scan(&lastClosure)
+		if lastClosure != nil && lastClosure.After(startDate) {
+			startDate = *lastClosure
 		}
 	} else {
 		allByCharacter := true
@@ -126,6 +142,11 @@ func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
 	)
 }
 
+// RecalculateAbsenceTimerStart recomputes when the archiving countdown begins for a character.
+func RecalculateAbsenceTimerStart(characterID int, db *sql.DB) {
+	recalculateAbsenceTimerStart(characterID, db)
+}
+
 // RecalculateAbsenceTimerStartForEpisode recalculates the absence timer for all characters
 // participating in the given episode.
 func RecalculateAbsenceTimerStartForEpisode(episodeID int, db *sql.DB) {
@@ -142,7 +163,7 @@ func RecalculateAbsenceTimerStartForEpisode(episodeID int, db *sql.DB) {
 	}
 	rows.Close()
 	for _, id := range charIDs {
-		RecalculateAbsenceTimerStart(id, db)
+		recalculateAbsenceTimerStart(id, db)
 	}
 }
 
@@ -165,7 +186,7 @@ func RecalculateAbsenceTimerStartForUser(userID int, db *sql.DB) {
 	}
 	rows.Close()
 	for _, id := range charIDs {
-		RecalculateAbsenceTimerStart(id, db)
+		recalculateAbsenceTimerStart(id, db)
 	}
 }
 
@@ -194,6 +215,6 @@ func InitializeAbsenceTimerStart(db *sql.DB) {
 	}
 	log.Printf("AbsenceTimerStart init: backfilling %d character(s)", len(charIDs))
 	for _, id := range charIDs {
-		RecalculateAbsenceTimerStart(id, db)
+		recalculateAbsenceTimerStart(id, db)
 	}
 }

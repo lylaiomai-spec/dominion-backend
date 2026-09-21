@@ -1334,8 +1334,9 @@ func AcceptCharacter(c *gin.Context, db *sql.DB) {
 	var avatar *string
 	var topicID int
 	var subforumID int
-	err = tx.QueryRow(`SELECT cb.user_id, cb.name, cb.avatar, cb.topic_id, COALESCE(t.subforum_id, 0)
-		FROM character_base cb JOIN topics t ON cb.topic_id = t.id WHERE cb.id = ?`, id).Scan(&userID, &name, &avatar, &topicID, &subforumID)
+	var acceptOldCharStatus int
+	err = tx.QueryRow(`SELECT cb.user_id, cb.name, cb.avatar, cb.topic_id, COALESCE(t.subforum_id, 0), cb.character_status
+		FROM character_base cb JOIN topics t ON cb.topic_id = t.id WHERE cb.id = ?`, id).Scan(&userID, &name, &avatar, &topicID, &subforumID, &acceptOldCharStatus)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
 		c.Abort()
@@ -1391,6 +1392,8 @@ func AcceptCharacter(c *gin.Context, db *sql.DB) {
 			return
 		}
 	}
+
+	Services.AddTopicActivityLog(tx, 0, int64(topicID), "character_status_changed", acceptOldCharStatus, int(Entities.ActiveCharacter))
 
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
@@ -1860,6 +1863,11 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	var charDeactivateTopicID int64
+	var charDeactivateOldTopicStatus int
+	var charDeactivateOldCharStatus int
+	_ = db.QueryRow("SELECT t.id, t.status, cb.character_status FROM topics t JOIN character_base cb ON cb.topic_id = t.id WHERE cb.id = ?", id).Scan(&charDeactivateTopicID, &charDeactivateOldTopicStatus, &charDeactivateOldCharStatus)
+
 	tx, err := db.Begin()
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
@@ -1887,6 +1895,9 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
+
+	Services.AddTopicActivityLog(tx, 0, charDeactivateTopicID, "character_status_changed", charDeactivateOldCharStatus, int(Entities.InactiveCharacter))
+	Services.AddTopicActivityLog(tx, 0, charDeactivateTopicID, "topic_status_changed", charDeactivateOldTopicStatus, int(Entities.InactiveTopic))
 
 	_, err = tx.Exec("UPDATE character_profile_base SET is_archived = true WHERE character_id = ?", id)
 	if err != nil {
@@ -1936,6 +1947,11 @@ func DeclineCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	var charDeclineTopicID int64
+	var charDeclineOldTopicStatus int
+	var charDeclineOldCharStatus int
+	_ = db.QueryRow("SELECT t.id, t.status, cb.character_status FROM topics t JOIN character_base cb ON cb.topic_id = t.id WHERE cb.id = ?", id).Scan(&charDeclineTopicID, &charDeclineOldTopicStatus, &charDeclineOldCharStatus)
+
 	tx, err := db.Begin()
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
@@ -1963,6 +1979,9 @@ func DeclineCharacter(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
+
+	Services.AddTopicActivityLog(tx, 0, charDeclineTopicID, "character_status_changed", charDeclineOldCharStatus, int(Entities.DeclinedCharacter))
+	Services.AddTopicActivityLog(tx, 0, charDeclineTopicID, "topic_status_changed", charDeclineOldTopicStatus, int(Entities.InactiveTopic))
 
 	// Expire the claim record and free up the claim slot
 	var claimRecordId int
@@ -2067,6 +2086,11 @@ func ActivateCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	var charActivateTopicID int64
+	var charActivateOldTopicStatus int
+	var charActivateOldCharStatus int
+	_ = db.QueryRow("SELECT t.id, t.status, cb.character_status FROM topics t JOIN character_base cb ON cb.topic_id = t.id WHERE cb.id = ?", id).Scan(&charActivateTopicID, &charActivateOldTopicStatus, &charActivateOldCharStatus)
+
 	tx, err := db.Begin()
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction"})
@@ -2097,6 +2121,11 @@ func ActivateCharacter(c *gin.Context, db *sql.DB) {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to activate character topic: " + err.Error()})
 		c.Abort()
 		return
+	}
+
+	Services.AddTopicActivityLog(tx, 0, charActivateTopicID, "character_status_changed", charActivateOldCharStatus, int(Entities.ActiveCharacter))
+	if charActivateOldTopicStatus == int(Entities.InactiveTopic) {
+		Services.AddTopicActivityLog(tx, 0, charActivateTopicID, "topic_status_changed", charActivateOldTopicStatus, int(Entities.ActiveTopic))
 	}
 
 	_, err = tx.Exec("UPDATE character_profile_base SET is_archived = false WHERE character_id = ?", id)

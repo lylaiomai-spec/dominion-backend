@@ -444,6 +444,24 @@ func GetBBCompiler() bbcode.Compiler {
 		return out, true
 	})
 
+	compiler.SetTag("url", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "a"
+		value := node.GetOpeningTag().Value
+		if value == "" {
+			text := bbcode.CompileText(node)
+			if len(text) > 0 {
+				out.Attrs["href"] = bbcode.ValidURL(text)
+			}
+		} else {
+			out.Attrs["href"] = bbcode.ValidURL(value)
+		}
+		if target, ok := getRawArg(node, "target"); ok && target == "_blank" {
+			out.Attrs["target"] = "_blank"
+		}
+		return out, true
+	})
+
 	compiler.SetTag("img", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
 		out := bbcode.NewHTMLTag("")
 		out.Name = "img"

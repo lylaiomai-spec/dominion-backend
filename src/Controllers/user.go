@@ -527,12 +527,23 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 		profile.Characters = []CharacterProfileListItem{}
 	}
 
-	// Fetch masks and their stats for this user
+	// Fetch masks with per-mask stats computed from the source tables.
+	// mask_stats is keyed per user (not per mask), so we cannot use it here.
 	maskRows, err := db.Query(`
-		SELECT cpb.id, cpb.mask_name, cpb.avatar, COALESCE(ms.total_episodes, 0), COALESCE(ms.total_posts, 0), ms.date_last_post
+		SELECT
+			cpb.id,
+			cpb.mask_name,
+			cpb.avatar,
+			(SELECT COUNT(*) FROM episode_mask em WHERE em.mask_id = cpb.id) AS total_episodes,
+			(SELECT COUNT(*) FROM posts p
+				WHERE p.character_profile_id = cpb.id
+				  AND (p.is_deleted IS NULL OR p.is_deleted != 1)) AS total_posts,
+			(SELECT MAX(p.date_created) FROM posts p
+				WHERE p.character_profile_id = cpb.id
+				  AND (p.is_deleted IS NULL OR p.is_deleted != 1)) AS date_last_post
 		FROM character_profile_base cpb
-		LEFT JOIN mask_stats ms ON ms.user_id = cpb.user_id
-		WHERE cpb.user_id = ? AND cpb.is_mask = 1 AND (cpb.is_archived IS NULL OR cpb.is_archived = 0)
+		WHERE cpb.user_id = ? AND cpb.is_mask = 1
+		  AND (cpb.is_archived IS NULL OR cpb.is_archived = 0)
 	`, userID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get user masks: " + err.Error()})

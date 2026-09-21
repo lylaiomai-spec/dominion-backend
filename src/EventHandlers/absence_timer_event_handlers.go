@@ -32,10 +32,16 @@ func RegisterAbsenceTimerEventHandlers() {
 			return
 		}
 		var episodeID int
+		var episodeStatus int
 		if err := db.QueryRow(
-			"SELECT id FROM episode_base WHERE topic_id = ?", event.TopicID,
-		).Scan(&episodeID); err != nil {
+			"SELECT id, episode_status FROM episode_base WHERE topic_id = ?", event.TopicID,
+		).Scan(&episodeID, &episodeStatus); err != nil {
 			return // not an episode topic
+		}
+		if episodeStatus != 0 {
+			// Episode is no longer active — the closure handler already set the timer
+			// with today as the floor. Don't overwrite it with stale date_last_post.
+			return
 		}
 		Services.RecalculateAbsenceTimerStartForEpisode(episodeID, db)
 	})
