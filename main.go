@@ -538,6 +538,9 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	protectedRouter.POST("/topics/move", "Move topics to a different subforum", func(c *gin.Context) {
 		Controllers.MoveTopics(c, Services.DB)
 	})
+	protectedRouter.POST("/admin/posts/move", "Move posts to a different topic", func(c *gin.Context) {
+		Controllers.MovePosts(c, Services.DB)
+	})
 	protectedRouter.POST("/topics/bulk-update", "Bulk update topics", func(c *gin.Context) {
 		Controllers.BulkUpdateTopics(c, Services.DB)
 	})

@@ -13,7 +13,7 @@ import (
 )
 
 func GetSmileCategoryList(c *gin.Context, db *sql.DB) {
-	rows, err := db.Query("SELECT id, name FROM smile_category ORDER BY name")
+	rows, err := db.Query("SELECT id, name, position FROM smile_category ORDER BY position, name")
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get smile categories: " + err.Error()})
 		c.Abort()
@@ -24,7 +24,7 @@ func GetSmileCategoryList(c *gin.Context, db *sql.DB) {
 	var list []Entities.SmileCategory
 	for rows.Next() {
 		var cat Entities.SmileCategory
-		if err := rows.Scan(&cat.Id, &cat.Name); err != nil {
+		if err := rows.Scan(&cat.Id, &cat.Name, &cat.Position); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan smile category: " + err.Error()})
 			c.Abort()
 			return
@@ -40,7 +40,8 @@ func GetSmileCategoryList(c *gin.Context, db *sql.DB) {
 }
 
 type SmileCategoryRequest struct {
-	Name string `json:"name" binding:"required"`
+	Name     string `json:"name" binding:"required"`
+	Position int    `json:"position"`
 }
 
 func CreateSmileCategory(c *gin.Context, db *sql.DB) {
@@ -51,7 +52,7 @@ func CreateSmileCategory(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	res, err := db.Exec("INSERT INTO smile_category (name) VALUES (?)", req.Name)
+	res, err := db.Exec("INSERT INTO smile_category (name, position) VALUES (?, ?)", req.Name, req.Position)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create smile category: " + err.Error()})
 		c.Abort()
@@ -59,7 +60,7 @@ func CreateSmileCategory(c *gin.Context, db *sql.DB) {
 	}
 
 	id, _ := res.LastInsertId()
-	c.JSON(http.StatusOK, Entities.SmileCategory{Id: int(id), Name: req.Name})
+	c.JSON(http.StatusOK, Entities.SmileCategory{Id: int(id), Name: req.Name, Position: req.Position})
 }
 
 func UpdateSmileCategory(c *gin.Context, db *sql.DB) {
@@ -78,7 +79,7 @@ func UpdateSmileCategory(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	result, err := db.Exec("UPDATE smile_category SET name = ? WHERE id = ?", req.Name, id)
+	result, err := db.Exec("UPDATE smile_category SET name = ?, position = ? WHERE id = ?", req.Name, req.Position, id)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update smile category: " + err.Error()})
 		c.Abort()
@@ -91,7 +92,7 @@ func UpdateSmileCategory(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	c.JSON(http.StatusOK, Entities.SmileCategory{Id: id, Name: req.Name})
+	c.JSON(http.StatusOK, Entities.SmileCategory{Id: id, Name: req.Name, Position: req.Position})
 }
 
 func DeleteSmileCategory(c *gin.Context, db *sql.DB) {
@@ -181,17 +182,18 @@ func UpdateCategoryId(c *gin.Context, db *sql.DB) {
 }
 
 type SmileCategoryWithSmiles struct {
-	Id     int              `json:"id"`
-	Name   string           `json:"name"`
-	Smiles []Entities.Smile `json:"smiles"`
+	Id       int              `json:"id"`
+	Name     string           `json:"name"`
+	Position int              `json:"position"`
+	Smiles   []Entities.Smile `json:"smiles"`
 }
 
 func GetSmileTree(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
-		SELECT sc.id, sc.name, s.id, s.text_form, s.url
+		SELECT sc.id, sc.name, sc.position, s.id, s.text_form, s.url
 		FROM smile_category sc
 		LEFT JOIN smiles s ON s.category_id = sc.id
-		ORDER BY sc.name, s.id`)
+		ORDER BY sc.position, sc.name, s.id`)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get smiles: " + err.Error()})
 		c.Abort()
@@ -203,13 +205,13 @@ func GetSmileTree(c *gin.Context, db *sql.DB) {
 	indexMap := map[int]int{}
 
 	for rows.Next() {
-		var catId int
+		var catId, catPosition int
 		var catName string
 		var smileId sql.NullInt64
 		var textForm sql.NullString
 		var url sql.NullString
 
-		if err := rows.Scan(&catId, &catName, &smileId, &textForm, &url); err != nil {
+		if err := rows.Scan(&catId, &catName, &catPosition, &smileId, &textForm, &url); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan smile row: " + err.Error()})
 			c.Abort()
 			return
@@ -217,7 +219,7 @@ func GetSmileTree(c *gin.Context, db *sql.DB) {
 
 		idx, exists := indexMap[catId]
 		if !exists {
-			tree = append(tree, SmileCategoryWithSmiles{Id: catId, Name: catName, Smiles: []Entities.Smile{}})
+			tree = append(tree, SmileCategoryWithSmiles{Id: catId, Name: catName, Position: catPosition, Smiles: []Entities.Smile{}})
 			idx = len(tree) - 1
 			indexMap[catId] = idx
 		}
@@ -243,7 +245,7 @@ func GetSmileList(c *gin.Context, db *sql.DB) {
 		SELECT s.id, s.text_form, s.url, sc.id, sc.name
 		FROM smiles s
 		LEFT JOIN smile_category sc ON sc.id = s.category_id
-		ORDER BY sc.name, s.id`)
+		ORDER BY sc.position, sc.name, s.id`)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get smiles: " + err.Error()})
 		c.Abort()

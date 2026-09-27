@@ -37,6 +37,7 @@ const (
 	PostCountUpdated       EventType = "PostCountUpdated"
 	TopicFull              EventType = "TopicFull"
 	TopicStatusChanged     EventType = "TopicStatusChanged"
+	PostsMoved             EventType = "PostsMoved"
 )
 
 type EventData interface{}
@@ -202,6 +203,13 @@ type TopicStatusChangedEvent struct {
 	SubforumID int
 	OldStatus  int
 	NewStatus  int
+}
+
+type PostsMovedEvent struct {
+	PostIDs             []int
+	SourceTopicIDs      []int
+	TargetTopicID       int
+	AffectedSubforumIDs []int
 }
 
 type ReactionCreatedEvent struct {

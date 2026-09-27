@@ -276,3 +276,4 @@ role_id,type,permission
 3,0,/admin/workflow/create
 3,0,/admin/workflow/update/:id
 3,0,/admin/workflow/delete/:id
+3,0,/admin/posts/move

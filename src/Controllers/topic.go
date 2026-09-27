@@ -2009,6 +2009,103 @@ func MoveTopics(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"moved": len(req.TopicIDs)})
 }
 
+func MovePosts(c *gin.Context, db *sql.DB) {
+	var req struct {
+		PostIDs       []int `json:"post_ids" binding:"required"`
+		TargetTopicID int   `json:"target_topic_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+	if len(req.PostIDs) == 0 {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "post_ids must not be empty"})
+		c.Abort()
+		return
+	}
+
+	// Verify target topic exists, is not deleted, and has room for the incoming posts.
+	var targetStatus Entities.TopicStatus
+	var targetSubforumID, targetPostNumber int
+	if err := db.QueryRow(
+		"SELECT status, subforum_id, post_number FROM topics WHERE id = ?",
+		req.TargetTopicID,
+	).Scan(&targetStatus, &targetSubforumID, &targetPostNumber); err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Target topic not found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to verify target topic: " + err.Error()})
+		}
+		c.Abort()
+		return
+	}
+	if targetStatus == Entities.DeletedTopic {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Target topic is deleted"})
+		c.Abort()
+		return
+	}
+	if targetPostNumber+len(req.PostIDs) > Entities.TopicPostCap {
+		_ = c.Error(&Middlewares.AppError{
+			Code:    http.StatusUnprocessableEntity,
+			Message: fmt.Sprintf("Moving %d posts would exceed the topic limit of %d (current: %d)", len(req.PostIDs), Entities.TopicPostCap, targetPostNumber),
+		})
+		c.Abort()
+		return
+	}
+
+	// Collect source topic and subforum IDs before moving.
+	placeholders := strings.Repeat("?,", len(req.PostIDs)-1) + "?"
+	postIDArgs := make([]interface{}, len(req.PostIDs))
+	for i, id := range req.PostIDs {
+		postIDArgs[i] = id
+	}
+
+	sourceRows, err := db.Query(
+		fmt.Sprintf("SELECT DISTINCT t.id, t.subforum_id FROM posts p JOIN topics t ON p.topic_id = t.id WHERE p.id IN (%s)", placeholders),
+		postIDArgs...,
+	)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch source topics: " + err.Error()})
+		c.Abort()
+		return
+	}
+	var sourceTopicIDs []int
+	subforumSeen := map[int]bool{targetSubforumID: true}
+	affectedSubforumIDs := []int{targetSubforumID}
+	for sourceRows.Next() {
+		var topicID, subforumID int
+		if sourceRows.Scan(&topicID, &subforumID) == nil {
+			sourceTopicIDs = append(sourceTopicIDs, topicID)
+			if !subforumSeen[subforumID] {
+				subforumSeen[subforumID] = true
+				affectedSubforumIDs = append(affectedSubforumIDs, subforumID)
+			}
+		}
+	}
+	sourceRows.Close()
+
+	// Move the posts.
+	moveArgs := append([]interface{}{req.TargetTopicID}, postIDArgs...)
+	if _, err := db.Exec(
+		fmt.Sprintf("UPDATE posts SET topic_id = ? WHERE id IN (%s)", placeholders),
+		moveArgs...,
+	); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to move posts: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	Events.Publish(db, Events.PostsMoved, Events.PostsMovedEvent{
+		PostIDs:             req.PostIDs,
+		SourceTopicIDs:      sourceTopicIDs,
+		TargetTopicID:       req.TargetTopicID,
+		AffectedSubforumIDs: affectedSubforumIDs,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"moved": len(req.PostIDs)})
+}
+
 func BatchDeleteTopics(c *gin.Context, db *sql.DB) {
 	var req struct {
 		TopicIDs []int `json:"topic_ids" binding:"required"`

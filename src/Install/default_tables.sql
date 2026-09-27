@@ -876,8 +876,9 @@ create table reactions
 
 create table smile_category
 (
-    id   int          not null auto_increment primary key,
-    name varchar(100) not null
+    id       int          not null auto_increment primary key,
+    name     varchar(100) not null,
+    position int          not null default 0
 );
 
 create table smiles

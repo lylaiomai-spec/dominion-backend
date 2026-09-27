@@ -533,6 +533,51 @@ func RegisterPostEventHandlers() {
 		})
 	})
 
+	// Subscriber: Recalculate topic and subforum stats when posts are moved
+	Events.Subscribe(Events.PostsMoved, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.PostsMovedEvent)
+		if !ok {
+			return
+		}
+
+		allTopicIDs := append(event.SourceTopicIDs, event.TargetTopicID)
+		for _, topicID := range allTopicIDs {
+			_, _ = db.Exec(`
+				UPDATE topics SET
+					post_number              = (SELECT COUNT(*) FROM posts WHERE topic_id = ? AND COALESCE(is_deleted, 0) != 1),
+					date_last_post           = (SELECT MAX(date_created) FROM posts WHERE topic_id = ? AND COALESCE(is_deleted, 0) != 1),
+					last_post_author_user_id = (SELECT author_user_id FROM posts WHERE topic_id = ? AND COALESCE(is_deleted, 0) != 1 ORDER BY date_created DESC LIMIT 1)
+				WHERE id = ?`,
+				topicID, topicID, topicID, topicID)
+		}
+
+		// Mark target topic as full if the cap is now reached.
+		var targetPostNumber int
+		var targetTopicName string
+		var targetSubforumID int
+		if err := db.QueryRow(
+			"SELECT post_number, name, subforum_id FROM topics WHERE id = ?",
+			event.TargetTopicID,
+		).Scan(&targetPostNumber, &targetTopicName, &targetSubforumID); err == nil {
+			if targetPostNumber >= Entities.TopicPostCap {
+				_, _ = db.Exec(
+					"UPDATE topics SET status = ? WHERE id = ? AND status != ?",
+					Entities.FullTopic, event.TargetTopicID, Entities.FullTopic,
+				)
+				Events.Publish(db, Events.TopicFull, Events.TopicFullEvent{
+					TopicID:    int64(event.TargetTopicID),
+					SubforumID: targetSubforumID,
+					TopicName:  targetTopicName,
+				})
+			}
+		}
+
+		for _, subforumID := range event.AffectedSubforumIDs {
+			refreshSubforumStats(db, subforumID)
+			Events.Publish(db, Events.SubforumUpdated, Events.SubforumUpdatedEvent{SubforumID: subforumID})
+		}
+	})
+
 	// Subscriber: Adjust character stats when a post's character profile is changed
 	Events.Subscribe(Events.PostProfileChanged, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostProfileChangedEvent)

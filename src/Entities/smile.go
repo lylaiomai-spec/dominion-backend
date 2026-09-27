@@ -1,8 +1,9 @@
 package Entities
 
 type SmileCategory struct {
-	Id   int    `json:"id"`
-	Name string `json:"name"`
+	Id       int    `json:"id"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
 }
 
 type Smile struct {
