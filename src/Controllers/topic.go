@@ -56,6 +56,7 @@ type CreatePostRequest struct {
 	CharacterProfileID  *int    `json:"character_profile_id"`
 	GuestName           *string `json:"guest_name"`
 	FromDraftID         *string `json:"from_draft_id"`
+	IdempotencyKey      *string `json:"idempotency_key"`
 }
 
 type UpdatePostRequest struct {
@@ -104,6 +105,19 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 
 	userTimezone := Services.GetUserTimezone(userID, db)
 
+	// If the user has opted out of tracking new posts for this subforum, suppress the not_viewed marker.
+	notViewedUserID := userID
+	if userID != 0 {
+		var hideIndex bool
+		_ = db.QueryRow(
+			"SELECT hide_new_posts_index FROM user_subforum_settings WHERE user_id = ? AND subforum_id = ?",
+			userID, subforum,
+		).Scan(&hideIndex)
+		if hideIndex {
+			notViewedUserID = 0
+		}
+	}
+
 	var topics []ViewforumRow
 
 	limit := 30
@@ -125,7 +139,7 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 		ORDER BY COALESCE(topics.is_sticky, false) DESC, topics.date_last_post DESC
 		LIMIT ? OFFSET ?
 	`
-	rows, err := db.Query(query, userID, userID, subforum, Entities.DeletedTopic, limit, page*limit)
+	rows, err := db.Query(query, notViewedUserID, userID, subforum, Entities.DeletedTopic, limit, page*limit)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get topics: " + err.Error()})
@@ -1008,13 +1022,29 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 		}
 	}
 
-	// Insert Post
-	res, err := tx.Exec("INSERT INTO posts (topic_id, author_user_id, content, date_created, use_character_profile, character_profile_id, guest_name) VALUES (?, ?, ?, NOW(), ?, ?, ?)",
-		req.TopicID, userID, req.Content, req.UseCharacterProfile, req.CharacterProfileID, guestName)
+	// Insert Post — INSERT IGNORE deduplicates via idempotency_key unique constraint
+	res, err := tx.Exec("INSERT IGNORE INTO posts (topic_id, author_user_id, content, date_created, use_character_profile, character_profile_id, guest_name, idempotency_key) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?)",
+		req.TopicID, userID, req.Content, req.UseCharacterProfile, req.CharacterProfileID, guestName, req.IdempotencyKey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert post: " + err.Error()})
 		return
 	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get rows affected"})
+		return
+	}
+	if rowsAffected == 0 {
+		// Duplicate idempotency_key — request already processed
+		if err := tx.Commit(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deduplicated": true})
+		return
+	}
+
 	postID, err := res.LastInsertId()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get post ID"})
@@ -1818,23 +1848,29 @@ func GetActiveTopics(c *gin.Context, db *sql.DB) {
 		       t.author_user_id, u.username as author_username,
 		       t.last_post_author_user_id, u2.username as last_post_author_username,
 		       (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0)) as last_post_id,
-		       (CASE WHEN ? != 0 AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0))) THEN 1 ELSE 0 END) as not_viewed,
+		       (CASE WHEN ? != 0 AND COALESCE(uss.hide_new_posts_index, 0) = 0 AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0))) THEN 1 ELSE 0 END) as not_viewed,
 		       utv.post_id as last_viewed_id
 		FROM topics t
 		JOIN users u ON t.author_user_id = u.id
 		LEFT JOIN users u2 ON t.last_post_author_user_id = u2.id
 		LEFT JOIN user_topic_view utv ON t.id = utv.topic_id AND utv.user_id = ?
+		LEFT JOIN user_subforum_settings uss ON uss.subforum_id = t.subforum_id AND uss.user_id = ?
 		WHERE t.subforum_id IN (%s)
 	`, placeholders)
 
 	var args []interface{}
-	args = append(args, userID, userID)
+	args = append(args, userID, userID, userID)
 	for _, id := range filteredSubforumIDs {
 		args = append(args, id)
 	}
 
 	if notViewed && userID != 0 {
 		query += " AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0)))"
+	}
+
+	if userID != 0 {
+		query += " AND t.subforum_id NOT IN (SELECT subforum_id FROM user_subforum_settings WHERE user_id = ? AND hide_new_posts_active_page = 1)"
+		args = append(args, userID)
 	}
 
 	query += " AND t.date_last_post >= DATE_SUB(NOW(), INTERVAL 10 DAY)"
@@ -1954,6 +1990,11 @@ func GetActiveTopicCount(c *gin.Context, db *sql.DB) {
 
 	if notViewed && userID != 0 {
 		query += " AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(id) FROM posts WHERE topic_id = t.id AND (is_deleted IS NULL OR is_deleted = 0)))"
+	}
+
+	if userID != 0 {
+		query += " AND t.subforum_id NOT IN (SELECT subforum_id FROM user_subforum_settings WHERE user_id = ? AND hide_new_posts_active_page = 1)"
+		args = append(args, userID)
 	}
 
 	query += " AND t.date_last_post >= DATE_SUB(NOW(), INTERVAL 10 DAY)"

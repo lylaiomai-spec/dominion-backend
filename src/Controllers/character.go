@@ -1802,20 +1802,20 @@ func DeleteCharacterClaim(c *gin.Context, db *sql.DB) {
 
 // CloseActiveClaimRecord expires the active claim record for a given claim and cleans up references on character_claim and wanted_character_base.
 func CloseActiveClaimRecord(c *gin.Context, db *sql.DB) {
-	claimID, err := strconv.Atoi(c.Param("id"))
+	recordID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid claim ID"})
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid claim record ID"})
 		c.Abort()
 		return
 	}
 
-	var recordID int
-	err = db.QueryRow(
-		"SELECT id FROM claim_record WHERE claim_id = ? AND (claim_expiration_date IS NULL OR claim_expiration_date > NOW()) LIMIT 1",
-		claimID,
-	).Scan(&recordID)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "No active claim record found for this claim"})
+	var claimID int
+	if err := db.QueryRow("SELECT claim_id FROM claim_record WHERE id = ?", recordID).Scan(&claimID); err != nil {
+		if err == sql.ErrNoRows {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Claim record not found"})
+		} else {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch claim record: " + err.Error()})
+		}
 		c.Abort()
 		return
 	}
@@ -1855,6 +1855,65 @@ func CloseActiveClaimRecord(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"message": "Claim record closed"})
 }
 
+type characterDeactivationResult struct {
+	CharacterID    int
+	TopicID        int64
+	SubforumID     int
+	OldTopicStatus int
+	OldCharStatus  int
+}
+
+// deactivateCharacterInTx sets a character inactive within an existing transaction:
+// deactivates the character, its topic, archives its profiles, and frees any claim.
+// Returns (result, found, error). found=false means the character ID did not exist.
+func deactivateCharacterInTx(tx *sql.Tx, db *sql.DB, characterID int) (characterDeactivationResult, bool, error) {
+	var res characterDeactivationResult
+	res.CharacterID = characterID
+	_ = db.QueryRow(`
+		SELECT t.id, t.subforum_id, t.status, cb.character_status
+		FROM topics t JOIN character_base cb ON cb.topic_id = t.id
+		WHERE cb.id = ?`, characterID,
+	).Scan(&res.TopicID, &res.SubforumID, &res.OldTopicStatus, &res.OldCharStatus)
+
+	result, err := tx.Exec("UPDATE character_base SET character_status = ? WHERE id = ?", Entities.InactiveCharacter, characterID)
+	if err != nil {
+		return res, false, fmt.Errorf("failed to deactivate character: %w", err)
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return res, false, nil
+	}
+
+	if res.TopicID > 0 {
+		if _, err := tx.Exec("UPDATE topics SET status = ? WHERE id = ?", Entities.InactiveTopic, res.TopicID); err != nil {
+			return res, true, fmt.Errorf("failed to deactivate character topic: %w", err)
+		}
+	}
+	if _, err := tx.Exec("UPDATE character_profile_base SET is_archived = 1 WHERE character_id = ?", characterID); err != nil {
+		return res, true, fmt.Errorf("failed to archive character profiles: %w", err)
+	}
+
+	// If this character was accepted via a claim, free the wanted character slot again.
+	var claimID int
+	if err := tx.QueryRow("SELECT claim_id FROM claim_record WHERE character_id = ? ORDER BY claim_date DESC LIMIT 1", characterID).Scan(&claimID); err == nil {
+		_, _ = tx.Exec("UPDATE character_claim SET is_claimed = false WHERE id = ?", claimID)
+		_, _ = tx.Exec("UPDATE wanted_character_base SET is_claimed = false WHERE character_claim_id = ?", claimID)
+	}
+
+	return res, true, nil
+}
+
+func publishCharacterDeactivatedEvents(db *sql.DB, res characterDeactivationResult) {
+	Events.Publish(db, Events.CharacterDeactivated, Events.CharacterDeactivatedEvent{CharacterID: res.CharacterID})
+	if res.TopicID > 0 && res.OldTopicStatus != int(Entities.InactiveTopic) {
+		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
+			TopicID:    res.TopicID,
+			SubforumID: res.SubforumID,
+			OldStatus:  res.OldTopicStatus,
+			NewStatus:  int(Entities.InactiveTopic),
+		})
+	}
+}
+
 func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1862,11 +1921,6 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
-
-	var charDeactivateTopicID int64
-	var charDeactivateOldTopicStatus int
-	var charDeactivateOldCharStatus int
-	_ = db.QueryRow("SELECT t.id, t.status, cb.character_status FROM topics t JOIN character_base cb ON cb.topic_id = t.id WHERE cb.id = ?", id).Scan(&charDeactivateTopicID, &charDeactivateOldTopicStatus, &charDeactivateOldCharStatus)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -1876,51 +1930,20 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 	}
 	defer tx.Rollback()
 
-	result, err := tx.Exec("UPDATE character_base SET character_status = ? WHERE id = ?", Entities.InactiveCharacter, id)
+	res, found, err := deactivateCharacterInTx(tx, db, id)
 	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to deactivate character: " + err.Error()})
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: err.Error()})
 		c.Abort()
 		return
 	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if !found {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Character not found"})
 		c.Abort()
 		return
 	}
 
-	_, err = tx.Exec("UPDATE topics SET status = ? WHERE id = (SELECT topic_id FROM character_base WHERE id = ?)", Entities.InactiveTopic, id)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to deactivate character topic: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	Services.AddTopicActivityLog(tx, 0, charDeactivateTopicID, "character_status_changed", charDeactivateOldCharStatus, int(Entities.InactiveCharacter))
-	Services.AddTopicActivityLog(tx, 0, charDeactivateTopicID, "topic_status_changed", charDeactivateOldTopicStatus, int(Entities.InactiveTopic))
-
-	_, err = tx.Exec("UPDATE character_profile_base SET is_archived = true WHERE character_id = ?", id)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to archive character profiles: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	// If this character was accepted via a claim, free the wanted character again
-	var deactClaimRecordId int
-	var deactClaimId int
-	if err := tx.QueryRow("SELECT id, claim_id FROM claim_record WHERE character_id = ? ORDER BY claim_date DESC LIMIT 1", id).Scan(&deactClaimRecordId, &deactClaimId); err == nil {
-		if _, err := tx.Exec("UPDATE character_claim SET is_claimed = false WHERE id = ?", deactClaimId); err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to reset character claim: " + err.Error()})
-			c.Abort()
-			return
-		}
-		if _, err := tx.Exec("UPDATE wanted_character_base SET is_claimed = false WHERE character_claim_id = ?", deactClaimId); err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to free wanted character: " + err.Error()})
-			c.Abort()
-			return
-		}
-	}
+	Services.AddTopicActivityLog(tx, 0, res.TopicID, "character_status_changed", res.OldCharStatus, int(Entities.InactiveCharacter))
+	Services.AddTopicActivityLog(tx, 0, res.TopicID, "topic_status_changed", res.OldTopicStatus, int(Entities.InactiveTopic))
 
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
@@ -1928,10 +1951,10 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	Events.Publish(db, Events.CharacterDeactivated, Events.CharacterDeactivatedEvent{CharacterID: id})
+	publishCharacterDeactivatedEvents(db, res)
 
 	var topicStatus Entities.TopicStatus
-	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM character_base WHERE id = ?)", id).Scan(&topicStatus)
+	_ = db.QueryRow("SELECT status FROM topics WHERE id = ?", res.TopicID).Scan(&topicStatus)
 
 	c.JSON(http.StatusOK, gin.H{
 		"character_status": Entities.InactiveCharacter,

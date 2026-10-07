@@ -113,7 +113,7 @@ func RegisterNotificationEventHandlers() {
 			).Scan(&disablePush)
 			Services.LogPush("user %d disablePush=%v", event.UserID, disablePush)
 			if !disablePush {
-				go Services.SendPushToUser(db, event.UserID, event.Type, title, event.Message)
+				go Services.SendPushToUser(db, event.UserID, event.Type, title, event.Message, event.Data)
 			}
 		}
 	})

@@ -611,6 +611,52 @@ func UpdateWantedCharacter(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, updatedEntity)
 }
 
+type wantedCharDeactivationResult struct {
+	WantedCharID        int
+	TopicID             int64
+	SubforumID          int
+	OldTopicStatus      int
+	OldWantedCharStatus int
+}
+
+// deactivateWantedCharacterInTx sets a wanted character inactive within an existing transaction
+// and deactivates its topic. Returns (result, found, error).
+func deactivateWantedCharacterInTx(tx *sql.Tx, db *sql.DB, wantedCharID int) (wantedCharDeactivationResult, bool, error) {
+	var res wantedCharDeactivationResult
+	res.WantedCharID = wantedCharID
+	_ = db.QueryRow(`
+		SELECT t.id, t.subforum_id, t.status, wcb.wanted_character_status
+		FROM topics t JOIN wanted_character_base wcb ON wcb.topic_id = t.id
+		WHERE wcb.id = ?`, wantedCharID,
+	).Scan(&res.TopicID, &res.SubforumID, &res.OldTopicStatus, &res.OldWantedCharStatus)
+
+	result, err := tx.Exec("UPDATE wanted_character_base SET wanted_character_status = ? WHERE id = ?", Entities.InactiveWantedCharacter, wantedCharID)
+	if err != nil {
+		return res, false, fmt.Errorf("failed to deactivate wanted character: %w", err)
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return res, false, nil
+	}
+
+	if res.TopicID > 0 {
+		if _, err := tx.Exec("UPDATE topics SET status = ? WHERE id = ?", Entities.InactiveTopic, res.TopicID); err != nil {
+			return res, true, fmt.Errorf("failed to deactivate wanted character topic: %w", err)
+		}
+	}
+	return res, true, nil
+}
+
+func publishWantedCharDeactivatedEvents(db *sql.DB, res wantedCharDeactivationResult) {
+	if res.TopicID > 0 && res.OldTopicStatus != int(Entities.InactiveTopic) {
+		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
+			TopicID:    res.TopicID,
+			SubforumID: res.SubforumID,
+			OldStatus:  res.OldTopicStatus,
+			NewStatus:  int(Entities.InactiveTopic),
+		})
+	}
+}
+
 func DeactivateWantedCharacter(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -618,11 +664,6 @@ func DeactivateWantedCharacter(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
-
-	var wcDeactivateTopicID int64
-	var wcDeactivateOldTopicStatus int
-	var wcDeactivateOldWcStatus int
-	_ = db.QueryRow("SELECT t.id, t.status, wcb.wanted_character_status FROM topics t JOIN wanted_character_base wcb ON wcb.topic_id = t.id WHERE wcb.id = ?", id).Scan(&wcDeactivateTopicID, &wcDeactivateOldTopicStatus, &wcDeactivateOldWcStatus)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -632,28 +673,20 @@ func DeactivateWantedCharacter(c *gin.Context, db *sql.DB) {
 	}
 	defer tx.Rollback()
 
-	result, err := tx.Exec("UPDATE wanted_character_base SET wanted_character_status = ? WHERE id = ?", Entities.InactiveWantedCharacter, id)
+	res, found, err := deactivateWantedCharacterInTx(tx, db, id)
 	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to deactivate wanted character: " + err.Error()})
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: err.Error()})
 		c.Abort()
 		return
 	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if !found {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Wanted character not found"})
 		c.Abort()
 		return
 	}
 
-	_, err = tx.Exec("UPDATE topics SET status = ? WHERE id = (SELECT topic_id FROM wanted_character_base WHERE id = ?)", Entities.InactiveTopic, id)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to deactivate wanted character topic: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	Services.AddTopicActivityLog(tx, 0, wcDeactivateTopicID, "wanted_character_status_changed", wcDeactivateOldWcStatus, int(Entities.InactiveWantedCharacter))
-	Services.AddTopicActivityLog(tx, 0, wcDeactivateTopicID, "topic_status_changed", wcDeactivateOldTopicStatus, int(Entities.InactiveTopic))
+	Services.AddTopicActivityLog(tx, 0, res.TopicID, "wanted_character_status_changed", res.OldWantedCharStatus, int(Entities.InactiveWantedCharacter))
+	Services.AddTopicActivityLog(tx, 0, res.TopicID, "topic_status_changed", res.OldTopicStatus, int(Entities.InactiveTopic))
 
 	if err := tx.Commit(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction"})
@@ -661,8 +694,10 @@ func DeactivateWantedCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	publishWantedCharDeactivatedEvents(db, res)
+
 	var topicStatus Entities.TopicStatus
-	_ = db.QueryRow("SELECT status FROM topics WHERE id = (SELECT topic_id FROM wanted_character_base WHERE id = ?)", id).Scan(&topicStatus)
+	_ = db.QueryRow("SELECT status FROM topics WHERE id = ?", res.TopicID).Scan(&topicStatus)
 
 	c.JSON(http.StatusOK, gin.H{
 		"wanted_character_status": Entities.InactiveWantedCharacter,

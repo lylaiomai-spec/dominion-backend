@@ -112,8 +112,10 @@ type UserNotificationSetting struct {
 }
 
 type NotificationPageChanged struct {
-	PageType string  `json:"page_type"`
-	Id       *string `json:"id,omitempty"`
+	PageType    string  `json:"page_type"`
+	Id          *string `json:"id,omitempty"`
+	SubforumID  *int    `json:"subforum_id,omitempty"`
+	NoHighlight bool    `json:"no_highlight,omitempty"`
 }
 
 type NotificationEpisodeStatusChange struct {

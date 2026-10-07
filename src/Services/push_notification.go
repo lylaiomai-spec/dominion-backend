@@ -2,6 +2,7 @@ package Services
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -55,7 +56,7 @@ func GetOrCreateVAPIDKeys(db *sql.DB) (public, private string, err error) {
 	return public, private, nil
 }
 
-func SendPushToUser(db *sql.DB, userID int, notificationType, title, message string) {
+func SendPushToUser(db *sql.DB, userID int, notificationType, title, message string, data interface{}) {
 	privateKey, err := GetGlobalSetting(vapidPrivateKeySetting, db)
 	if err != nil || privateKey == "" {
 		pushLogger.Printf("[push] no VAPID private key for user %d\n", userID)
@@ -81,7 +82,14 @@ func SendPushToUser(db *sql.DB, userID int, notificationType, title, message str
 	}
 	defer rows.Close()
 
-	payload := fmt.Sprintf(`{"type":%q,"title":%q,"message":%q}`, notificationType, title, message)
+	type pushPayload struct {
+		Type    string      `json:"type"`
+		Title   string      `json:"title"`
+		Message string      `json:"message"`
+		Data    interface{} `json:"data,omitempty"`
+	}
+	payloadBytes, _ := json.Marshal(pushPayload{Type: notificationType, Title: title, Message: message, Data: data})
+	payload := string(payloadBytes)
 
 	sent := 0
 	for rows.Next() {

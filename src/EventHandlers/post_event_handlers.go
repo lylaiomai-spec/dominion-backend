@@ -459,11 +459,6 @@ func RegisterPostEventHandlers() {
 			return
 		}
 
-		// Mask posts are handled by the dedicated mask subscriber below
-		if event.Post.CharacterProfile != nil && event.Post.CharacterProfile.IsMask != nil && *event.Post.CharacterProfile.IsMask {
-			return
-		}
-
 		var topicType Entities.TopicType
 		if err := db.QueryRow("SELECT type FROM topics WHERE id = ?", event.TopicID).Scan(&topicType); err != nil || topicType != Entities.EpisodeTopic {
 			return

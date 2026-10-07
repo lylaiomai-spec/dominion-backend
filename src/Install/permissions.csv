@@ -169,6 +169,7 @@ role_id,type,permission
 3,0,/admin/user/update/:id
 3,0,/admin/user/ban/:id
 3,0,/admin/user/reactivate/:id
+3,0,/admin/user/delete/:id
 3,0,/admin/user/roles/update
 3,0,/admin/user/roles/:id
 3,0,/admin/home
@@ -200,6 +201,7 @@ role_id,type,permission
 3,2,show_add_immunity_button
 3,2,show_character_sheet_admin_block
 3,2,show_ai_chat_navlink
+3,3,edit_others_maps
 3,0,/ai-chat/message
 3,0,/ai-chat/history
 3,0,/ai-chat/models
@@ -277,3 +279,11 @@ role_id,type,permission
 3,0,/admin/workflow/update/:id
 3,0,/admin/workflow/delete/:id
 3,0,/admin/posts/move
+2,0,/user/subforum-settings
+2,0,/user/subforum-settings/update-all
+2,0,/interactive-map/create
+2,0,/interactive-map/update/:id
+2,0,/interactive-map/delete/:id
+3,0,/interactive-map/create
+3,0,/interactive-map/update/:id
+3,0,/interactive-map/delete/:id

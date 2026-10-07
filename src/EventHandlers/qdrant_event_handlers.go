@@ -274,18 +274,18 @@ func RegisterQdrantEventHandlers() {
 		}
 	})
 
-	// When a user is wiped, remove their general posts.
-	Events.Subscribe(Events.UserWiped, func(db *sql.DB, data Events.EventData) {
-		event, ok := data.(Events.UserWipedEvent)
-		if !ok || len(event.DeletedGeneralPostIDs) == 0 || !Services.QdrantAvailable() {
+	// When a topic batch of general posts is deleted, remove them from Qdrant.
+	Events.Subscribe(Events.GeneralPostsDeleted, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.GeneralPostsDeletedEvent)
+		if !ok || len(event.PostIDs) == 0 || !Services.QdrantAvailable() {
 			return
 		}
-		ids := make([]string, len(event.DeletedGeneralPostIDs))
-		for i, id := range event.DeletedGeneralPostIDs {
+		ids := make([]string, len(event.PostIDs))
+		for i, id := range event.PostIDs {
 			ids[i] = strconv.Itoa(id)
 		}
 		if err := Services.QdrantDeleteBatch(Services.SonicBucketGeneralPosts, ids); err != nil {
-			fmt.Printf("Error deleting general posts from Qdrant on user wipe: %v\n", err)
+			fmt.Printf("Error deleting general posts from Qdrant: %v\n", err)
 		}
 	})
 }

@@ -40,6 +40,7 @@
   "permission.show_add_immunity_button": "Show add immunity button",
   "permission.show_character_sheet_admin_block": "Show character sheet admin block",
   "permission.show_ai_chat_navlink": "Show AI chat navigation link",
+  "permission.edit_others_maps": "Edit others' maps",
 
   "frontend_component.src_app_components_header.description": "The top part of the page from title to divider",
 
@@ -53,5 +54,7 @@
     "other": "Your character {{.Name}} is about to be deactivated automatically if you do not write a game post in {{.Count}} days."
   },
 
-  "auto_archiving.deactivated": "Your character {{.Name}} has been automatically deactivated due to inactivity."
+  "auto_archiving.deactivated": "Your character {{.Name}} has been automatically deactivated due to inactivity.",
+
+  "absence.started_notification": "{{.Username}} has started an absence until {{.EndDate}}."
 }

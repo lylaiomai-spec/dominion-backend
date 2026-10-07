@@ -200,7 +200,7 @@ func CreateAbsence(c *gin.Context, db *sql.DB) {
 		}
 	}
 
-	_, err = db.Exec(
+	res, err := db.Exec(
 		"INSERT INTO absent_users (user_id, absence_start_date, absence_end_date) VALUES (?, ?, ?)",
 		userID, start, end,
 	)
@@ -208,6 +208,17 @@ func CreateAbsence(c *gin.Context, db *sql.DB) {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create absence: " + err.Error()})
 		c.Abort()
 		return
+	}
+
+	// Fire immediately if the absence starts today or has already started.
+	if !start.After(time.Now()) {
+		if absenceID, err := res.LastInsertId(); err == nil {
+			_, _ = db.Exec("UPDATE absent_users SET start_notified = 1 WHERE id = ?", absenceID)
+		}
+		Events.Publish(db, Events.UserAbsenceStarted, Events.UserAbsenceStartedEvent{
+			UserID:         userID,
+			AbsenceEndDate: end,
+		})
 	}
 
 	grantPostAbsenceImmunity(userID, end, db)
@@ -268,13 +279,24 @@ func AdminCreateAbsence(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	if _, err := db.Exec(
+	adminRes, err := db.Exec(
 		"INSERT INTO absent_users (user_id, absence_start_date, absence_end_date) VALUES (?, ?, ?)",
 		targetUserID, start, end,
-	); err != nil {
+	)
+	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create absence: " + err.Error()})
 		c.Abort()
 		return
+	}
+
+	if !start.After(time.Now()) {
+		if absenceID, err := adminRes.LastInsertId(); err == nil {
+			_, _ = db.Exec("UPDATE absent_users SET start_notified = 1 WHERE id = ?", absenceID)
+		}
+		Events.Publish(db, Events.UserAbsenceStarted, Events.UserAbsenceStartedEvent{
+			UserID:         targetUserID,
+			AbsenceEndDate: end,
+		})
 	}
 
 	grantPostAbsenceImmunity(targetUserID, end, db)

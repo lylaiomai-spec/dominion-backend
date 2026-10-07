@@ -13,6 +13,10 @@ import (
 )
 
 var youtubeRegexp = regexp.MustCompile(`(?i)(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/)|youtu\.be/)([a-zA-Z0-9_-]{11})`)
+var soundcloudRe = regexp.MustCompile(`(?i)^https?://soundcloud\.com/`)
+var spotifyRe = regexp.MustCompile(`(?i)open\.spotify\.com/(track|album|playlist|episode)/([a-zA-Z0-9]+)`)
+var archiveRe = regexp.MustCompile(`(?i)archive\.org/(?:details|embed)/([^/?#\s]+)`)
+var bandcampEmbedRe = regexp.MustCompile(`(?i)^https?://bandcamp\.com/EmbeddedPlayer/`)
 
 // autoLinkRe matches either a full HTML tag (kept as-is) or a raw http(s) URL (linkified).
 // Matching tags first ensures URLs already inside href/src attributes are never touched.
@@ -375,14 +379,79 @@ func GetBBCompiler() bbcode.Compiler {
 
 	compiler.SetTag("audio", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
 		out := bbcode.NewHTMLTag("")
-		url := strings.TrimSpace(bbcode.CompileText(node))
-		if !audioExtRegexp.MatchString(url) {
+		rawURL := strings.TrimSpace(bbcode.CompileText(node))
+
+		sourceSite, hasSourceSite := getRawArg(node, "source_site")
+		if !hasSourceSite {
+			// File-based audio (<audio> element)
+			if !audioExtRegexp.MatchString(rawURL) {
+				return out, false
+			}
+			out.Name = "audio"
+			out.Attrs["src"] = html.EscapeString(rawURL)
+			out.Attrs["controls"] = "true"
+			out.Attrs["preload"] = "metadata"
+			return out, true
+		}
+
+		// Streaming service embeds (<iframe>)
+		type embedCfg struct {
+			src    string
+			height string
+			allow  string
+		}
+		var cfg embedCfg
+
+		switch strings.ToLower(sourceSite) {
+		case "soundcloud":
+			if !soundcloudRe.MatchString(rawURL) {
+				return out, false
+			}
+			cfg = embedCfg{
+				src:    "https://w.soundcloud.com/player/?url=" + url.QueryEscape(rawURL),
+				height: "166",
+				allow:  "autoplay",
+			}
+		case "spotify":
+			m := spotifyRe.FindStringSubmatch(rawURL)
+			if len(m) < 3 {
+				return out, false
+			}
+			cfg = embedCfg{
+				src:    "https://open.spotify.com/embed/" + m[1] + "/" + m[2],
+				height: "152",
+				allow:  "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture",
+			}
+		case "archive":
+			m := archiveRe.FindStringSubmatch(rawURL)
+			if len(m) < 2 {
+				return out, false
+			}
+			cfg = embedCfg{
+				src:    "https://archive.org/embed/" + m[1],
+				height: "60",
+				allow:  "autoplay",
+			}
+		case "bandcamp":
+			if !bandcampEmbedRe.MatchString(rawURL) {
+				return out, false
+			}
+			cfg = embedCfg{
+				src:    rawURL,
+				height: "120",
+				allow:  "autoplay",
+			}
+		default:
 			return out, false
 		}
-		out.Name = "audio"
-		out.Attrs["src"] = html.EscapeString(url)
-		out.Attrs["controls"] = "true"
-		out.Attrs["preload"] = "metadata"
+
+		out.Name = "iframe"
+		out.Attrs["src"] = html.EscapeString(cfg.src)
+		out.Attrs["width"] = "100%"
+		out.Attrs["height"] = cfg.height
+		out.Attrs["frameborder"] = "0"
+		out.Attrs["allow"] = cfg.allow
+		out.Attrs["loading"] = "lazy"
 		return out, true
 	})
 
@@ -442,6 +511,53 @@ func GetBBCompiler() bbcode.Compiler {
 			out.Attrs["rowspan"] = strconv.Itoa(rowspan)
 		}
 		return out, true
+	})
+
+	compiler.SetTag("quote", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "blockquote"
+
+		// Extract the tag value (author name), stripping surrounding quotes if present.
+		author := node.GetOpeningTag().Value
+		if raw := node.GetOpeningTag().Raw; strings.Contains(raw, "=") {
+			rest := raw[strings.Index(raw, "=")+1:]
+			if len(rest) > 0 && (rest[0] == '"' || rest[0] == '\'') {
+				quoteChar := rest[0]
+				if end := strings.IndexByte(rest[1:], quoteChar); end >= 0 {
+					author = rest[1 : end+1]
+				}
+			}
+		}
+
+		var href string
+		topicID, hasTopicID := getRawArg(node, "topic-id")
+		postID, hasPostID := getRawArg(node, "post-id")
+		if author != "" && hasTopicID && hasPostID {
+			if _, err := strconv.Atoi(topicID); err == nil {
+				if _, err := strconv.Atoi(postID); err == nil {
+					href = "/viewtopic/" + topicID + "?post_id=" + postID
+				}
+			}
+		}
+
+		cite := bbcode.NewHTMLTag("")
+		cite.Name = "cite"
+		if author != "" {
+			if href != "" {
+				link := bbcode.NewHTMLTag("")
+				link.Name = "a"
+				link.Attrs["href"] = href
+				link.AppendChild(bbcode.NewHTMLTag(author))
+				cite.AppendChild(link)
+				cite.AppendChild(bbcode.NewHTMLTag(" said:"))
+			} else {
+				cite.AppendChild(bbcode.NewHTMLTag(author + " said:"))
+			}
+		} else {
+			cite.AppendChild(bbcode.NewHTMLTag("Quote"))
+		}
+
+		return out.AppendChild(cite), true
 	})
 
 	compiler.SetTag("url", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {

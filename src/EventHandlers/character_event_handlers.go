@@ -75,6 +75,68 @@ func RegisterCharacterEventHandlers() {
 
 	})
 
+	// Subscriber: Auto-deactivate episodes that had exactly 2 participants when one character is deactivated.
+	Events.Subscribe(Events.CharacterDeactivated, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.CharacterDeactivatedEvent)
+		if !ok {
+			return
+		}
+
+		rows, err := db.Query(`
+			SELECT eb.id, eb.topic_id, t.subforum_id, t.status
+			FROM episode_base eb
+			JOIN topics t ON t.id = eb.topic_id
+			WHERE eb.episode_status = ?
+			  AND EXISTS (
+			      SELECT 1 FROM episode_character ec
+			      WHERE ec.episode_id = eb.id AND ec.character_id = ?
+			  )
+			  AND (SELECT COUNT(*) FROM episode_character ec2 WHERE ec2.episode_id = eb.id) = 2`,
+			Entities.ActiveEpisode, event.CharacterID,
+		)
+		if err != nil {
+			fmt.Printf("Error querying episodes for auto-deactivate on character %d: %v\n", event.CharacterID, err)
+			return
+		}
+		defer rows.Close()
+
+		type episodeRow struct {
+			id, topicID, subforumID, oldTopicStatus int
+		}
+		var episodes []episodeRow
+		for rows.Next() {
+			var r episodeRow
+			if rows.Scan(&r.id, &r.topicID, &r.subforumID, &r.oldTopicStatus) == nil {
+				episodes = append(episodes, r)
+			}
+		}
+
+		for _, ep := range episodes {
+			if _, err := db.Exec(
+				"UPDATE episode_base SET episode_status = ? WHERE id = ?",
+				Entities.InactiveEpisode, ep.id,
+			); err != nil {
+				fmt.Printf("Error deactivating episode %d: %v\n", ep.id, err)
+				continue
+			}
+			if _, err := db.Exec(
+				"UPDATE topics SET status = ? WHERE id = ?",
+				Entities.InactiveTopic, ep.topicID,
+			); err != nil {
+				fmt.Printf("Error deactivating topic %d for episode %d: %v\n", ep.topicID, ep.id, err)
+				continue
+			}
+			if ep.oldTopicStatus != int(Entities.InactiveTopic) {
+				Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
+					TopicID:    int64(ep.topicID),
+					SubforumID: ep.subforumID,
+					OldStatus:  ep.oldTopicStatus,
+					NewStatus:  int(Entities.InactiveTopic),
+				})
+			}
+		}
+	})
+
 	// Subscriber 13: Post Welcome Message on Character Accepted
 	Events.Subscribe(Events.CharacterAccepted, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.CharacterAcceptedEvent)

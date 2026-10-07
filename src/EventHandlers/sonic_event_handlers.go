@@ -228,22 +228,22 @@ func RegisterSonicEventHandlers() {
 		}
 	})
 
-	// Remove a wiped user's general posts from Sonic.
-	Events.Subscribe(Events.UserWiped, func(db *sql.DB, data Events.EventData) {
-		event, ok := data.(Events.UserWipedEvent)
-		if !ok || len(event.DeletedGeneralPostIDs) == 0 {
+	// Remove a deleted topic batch's general posts from Sonic.
+	Events.Subscribe(Events.GeneralPostsDeleted, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.GeneralPostsDeletedEvent)
+		if !ok || len(event.PostIDs) == 0 {
 			return
 		}
 		if !Services.SonicAvailable() {
 			return
 		}
 
-		ids := make([]string, len(event.DeletedGeneralPostIDs))
-		for i, id := range event.DeletedGeneralPostIDs {
+		ids := make([]string, len(event.PostIDs))
+		for i, id := range event.PostIDs {
 			ids[i] = strconv.Itoa(id)
 		}
 		if err := Services.SonicDeleteBatch(Services.SonicCollection, Services.SonicBucketGeneralPosts, ids); err != nil {
-			fmt.Printf("Error deleting general posts from Sonic on user wipe: %v\n", err)
+			fmt.Printf("Error deleting general posts from Sonic: %v\n", err)
 		}
 	})
 

@@ -646,6 +646,9 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	protectedRouter.POST("/admin/user/reactivate/:id", "Reactivate an archived user by ID", func(c *gin.Context) {
 		Controllers.ReactivateUser(c, Services.DB)
 	})
+	protectedRouter.POST("/admin/user/delete/:id", "Delete a user account: removes general posts, reassigns game posts, deletes the user", func(c *gin.Context) {
+		Controllers.AdminWipeUser(c, Services.DB)
+	})
 	protectedRouter.GET("/characters/archiving-warnings", "Get active characters approaching auto-archiving threshold", func(c *gin.Context) {
 		Controllers.GetArchivingWarnings(c, Services.DB)
 	})
@@ -1122,6 +1125,31 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	})
 	protectedRouter.POST("/user-data-migration/update-character-map", "Set character IDs for original user IDs in a processing record", func(c *gin.Context) {
 		Controllers.UpdateUserCharacterMap(c, Services.DB)
+	})
+
+	// User subforum settings routes
+	protectedRouter.GET("/user/subforum-settings", "Get current user's subforum settings", func(c *gin.Context) {
+		Controllers.GetUserSubforumSettings(c, Services.DB)
+	})
+protectedRouter.POST("/user/subforum-settings/update-all", "Replace all subforum settings for the current user", func(c *gin.Context) {
+		Controllers.UpdateAllUserSubforumSettings(c, Services.DB)
+	})
+
+	// Interactive map routes
+	optionalAuthRouter.GET("/interactive-map/list", "Get list of interactive maps (public only for guests)", func(c *gin.Context) {
+		Controllers.GetInteractiveMapList(c, Services.DB)
+	})
+	optionalAuthRouter.GET("/interactive-map/:id", "Get an interactive map by ID (public check for guests)", func(c *gin.Context) {
+		Controllers.GetInteractiveMap(c, Services.DB)
+	})
+	protectedRouter.POST("/interactive-map/create", "Create a new interactive map", func(c *gin.Context) {
+		Controllers.CreateInteractiveMap(c, Services.DB)
+	})
+	protectedRouter.POST("/interactive-map/update/:id", "Update an interactive map by ID", func(c *gin.Context) {
+		Controllers.UpdateInteractiveMap(c, Services.DB)
+	})
+	protectedRouter.POST("/interactive-map/delete/:id", "Delete an interactive map by ID", func(c *gin.Context) {
+		Controllers.DeleteInteractiveMap(c, Services.DB)
 	})
 
 	// AI Agent routes (admin only)

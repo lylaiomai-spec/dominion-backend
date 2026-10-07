@@ -38,4 +38,36 @@ func RegisterUserEventHandlers() {
 			fmt.Printf("Error updating last user global stat: %v\n", err)
 		}
 	})
+
+	// Subscriber: Decrement global user count when an account is wiped
+	Events.Subscribe(Events.UserWiped, func(db *sql.DB, data Events.EventData) {
+		if _, ok := data.(Events.UserWipedEvent); !ok {
+			return
+		}
+		_, _ = db.Exec("UPDATE global_stats SET stat_value = GREATEST(stat_value - 1, 0) WHERE stat_name = 'total_user_number'")
+	})
+
+	// Subscriber: Update post counters and subforum stats per topic batch
+	Events.Subscribe(Events.GeneralPostsDeleted, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.GeneralPostsDeletedEvent)
+		if !ok {
+			return
+		}
+
+		_, _ = db.Exec(
+			"UPDATE global_stats SET stat_value = GREATEST(stat_value - ?, 0) WHERE stat_name = 'total_post_number'",
+			event.Count,
+		)
+
+		_, _ = db.Exec(`
+			UPDATE topics SET
+				post_number              = (SELECT COUNT(*) FROM posts WHERE topic_id = ? AND COALESCE(is_deleted, 0) != 1),
+				date_last_post           = (SELECT MAX(date_created) FROM posts WHERE topic_id = ? AND COALESCE(is_deleted, 0) != 1),
+				last_post_author_user_id = (SELECT author_user_id FROM posts WHERE topic_id = ? AND COALESCE(is_deleted, 0) != 1 ORDER BY date_created DESC LIMIT 1)
+			WHERE id = ?`,
+			event.TopicID, event.TopicID, event.TopicID, event.TopicID)
+
+		refreshSubforumStats(db, event.SubforumID)
+		Events.Publish(db, Events.SubforumUpdated, Events.SubforumUpdatedEvent{SubforumID: event.SubforumID})
+	})
 }

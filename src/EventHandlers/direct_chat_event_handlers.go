@@ -87,12 +87,27 @@ func RegisterDirectChatEventHandlers() {
 
 				if !isViewingThisChat {
 					notification := saveDirectMessageNotification(db, participantID, event.ChatID, username, avatar)
-					// If the user is online, also push the notification via WS
 					if activity != nil && notification != nil {
+						// User is online but not viewing this chat — send via WebSocket.
 						Websockets.MainHub.SendNotification(participantID, map[string]interface{}{
 							"type": "notification",
 							"data": notification,
 						})
+					} else if activity == nil {
+						// User is offline — send a push with chat_id so the client can
+						// deep-link directly to the conversation.
+						var disablePush bool
+						_ = db.QueryRow(
+							"SELECT disable_push FROM user_notification_setting WHERE user_id = ? AND notification_type = 'direct_message'",
+							participantID,
+						).Scan(&disablePush)
+						if !disablePush {
+							go Services.SendPushToUser(
+								db, participantID, "direct_message", "New direct message",
+								fmt.Sprintf("New message from %s", username),
+								map[string]interface{}{"chat_id": event.ChatID, "username": username, "avatar": avatar},
+							)
+						}
 					}
 				}
 			}

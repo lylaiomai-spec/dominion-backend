@@ -138,10 +138,24 @@ func RegisterTopicEventHandlers() {
 		}
 
 		indexUserIDs := Websockets.MainHub.GetUserIDsOnPageType("index")
-		if len(indexUserIDs) > 0 {
-			Websockets.MainHub.BroadcastToUsers(indexUserIDs, map[string]interface{}{
+		for _, uid := range indexUserIDs {
+			sfID := event.SubforumID
+			noHighlight := false
+			var h bool
+			if uid != 0 {
+				_ = db.QueryRow(
+					"SELECT hide_new_posts_index FROM user_subforum_settings WHERE user_id = ? AND subforum_id = ?",
+					uid, event.SubforumID,
+				).Scan(&h)
+				noHighlight = h
+			}
+			Websockets.MainHub.SendNotification(uid, map[string]interface{}{
 				"type": "page_changed",
-				"data": Entities.NotificationPageChanged{PageType: "index"},
+				"data": Entities.NotificationPageChanged{
+					PageType:    "index",
+					SubforumID:  &sfID,
+					NoHighlight: noHighlight,
+				},
 			})
 		}
 	})

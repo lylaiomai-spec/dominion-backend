@@ -8,6 +8,45 @@ import (
 	"time"
 )
 
+func runAbsenceStartedNotifications(db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT au.id, au.user_id, au.absence_end_date
+		FROM absent_users au
+		WHERE DATE(au.absence_start_date) = CURDATE()
+		  AND au.is_deleted = 0
+		  AND au.start_notified = 0`,
+	)
+	if err != nil {
+		log.Printf("Absence started notifications: failed to query: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	type absenceRow struct {
+		id             int
+		userID         int
+		absenceEndDate time.Time
+	}
+	var absences []absenceRow
+	for rows.Next() {
+		var a absenceRow
+		if rows.Scan(&a.id, &a.userID, &a.absenceEndDate) == nil {
+			absences = append(absences, a)
+		}
+	}
+
+	for _, a := range absences {
+		if _, err := db.Exec("UPDATE absent_users SET start_notified = 1 WHERE id = ?", a.id); err != nil {
+			log.Printf("Absence started notifications: failed to mark notified for absence %d: %v", a.id, err)
+			continue
+		}
+		Events.Publish(db, Events.UserAbsenceStarted, Events.UserAbsenceStartedEvent{
+			UserID:         a.userID,
+			AbsenceEndDate: a.absenceEndDate,
+		})
+	}
+}
+
 var archivingWarningThresholds = []int{10, 5, 3, 2, 1}
 
 func StartArchivingNotifier(db *sql.DB) {
@@ -21,12 +60,14 @@ func StartArchivingNotifier(db *sql.DB) {
 		time.Sleep(time.Until(next))
 		runAutoArchiving(db)
 		runArchivingNotifications(db)
+		runAbsenceStartedNotifications(db)
 
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
 			runAutoArchiving(db)
 			runArchivingNotifications(db)
+			runAbsenceStartedNotifications(db)
 		}
 	}()
 }

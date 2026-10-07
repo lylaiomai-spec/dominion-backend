@@ -15,6 +15,7 @@ const (
 	EndpointPermission PermissionType = 0
 	SubforumPermission PermissionType = 1
 	FrontendPermission PermissionType = 2
+	BackendPermission  PermissionType = 3
 )
 
 // FrontendPermissions is the authoritative static list of all frontend permission keys.
@@ -23,6 +24,10 @@ var FrontendPermissions = map[string]string{
 	"show_add_immunity_button":         "permission.show_add_immunity_button",
 	"show_character_sheet_admin_block": "permission.show_character_sheet_admin_block",
 	"show_ai_chat_navlink":             "permission.show_ai_chat_navlink",
+}
+
+var BackendPermissions = map[string]string{
+	"edit_others_maps": "permission.edit_others_maps",
 }
 
 var SubforumPermissions = map[string]string{
@@ -160,6 +165,69 @@ func GetFrontendPermissionMatrix(db *sql.DB, lang string) (PermissionMatrixObjec
 
 	localizer := NewLocalizer(lang)
 	for permKey, permDef := range FrontendPermissions {
+		permissionOrder = append(permissionOrder, permKey)
+		permissionsMap[permKey] = T(localizer, permDef)
+		permissionMatrix[permKey] = make(map[int]bool)
+		for roleID := range roleMap {
+			if rolesWithPerm, ok := existingPerms[permKey]; ok {
+				permissionMatrix[permKey][roleID] = rolesWithPerm[roleID]
+			} else {
+				permissionMatrix[permKey][roleID] = false
+			}
+		}
+	}
+
+	return PermissionMatrixObject{
+		Roles:           roleMap,
+		Permissions:     permissionsMap,
+		Matrix:          permissionMatrix,
+		PermissionOrder: permissionOrder,
+	}, nil
+}
+
+func GetBackendPermissionMatrix(db *sql.DB, lang string) (PermissionMatrixObject, error) {
+	roleRows, err := db.Query("SELECT id, name FROM roles")
+	if err != nil {
+		return PermissionMatrixObject{}, err
+	}
+	defer roleRows.Close()
+
+	roleMap := make(map[int]string)
+	for roleRows.Next() {
+		var role Entities.Role
+		if err := roleRows.Scan(&role.Id, &role.Name); err != nil {
+			return PermissionMatrixObject{}, err
+		}
+		roleMap[role.Id] = role.Name
+	}
+
+	permRows, err := db.Query("SELECT role_id, permission FROM role_permission WHERE type = 3")
+	if err != nil {
+		return PermissionMatrixObject{}, err
+	}
+	defer permRows.Close()
+
+	existingPerms := make(map[string]map[int]bool)
+	for permRows.Next() {
+		var roleID int
+		var permission string
+		if err := permRows.Scan(&roleID, &permission); err != nil {
+			continue
+		}
+		if _, ok := roleMap[roleID]; ok {
+			if _, ok := existingPerms[permission]; !ok {
+				existingPerms[permission] = make(map[int]bool)
+			}
+			existingPerms[permission][roleID] = true
+		}
+	}
+
+	permissionMatrix := make(map[string]map[int]bool)
+	permissionsMap := make(map[string]string)
+	permissionOrder := make([]string, 0, len(BackendPermissions))
+
+	localizer := NewLocalizer(lang)
+	for permKey, permDef := range BackendPermissions {
 		permissionOrder = append(permissionOrder, permKey)
 		permissionsMap[permKey] = T(localizer, permDef)
 		permissionMatrix[permKey] = make(map[int]bool)

@@ -38,6 +38,8 @@ const (
 	TopicFull              EventType = "TopicFull"
 	TopicStatusChanged     EventType = "TopicStatusChanged"
 	PostsMoved             EventType = "PostsMoved"
+	GeneralPostsDeleted    EventType = "GeneralPostsDeleted"
+	UserAbsenceStarted     EventType = "UserAbsenceStarted"
 )
 
 type EventData interface{}
@@ -156,8 +158,13 @@ type EpisodeTopicsDeletedEvent struct {
 	EpisodeIDs []int // episode IDs whose topics were deleted
 }
 
-type UserWipedEvent struct {
-	DeletedGeneralPostIDs []int
+type UserWipedEvent struct{}
+
+type GeneralPostsDeletedEvent struct {
+	TopicID    int
+	SubforumID int
+	Count      int
+	PostIDs    []int
 }
 
 type CharacterUpdatedEvent struct {
@@ -210,6 +217,11 @@ type PostsMovedEvent struct {
 	SourceTopicIDs      []int
 	TargetTopicID       int
 	AffectedSubforumIDs []int
+}
+
+type UserAbsenceStartedEvent struct {
+	UserID         int
+	AbsenceEndDate time.Time
 }
 
 type ReactionCreatedEvent struct {

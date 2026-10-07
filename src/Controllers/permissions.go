@@ -39,11 +39,19 @@ func GetPermissionMatrix(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	backendMatrix, err := Services.GetBackendPermissionMatrix(db, lang)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get backend permissions: " + err.Error()})
+		c.Abort()
+		return
+	}
+
 	// Use the numeric PermissionType as the key
 	response := map[Services.PermissionType]interface{}{
 		Services.EndpointPermission: endpointMatrix,
 		Services.SubforumPermission: subforumMatrix,
 		Services.FrontendPermission: frontendMatrix,
+		Services.BackendPermission:  backendMatrix,
 	}
 
 	c.JSON(http.StatusOK, response)

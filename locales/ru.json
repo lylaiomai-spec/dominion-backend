@@ -40,6 +40,7 @@
   "permission.show_add_immunity_button": "Показывать кнопку добавления иммунитета",
   "permission.show_character_sheet_admin_block": "Показывать админ-блок анкеты персонажа",
   "permission.show_ai_chat_navlink": "Показывать ссылку на AI-чат",
+  "permission.edit_others_maps": "Редактировать чужие карты",
 
   "frontend_component.src_app_components_header.description": "Верхняя часть страницы от заголовка до разделителя",
 
@@ -57,5 +58,7 @@
     "other": "Ваш персонаж {{.Name}} будет автоматически деактивирован, если вы не напишете игровой пост в течение {{.Count}} дней."
   },
 
-  "auto_archiving.deactivated": "Ваш персонаж {{.Name}} был автоматически деактивирован из-за неактивности."
+  "auto_archiving.deactivated": "Ваш персонаж {{.Name}} был автоматически деактивирован из-за неактивности.",
+
+  "absence.started_notification": "{{.Username}} ушёл в отсутствие до {{.EndDate}}."
 }

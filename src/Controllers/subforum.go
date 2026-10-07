@@ -152,10 +152,11 @@ func GetHomeCategories(c *gin.Context, db *sql.DB) {
 				WHERE t.subforum_id IN (%s)
 				AND t.status != ?
 				AND (utv.post_id IS NULL OR utv.post_id < (SELECT MAX(p.id) FROM posts p WHERE p.topic_id = t.id AND (p.is_deleted IS NULL OR p.is_deleted = 0)))
+				AND t.subforum_id NOT IN (SELECT subforum_id FROM user_subforum_settings WHERE user_id = ? AND hide_new_posts_index = 1)
 			`, unreadPlaceholders)
 
 			unreadArgs := append([]interface{}{userID}, subforumIDsForUnread...)
-			unreadArgs = append(unreadArgs, Entities.DeletedTopic)
+			unreadArgs = append(unreadArgs, Entities.DeletedTopic, userID)
 
 			unreadRows, err := db.Query(unreadQuery, unreadArgs...)
 			if err == nil {
