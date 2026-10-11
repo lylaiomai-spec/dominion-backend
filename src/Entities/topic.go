@@ -44,4 +44,5 @@ type Topic struct {
 	WantedCharacter       *WantedCharacter     `json:"wanted_character"`
 	CanEdit               *bool                `json:"can_edit,omitempty" db:"-"`
 	Permissions           *SubforumPermissions `json:"permissions,omitempty" db:"-"`
+	IsSubscribed          bool                 `json:"is_subscribed" db:"-"`
 }

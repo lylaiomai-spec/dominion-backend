@@ -1866,10 +1866,32 @@ func AdminUpdateUser(c *gin.Context, db *sql.DB) {
 func UserAutocomplete(c *gin.Context, db *sql.DB) {
 	term := c.Param("term")
 
-	rows, err := db.Query(
-		"SELECT id, username FROM users WHERE username LIKE ? AND user_status = 0 LIMIT 10",
-		"%"+term+"%",
-	)
+	var rows *sql.Rows
+	var err error
+
+	if episodeIDStr := c.Query("episode_id"); episodeIDStr != "" {
+		episodeID, convErr := strconv.Atoi(episodeIDStr)
+		if convErr != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid episode_id"})
+			c.Abort()
+			return
+		}
+		rows, err = db.Query(`
+			SELECT DISTINCT u.id, u.username
+			FROM users u
+			JOIN character_base cb ON cb.user_id = u.id
+			JOIN episode_character ec ON ec.character_id = cb.id
+			WHERE ec.episode_id = ? AND u.username LIKE ? AND u.user_status = 0
+			LIMIT 10`,
+			episodeID, "%"+term+"%",
+		)
+	} else {
+		rows, err = db.Query(
+			"SELECT id, username FROM users WHERE username LIKE ? AND user_status = 0 LIMIT 10",
+			"%"+term+"%",
+		)
+	}
+
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get users: " + err.Error()})
 		c.Abort()

@@ -292,6 +292,147 @@ func AdminRevertStaticFile(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"message": "File reverted"})
 }
 
+type AssetFile struct {
+	Name    string `json:"name"`
+	ModTime string `json:"mod_time"`
+}
+
+const assetsSubdir = "assets"
+
+func assetList(publicDir string) ([]AssetFile, error) {
+	assetsDir := filepath.Join(publicDir, assetsSubdir)
+	entries, err := os.ReadDir(assetsDir)
+	if os.IsNotExist(err) {
+		return []AssetFile{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var files []AssetFile
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, AssetFile{
+			Name:    e.Name(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+		})
+	}
+	if files == nil {
+		files = []AssetFile{}
+	}
+	return files, nil
+}
+
+func GetAssetList(c *gin.Context) {
+	publicDir := "./../frontend"
+	files, err := assetList(publicDir)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to list assets: " + err.Error()})
+		c.Abort()
+		return
+	}
+	c.JSON(http.StatusOK, files)
+}
+
+func UploadAsset(c *gin.Context) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "file field is required"})
+		c.Abort()
+		return
+	}
+	defer file.Close()
+
+	fileName := filepath.Base(header.Filename)
+	if fileName == "." || fileName == "/" {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid file name"})
+		c.Abort()
+		return
+	}
+
+	publicDir := "./../frontend"
+	assetsDir := filepath.Join(publicDir, assetsSubdir)
+
+	if err := os.MkdirAll(assetsDir, os.ModePerm); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create assets directory"})
+		c.Abort()
+		return
+	}
+
+	dst, err := os.Create(filepath.Join(assetsDir, fileName))
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create file: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to write file: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	if err := changeToWwwData(filepath.Join(assetsDir, fileName)); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Permission error: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	files, err := assetList(publicDir)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to list assets: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"files": files})
+}
+
+type DeleteAssetRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+func DeleteAsset(c *gin.Context) {
+	var req DeleteAssetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	fileName := filepath.Base(req.Name)
+	if fileName == "." || fileName == "/" {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid file name"})
+		c.Abort()
+		return
+	}
+
+	publicDir := "./../frontend"
+	filePath := filepath.Join(publicDir, assetsSubdir, fileName)
+
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to delete file: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	files, err := assetList(publicDir)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to list assets: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"files": files})
+}
+
 func changeToWwwData(filePath string) error {
 	// Look up the group by name
 	grp, err := user.LookupGroup("www-data")

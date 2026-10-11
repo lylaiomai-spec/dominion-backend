@@ -40,6 +40,9 @@ const (
 	PostsMoved             EventType = "PostsMoved"
 	GeneralPostsDeleted    EventType = "GeneralPostsDeleted"
 	UserAbsenceStarted     EventType = "UserAbsenceStarted"
+	ArcCreated             EventType = "ArcCreated"
+	ArcGMsUpdated          EventType = "ArcGMsUpdated"
+	NpcUsed                EventType = "NpcUsed"
 )
 
 type EventData interface{}
@@ -224,6 +227,18 @@ type UserAbsenceStartedEvent struct {
 	AbsenceEndDate time.Time
 }
 
+type ArcCreatedEvent struct {
+	ArcID        int
+	Title        string
+	GMUserIDs    []int
+}
+
+type ArcGMsUpdatedEvent struct {
+	ArcID        int
+	PrevGMUserIDs []int
+	NewGMUserIDs  []int
+}
+
 type ReactionCreatedEvent struct {
 	TopicID      int64  `json:"topic_id"`
 	TopicName    string `json:"topic_name"`
@@ -233,6 +248,12 @@ type ReactionCreatedEvent struct {
 	Url          string `json:"url"`
 	UserID       int    `json:"user_id"`
 	UserName     string `json:"user_name"`
+}
+
+type NpcUsedEvent struct {
+	PostID   int
+	Content  string
+	IsUpdate bool
 }
 
 type EventHandler func(db *sql.DB, data EventData)

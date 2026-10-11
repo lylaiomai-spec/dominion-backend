@@ -55,6 +55,8 @@ role_id,type,permission
 2,0,/template/:type/get
 2,0,/topic/create
 2,0,/topic/update/:id
+2,0,/topic/:id/subscribe
+2,0,/topic/:id/unsubscribe
 2,0,/lore-topic/:id/posts
 2,0,/lore-topic/create
 2,0,/lore-topic/update/:id
@@ -150,6 +152,9 @@ role_id,type,permission
 3,0,/static-file/list/:file_type
 3,0,/static-file/revert
 3,0,/static-file/upload
+3,0,/asset/list
+3,0,/asset/upload
+3,0,/asset/delete
 3,0,/subforum/create
 3,0,/subforum/delete/:id
 3,0,/subforum/update/:id
@@ -202,6 +207,14 @@ role_id,type,permission
 3,2,show_character_sheet_admin_block
 3,2,show_ai_chat_navlink
 3,3,edit_others_maps
+3,2,can_create_story_arc
+3,0,/arc/create
+3,0,/arc/update/:id
+3,0,/arc/delete/:id
+2,0,/subforum/list-episode
+2,0,/npc/create
+2,0,/npc/update/:id
+2,0,/npc/delete/:id
 3,0,/ai-chat/message
 3,0,/ai-chat/history
 3,0,/ai-chat/models

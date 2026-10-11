@@ -29,6 +29,7 @@ var (
 	viewtopicRe = regexp.MustCompile(`^/viewtopic/(\d+)`)
 	profileRe   = regexp.MustCompile(`^/profile/(\d+)$`)
 	characterRe = regexp.MustCompile(`^/character/(\d+)$`)
+	arcRe       = regexp.MustCompile(`^/arc/(\d+)$`)
 )
 
 func resolveInternalLinkLabel(rawURL, domain string, db *sql.DB) string {
@@ -57,6 +58,8 @@ func resolveInternalLinkLabel(rawURL, domain string, db *sql.DB) string {
 		db.QueryRow("SELECT username FROM users WHERE id = ?", m[1]).Scan(&name)
 	} else if m := characterRe.FindStringSubmatch(path); m != nil {
 		db.QueryRow("SELECT name FROM character_base WHERE id = ?", m[1]).Scan(&name)
+	} else if m := arcRe.FindStringSubmatch(path); m != nil {
+		db.QueryRow("SELECT title FROM arcs WHERE id = ?", m[1]).Scan(&name)
 	} else {
 		name = strings.ReplaceAll(strings.Trim(path, "/"), "-", " ")
 	}
@@ -153,6 +156,175 @@ var bbCompiler = GetBBCompiler()
 
 func ParseBBCode(text string) string {
 	return bbCompiler.Compile(text)
+}
+
+var hideBlockRe = regexp.MustCompile(`(?s)<hide-block data-users="([^"]*)">(.*?)</hide-block>`)
+
+func isArcGMForTopic(userID, topicID int, db *sql.DB) bool {
+	if userID == 0 || topicID == 0 {
+		return false
+	}
+	var count int
+	db.QueryRow(`
+		SELECT COUNT(*) FROM arc_game_masters agm
+		JOIN arc_episodes ae ON ae.arc_id = agm.arc_id
+		JOIN episode_base eb ON eb.id = ae.episode_id
+		WHERE eb.topic_id = ? AND agm.user_id = ?`, topicID, userID).Scan(&count)
+	if count > 0 {
+		return true
+	}
+	db.QueryRow(`
+		SELECT COUNT(*) FROM arcs a
+		JOIN arc_episodes ae ON ae.arc_id = a.id
+		JOIN episode_base eb ON eb.id = ae.episode_id
+		WHERE eb.topic_id = ? AND a.creator_id = ?`, topicID, userID).Scan(&count)
+	return count > 0
+}
+
+func ProcessHideBlocks(content string, userID int, topicID int, db *sql.DB) string {
+	isGM := isArcGMForTopic(userID, topicID, db)
+	return hideBlockRe.ReplaceAllStringFunc(content, func(match string) string {
+		sub := hideBlockRe.FindStringSubmatch(match)
+		if len(sub) < 3 {
+			return ""
+		}
+
+		allowed := isGM
+		var userIDs []int
+		for _, s := range strings.Split(sub[1], ",") {
+			s = strings.TrimSpace(s)
+			if id, err := strconv.Atoi(s); err == nil {
+				userIDs = append(userIDs, id)
+				if id == userID {
+					allowed = true
+				}
+			}
+		}
+		if !allowed {
+			return ""
+		}
+
+		// Fetch usernames for the header
+		placeholders := strings.Repeat("?,", len(userIDs)-1) + "?"
+		args := make([]interface{}, len(userIDs))
+		for i, id := range userIDs {
+			args[i] = id
+		}
+		type userLink struct{ id int; username string }
+		var users []userLink
+		if rows, err := db.Query("SELECT id, username FROM users WHERE id IN ("+placeholders+")", args...); err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var u userLink
+				if rows.Scan(&u.id, &u.username) == nil {
+					users = append(users, u)
+				}
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString(`<div class="hide-block">`)
+		sb.WriteString(`<div class="hide-header">Visible to: `)
+		for i, u := range users {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(`<a class="hide-user-link" href="/profile/`)
+			sb.WriteString(strconv.Itoa(u.id))
+			sb.WriteString(`" target="_blank">`)
+			sb.WriteString(html.EscapeString(u.username))
+			sb.WriteString(`</a>`)
+		}
+		sb.WriteString(`</div><div class="hide-body">`)
+		sb.WriteString(sub[2])
+		sb.WriteString(`</div></div>`)
+		return sb.String()
+	})
+}
+
+var npcLookupRe = regexp.MustCompile(`<npc-lookup data-id="(\d+)">(?:</npc-lookup>)?`)
+
+func ResolveNPCPlaceholders(content string, db *sql.DB) string {
+	matches := npcLookupRe.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return content
+	}
+
+	ids := make([]interface{}, 0, len(matches))
+	seen := make(map[string]bool)
+	for _, m := range matches {
+		if !seen[m[1]] {
+			ids = append(ids, m[1])
+			seen[m[1]] = true
+		}
+	}
+
+	placeholders := strings.Repeat("?,", len(ids)-1) + "?"
+	rows, err := db.Query("SELECT id, name, avatar FROM npc WHERE id IN ("+placeholders+")", ids...)
+	if err != nil {
+		return content
+	}
+	defer rows.Close()
+
+	type npcData struct{ name, avatar string }
+	npcs := make(map[string]npcData)
+	for rows.Next() {
+		var id int
+		var name string
+		var avatar sql.NullString
+		if rows.Scan(&id, &name, &avatar) == nil {
+			n := npcData{name: name}
+			if avatar.Valid {
+				n.avatar = avatar.String
+			}
+			npcs[strconv.Itoa(id)] = n
+		}
+	}
+
+	return npcLookupRe.ReplaceAllStringFunc(content, func(match string) string {
+		sub := npcLookupRe.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		npc, ok := npcs[sub[1]]
+		if !ok {
+			return ""
+		}
+		var sb strings.Builder
+		sb.WriteString(`<a class="npc-link" href="/npc/`)
+		sb.WriteString(sub[1])
+		sb.WriteString(`" target="_blank">`)
+		if npc.avatar != "" {
+			sb.WriteString(`<img class="npc-avatar" src="`)
+			sb.WriteString(html.EscapeString(npc.avatar))
+			sb.WriteString(`" alt="`)
+			sb.WriteString(html.EscapeString(npc.name))
+			sb.WriteString(`">`)
+		}
+		sb.WriteString(`<span class="npc-name">`)
+		sb.WriteString(html.EscapeString(npc.name))
+		sb.WriteString(`</span></a>`)
+		return sb.String()
+	})
+}
+
+// collectNpcIDs recursively walks a BBCode node tree and returns the id
+// attribute of every [npc] tag found, in document order. This is needed
+// because [npc id=1][npc id=2] (without explicit closing tags) causes the
+// parser to nest id=2 inside id=1, so a flat children scan would miss it.
+func collectNpcIDs(node *bbcode.BBCodeNode) []string {
+	var ids []string
+	for _, child := range node.Children {
+		if openTag := child.GetOpeningTag(); openTag != nil && openTag.Name == "npc" {
+			if idStr, ok := getRawArg(child, "id"); ok {
+				if _, err := strconv.Atoi(idStr); err == nil {
+					ids = append(ids, idStr)
+				}
+			}
+		}
+		ids = append(ids, collectNpcIDs(child)...)
+	}
+	return ids
 }
 
 func GetBBCompiler() bbcode.Compiler {
@@ -605,6 +777,63 @@ func GetBBCompiler() bbcode.Compiler {
 		out.Attrs["loading"] = "lazy"
 		out.Attrs["referrerpolicy"] = "no-referrer"
 
+		return out, false
+	})
+
+	compiler.SetTag("hide", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "hide-block"
+		if users, ok := getRawArg(node, "users"); ok {
+			// Allow only digits and commas
+			safe := true
+			for _, ch := range users {
+				if (ch < '0' || ch > '9') && ch != ',' {
+					safe = false
+					break
+				}
+			}
+			if safe {
+				out.Attrs["data-users"] = users
+			}
+		}
+		return out, true
+	})
+
+	compiler.SetTag("npc-block", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "div"
+		out.Attrs["class"] = "npc-block"
+		return out, true
+	})
+
+	compiler.SetTag("npc-header", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "div"
+		out.Attrs["class"] = "npc-header"
+		for _, idStr := range collectNpcIDs(node) {
+			lookup := bbcode.NewHTMLTag("")
+			lookup.Name = "npc-lookup"
+			lookup.Attrs["data-id"] = idStr
+			out.AppendChild(lookup)
+		}
+		return out, false
+	})
+
+	compiler.SetTag("npc-body", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "div"
+		out.Attrs["class"] = "npc-body"
+		return out, true
+	})
+
+	compiler.SetTag("npc", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "npc-lookup"
+		if idStr, ok := getRawArg(node, "id"); ok {
+			if _, err := strconv.Atoi(idStr); err == nil {
+				out.Attrs["data-id"] = idStr
+			}
+		}
 		return out, false
 	})
 

@@ -11,6 +11,10 @@ import (
 )
 
 func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error) {
+	return GetPostByIdForUser(id, 0, db, currencyActive)
+}
+
+func GetPostByIdForUser(id int, userID int, db *sql.DB, currencyActive bool) (*Entities.Post, error) {
 	// 1. Get custom field columns from the config table
 	var configJSON string
 	err := db.QueryRow("SELECT config FROM custom_field_config WHERE entity_type = 'character_profile'").Scan(&configJSON)
@@ -45,6 +49,7 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 	query := fmt.Sprintf(`
 		SELECT
 			p.id, p.topic_id, p.author_user_id, p.date_created, p.content, p.use_character_profile,
+			p.is_gm_post,
 			u.username, u.avatar, u.total_posts, u.total_general_posts,
 			cp.id as character_profile_id, cp.character_id, cb.name as character_name, cp.avatar as character_avatar, cp.mask_name, cp.is_mask, cp.signature as character_signature,
 			u.signature as user_signature
@@ -123,10 +128,14 @@ func GetPostById(id int, db *sql.DB, currencyActive bool) (*Entities.Post, error
 	post.DateCreated = dateCreated
 	if val, ok := rowMap["content"]; ok {
 		post.Content = val.(string)
-		post.ContentHtml = LinkifyURLs(ParseBBCode(post.Content), domain, db)
+		post.ContentHtml = ProcessHideBlocks(LinkifyURLs(ResolveNPCPlaceholders(ParseBBCode(post.Content), db), domain, db), userID, post.TopicId, db)
 	}
 	if val, ok := rowMap["use_character_profile"]; ok {
 		post.UseCharacterProfile, _ = strconv.ParseBool(val.(string))
+	}
+	if val, ok := rowMap["is_gm_post"]; ok {
+		b, _ := strconv.ParseBool(val.(string))
+		post.IsGmPost = &b
 	}
 
 	if post.UseCharacterProfile {

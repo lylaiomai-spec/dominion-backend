@@ -26,6 +26,7 @@ type CreateEpisodeRequest struct {
 	RatingViolence int                    `json:"rating_violence"`
 	RatingSex      int                    `json:"rating_sex"`
 	CustomFields   map[string]interface{} `json:"custom_fields"`
+	ArcID          *int                   `json:"arc_id"`
 }
 
 type UpdateEpisodeRequest struct {
@@ -197,6 +198,14 @@ func CreateEpisode(c *gin.Context, db *sql.DB) {
 				c.Abort()
 				return
 			}
+		}
+	}
+
+	if req.ArcID != nil {
+		if _, err := tx.Exec("INSERT IGNORE INTO arc_episodes (arc_id, episode_id) VALUES (?, ?)", *req.ArcID, createdEpisode.Id); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to link episode to arc: " + err.Error()})
+			c.Abort()
+			return
 		}
 	}
 

@@ -31,4 +31,5 @@ type Post struct {
 	CanEdit              *bool             `json:"can_edit,omitempty" db:"-"`
 	CanDelete            *bool             `json:"can_delete,omitempty" db:"-"`
 	Reactions            []PostReaction    `json:"reactions"`
+	IsGmPost             *bool             `json:"is_gm_post,omitempty"`
 }

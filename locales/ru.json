@@ -41,6 +41,7 @@
   "permission.show_character_sheet_admin_block": "Показывать админ-блок анкеты персонажа",
   "permission.show_ai_chat_navlink": "Показывать ссылку на AI-чат",
   "permission.edit_others_maps": "Редактировать чужие карты",
+  "permission.can_create_story_arc": "Создавать сюжетные арки",
 
   "frontend_component.src_app_components_header.description": "Верхняя часть страницы от заголовка до разделителя",
 

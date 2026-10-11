@@ -41,6 +41,7 @@
   "permission.show_character_sheet_admin_block": "Show character sheet admin block",
   "permission.show_ai_chat_navlink": "Show AI chat navigation link",
   "permission.edit_others_maps": "Edit others' maps",
+  "permission.can_create_story_arc": "Can create story arc",
 
   "frontend_component.src_app_components_header.description": "The top part of the page from title to divider",
 

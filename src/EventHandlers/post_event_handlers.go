@@ -36,9 +36,14 @@ func RegisterPostEventHandlers() {
 			event.TopicID,
 		).Scan(&totalPosts)
 
+		// Render base HTML once (parse + NPC resolution + linkify), then apply hide blocks per user
+		domain, _ := Services.GetGlobalSetting("domain", db)
+		baseHtml := Services.LinkifyURLs(Services.ResolveNPCPlaceholders(Services.ParseBBCode(event.Post.Content), db), domain, db)
+
 		// Send to each user on the page with their localized date and per-user CanEdit
 		for _, u := range users {
 			userPost := event.Post
+			userPost.ContentHtml = Services.ProcessHideBlocks(baseHtml, u.UserID, int(event.TopicID), db)
 			userPost.DateCreatedLocalized = Services.LocalizeTime(userPost.DateCreated, Services.GetUserTimezone(u.UserID, db))
 
 			canEdit := false
@@ -68,7 +73,7 @@ func RegisterPostEventHandlers() {
 	// Subscriber 6: Update Stats on Post Created
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" {
+		if !ok || event.Type != "post_created" {
 			return
 		}
 
@@ -140,7 +145,7 @@ func RegisterPostEventHandlers() {
 	// Subscriber: Update character stats on episode post created
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" {
+		if !ok || event.Type != "post_created" {
 			return
 		}
 
@@ -167,7 +172,7 @@ func RegisterPostEventHandlers() {
 	// Subscriber: Increment post count, then emit PostCountUpdated.
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" || event.Post.AuthorUserId == 0 {
+		if !ok || event.Type != "post_created" || event.Post.AuthorUserId == 0 {
 			return
 		}
 
@@ -296,7 +301,7 @@ func RegisterPostEventHandlers() {
 	// Subscriber 11: Send Game Notifications for Episode Posts
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" {
+		if !ok || event.Type != "post_created" {
 			return
 		}
 
@@ -418,7 +423,7 @@ func RegisterPostEventHandlers() {
 	// Subscriber: Update mask stats on episode post created
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" {
+		if !ok || event.Type != "post_created" {
 			return
 		}
 
@@ -451,7 +456,7 @@ func RegisterPostEventHandlers() {
 	// Subscriber: Award currency for episode post
 	Events.Subscribe(Events.PostCreated, func(db *sql.DB, data Events.EventData) {
 		event, ok := data.(Events.PostCreatedEvent)
-		if !ok || event.Type == "post_updated" {
+		if !ok || event.Type != "post_created" {
 			return
 		}
 

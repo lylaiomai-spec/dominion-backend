@@ -32,6 +32,11 @@ type FactionInfo struct {
 	Level int    `json:"level"`
 }
 
+type FactionShort struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 type FactionStatus int
 
 const (

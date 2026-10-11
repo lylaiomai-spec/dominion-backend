@@ -25,6 +25,14 @@ type Episode struct {
 	Warnings        []StandardWarning `json:"warnings" db:"-"`
 	CustomFields    CustomFieldEntity `json:"custom_fields" db:"-"`
 	CanEdit         *bool             `json:"can_edit,omitempty" db:"-"`
+	IsArc           bool              `json:"is_arc" db:"-"`
+	Arc             *EpisodeArc       `json:"arc" db:"-"`
+	IsGM            bool              `json:"is_gm" db:"-"`
+}
+
+type EpisodeArc struct {
+	ID    int    `json:"id"`
+	Title string `json:"title"`
 }
 
 type StandardWarning struct {

@@ -261,6 +261,41 @@ func GetShortSubforumList(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, subforums)
 }
 
+func GetEpisodeSubforumList(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		c.JSON(http.StatusOK, []Entities.ShortSubform{})
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT DISTINCT s.id, s.name
+		FROM subforums s
+		JOIN role_permission rp ON rp.type = 1 AND rp.permission = CONCAT('subforum_create_episode_topic:', s.id)
+		JOIN user_role ur ON ur.role_id = rp.role_id AND ur.user_id = ?
+		WHERE (s.is_private IS NULL OR s.is_private = 0)
+		ORDER BY s.position`, userID)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get subforums: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+
+	subforums := []Entities.ShortSubform{}
+	for rows.Next() {
+		var s Entities.ShortSubform
+		if err := rows.Scan(&s.Id, &s.Name); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan subforum: " + err.Error()})
+			c.Abort()
+			return
+		}
+		subforums = append(subforums, s)
+	}
+
+	c.JSON(http.StatusOK, subforums)
+}
+
 func CreateCategory(c *gin.Context, db *sql.DB) {
 	var input struct {
 		Name     string `json:"name" binding:"required"`
@@ -483,14 +518,17 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 
 	var subforum Entities.Subform
 	var dateLastPost *time.Time
+	var categoryID, position sql.NullInt64
 	var topicNumber, postNumber sql.NullInt64
-	query := "SELECT id, category_id, name, description, position, topic_number, post_number, last_post_topic_id, last_post_topic_name, last_post_id, date_last_post, last_post_author_user_name, show_last_topic FROM subforums WHERE id = ?"
+	var name, description sql.NullString
+	var isPrivate sql.NullBool
+	query := "SELECT id, category_id, name, description, position, topic_number, post_number, last_post_topic_id, last_post_topic_name, last_post_id, date_last_post, last_post_author_user_name, show_last_topic, is_private FROM subforums WHERE id = ?"
 	err = db.QueryRow(query, id).Scan(
 		&subforum.Id,
-		&subforum.CategoryId,
-		&subforum.Name,
-		&subforum.Description,
-		&subforum.Position,
+		&categoryID,
+		&name,
+		&description,
+		&position,
 		&topicNumber,
 		&postNumber,
 		&subforum.LastPostTopicId,
@@ -499,6 +537,7 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 		&dateLastPost,
 		&subforum.LastPostAuthorName,
 		&subforum.ShowLastTopic,
+		&isPrivate,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -510,6 +549,10 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	subforum.CategoryId = int(categoryID.Int64)
+	subforum.Name = name.String
+	subforum.Description = description.String
+	subforum.Position = int(position.Int64)
 	subforum.TopicNumber = int(topicNumber.Int64)
 	subforum.PostNumber = int(postNumber.Int64)
 
@@ -553,6 +596,8 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 	// Check Permissions
 	permissions := &Entities.SubforumPermissions{}
 	subforum.Permissions = permissions
+
+	Services.ApplyPrivateSubforumPermissions(permissions, userID, id, db)
 
 	if len(roleIDs) > 0 {
 		permMap := map[string]*bool{

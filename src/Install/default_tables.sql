@@ -192,8 +192,18 @@ CREATE TABLE subforums (
     last_post_id bigint unsigned null,
     last_post_author_user_name varchar(255) null,
     show_last_topic boolean null,
+    is_private tinyint(1) null,
     constraint subforums_categories_id_fk
         foreign key (category_id) references categories (id)
+);
+
+create table private_subforum_users
+(
+    subforum_id bigint unsigned not null,
+    user_id     int             not null,
+    primary key (subforum_id, user_id),
+    constraint fk_psu_subforum foreign key (subforum_id) references subforums (id) on delete cascade,
+    constraint fk_psu_user     foreign key (user_id)     references users      (id) on delete cascade
 );
 
 CREATE TABLE topics (
@@ -286,6 +296,7 @@ CREATE TABLE posts (
                        character_profile_id BIGINT UNSIGNED,
                        use_character_profile BOOLEAN DEFAULT FALSE,
                        is_deleted TINYINT NULL,
+                       is_gm_post TINYINT(1) NULL,
                        idempotency_key VARCHAR(255) NULL,
                        UNIQUE KEY uq_posts_idempotency_key (idempotency_key),
                        CONSTRAINT fk_posts_topic
@@ -1277,4 +1288,83 @@ create table interactive_maps
     is_public  tinyint(1)   not null default 0,
     creator_id int          null,
     constraint fk_interactive_maps_creator foreign key (creator_id) references users (id) on delete set null
+);
+
+create table arcs
+(
+    id          int                                              auto_increment primary key,
+    title       varchar(255)                                     not null,
+    description text                                             null,
+    is_public   tinyint(1)                                       not null default 0,
+    status      int                                              not null default 0,
+    image_url   varchar(512)                                     null,
+    creator_id  int                                              null,
+    subforum_id bigint unsigned                                  null,
+    constraint fk_arcs_creator  foreign key (creator_id)  references users     (id) on delete set null,
+    constraint fk_arcs_subforum foreign key (subforum_id) references subforums (id) on delete set null
+);
+
+create table arc_episodes
+(
+    arc_id     int            not null,
+    episode_id bigint unsigned not null,
+    primary key (arc_id, episode_id),
+    constraint fk_arc_episodes_arc     foreign key (arc_id)     references arcs        (id) on delete cascade,
+    constraint fk_arc_episodes_episode foreign key (episode_id) references episode_base (id) on delete cascade
+);
+
+create table arc_game_masters
+(
+    arc_id  int not null,
+    user_id int not null,
+    primary key (arc_id, user_id),
+    constraint fk_arc_game_masters_arc  foreign key (arc_id)  references arcs  (id) on delete cascade,
+    constraint fk_arc_game_masters_user foreign key (user_id) references users (id) on delete cascade
+);
+
+create table arc_factions
+(
+    arc_id     int not null,
+    faction_id int not null,
+    primary key (arc_id, faction_id),
+    constraint fk_arc_factions_arc     foreign key (arc_id)     references arcs     (id) on delete cascade,
+    constraint fk_arc_factions_faction foreign key (faction_id) references factions  (id) on delete cascade
+);
+
+create table npc
+(
+    id            bigint unsigned auto_increment primary key,
+    name          varchar(255)    not null,
+    avatar        varchar(255)    null,
+    description   text            null,
+    display_order int             not null default 0
+);
+
+create table npc_arc
+(
+    npc_id bigint unsigned not null,
+    arc_id int             not null,
+    primary key (npc_id, arc_id),
+    constraint fk_npc_arc_npc foreign key (npc_id) references npc  (id) on delete cascade,
+    constraint fk_npc_arc_arc foreign key (arc_id) references arcs (id) on delete cascade
+);
+
+create table npc_post
+(
+    id      bigint unsigned not null auto_increment primary key,
+    npc_id  bigint unsigned not null,
+    post_id bigint unsigned not null,
+    unique key uq_npc_post (npc_id, post_id),
+    key idx_npc_post_post_id (post_id),
+    constraint fk_npc_post_npc  foreign key (npc_id)  references npc   (id) on delete cascade,
+    constraint fk_npc_post_post foreign key (post_id) references posts  (id) on delete cascade
+);
+
+create table user_topic_subscription
+(
+    user_id  int            not null,
+    topic_id bigint unsigned not null,
+    primary key (user_id, topic_id),
+    constraint fk_user_topic_sub_user  foreign key (user_id)  references users  (id) on delete cascade,
+    constraint fk_user_topic_sub_topic foreign key (topic_id) references topics (id) on delete cascade
 );

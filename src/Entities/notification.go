@@ -130,3 +130,26 @@ type EpisodeStatusChangeNotification struct {
 	NotificationBase
 	Data NotificationEpisodeStatusChange `json:"data"`
 }
+
+type NotificationTopicSubscription struct {
+	TopicId   int    `json:"topic_id"`
+	TopicName string `json:"topic_name"`
+	PostId    int    `json:"post_id"`
+}
+
+type TopicSubscriptionNotification struct {
+	NotificationBase
+	Data NotificationTopicSubscription `json:"data"`
+}
+
+type NotificationAbsenceStarted struct {
+	UserId          int      `json:"user_id"`
+	Username        string   `json:"username"`
+	AbsenceEndDate  string   `json:"absence_end_date"`
+	Characters      []string `json:"characters"`
+}
+
+type AbsenceStartedNotification struct {
+	NotificationBase
+	Data NotificationAbsenceStarted `json:"data"`
+}
