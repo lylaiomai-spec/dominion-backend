@@ -18,6 +18,7 @@ var angularAttrCasefix = map[string]string{
 	"routerlink":          "routerLink",
 	"[routerlink]":        "[routerLink]",
 	"[queryparams]":       "[queryParams]",
+	"approuterlinks":      "appRouterLinks",
 	"viewbox":             "viewBox",
 	"preserveaspectratio": "preserveAspectRatio",
 	"gradientunits":       "gradientUnits",
@@ -143,11 +144,11 @@ func SanitizeTemplate(html string) string {
 	html, saved := preserveAngularElements(html)
 	result := templatePolicy.Sanitize(html)
 	result = restoreAngularElements(result, saved)
-	for _, attr := range angularBooleanAttrs {
-		result = strings.ReplaceAll(result, attr+`=""`, attr)
-	}
 	for lower, correct := range angularAttrCasefix {
 		result = strings.ReplaceAll(result, lower, correct)
+	}
+	for _, attr := range angularBooleanAttrs {
+		result = strings.ReplaceAll(result, attr+`=""`, attr)
 	}
 	result = strings.ReplaceAll(result, "&#39;", "'")
 	result = strings.ReplaceAll(result, "&amp;", "&")

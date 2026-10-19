@@ -3,7 +3,6 @@ package EventHandlers
 import (
 	"cuento-backend/src/Entities"
 	"cuento-backend/src/Events"
-	"cuento-backend/src/Services"
 	"cuento-backend/src/Websockets"
 	"database/sql"
 	"fmt"
@@ -33,9 +32,10 @@ func RegisterReactionEventHandlers() {
 			},
 		})
 
-		// 2. Broadcast reaction_created to everyone in the topic
+		// 2. Broadcast reaction_created to everyone on this topic page.
+		// Use per-connection hub tracking so multi-tab users aren't missed.
 		topicIDStr := strconv.FormatInt(event.TopicID, 10)
-		users := Services.ActivityStorage.GetUsersOnPage("topic", topicIDStr)
+		userIDs := Websockets.MainHub.GetUserIDsOnPage("topic", topicIDStr)
 		payload := map[string]interface{}{
 			"type": "reaction_created",
 			"data": map[string]interface{}{
@@ -46,8 +46,8 @@ func RegisterReactionEventHandlers() {
 				"user_name":   event.UserName,
 			},
 		}
-		for _, u := range users {
-			Websockets.MainHub.SendNotification(u.UserID, payload)
+		for _, uid := range userIDs {
+			Websockets.MainHub.SendNotification(uid, payload)
 		}
 	})
 }

@@ -28,6 +28,7 @@ const (
 	EpisodeTopicsDeleted   EventType = "EpisodeTopicsDeleted"
 	CharacterActivated     EventType = "CharacterActivated"
 	CharacterDeactivated   EventType = "CharacterDeactivated"
+	CharacterStatusChanged EventType = "CharacterStatusChanged"
 	UserWiped              EventType = "UserWiped"
 	CharacterUpdated       EventType = "CharacterUpdated"
 	PostProfileChanged     EventType = "PostProfileChanged"
@@ -148,6 +149,13 @@ type CharacterDeactivatedEvent struct {
 	CharacterID int
 }
 
+type CharacterStatusChangedEvent struct {
+	CharacterID int
+	UserID      int
+	OldStatus   Entities.CharacterStatus
+	NewStatus   Entities.CharacterStatus
+}
+
 type TopicsMovedEvent struct {
 	SubforumIDs []int // all affected subforum IDs (sources + target)
 }
@@ -161,7 +169,9 @@ type EpisodeTopicsDeletedEvent struct {
 	EpisodeIDs []int // episode IDs whose topics were deleted
 }
 
-type UserWipedEvent struct{}
+type UserWipedEvent struct {
+	CharacterCount int
+}
 
 type GeneralPostsDeletedEvent struct {
 	TopicID    int

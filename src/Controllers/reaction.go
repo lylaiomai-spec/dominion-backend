@@ -17,6 +17,57 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func BulkUploadReactions(c *gin.Context, db *sql.DB) {
+	file, _, err := c.Request.FormFile("file")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "file field is required"})
+		c.Abort()
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "failed to read zip"})
+		c.Abort()
+		return
+	}
+
+	tmpDir, err := extractZipToTemp(data, "reactions")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: err.Error()})
+		c.Abort()
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	entries, _ := os.ReadDir(tmpDir)
+	total := len(entries)
+
+	publicDir := "./../frontend/reactions"
+	os.MkdirAll(publicDir, os.ModePerm)
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+
+	for i, e := range entries {
+		destName := fmt.Sprintf("reaction_%d%s", time.Now().UnixNano(), filepath.Ext(e.Name()))
+		srcData, readErr := os.ReadFile(filepath.Join(tmpDir, e.Name()))
+		if readErr == nil {
+			if writeErr := os.WriteFile(filepath.Join(publicDir, destName), srcData, 0644); writeErr == nil {
+				changeToWwwData(filepath.Join(publicDir, destName))
+				db.Exec("INSERT INTO reactions (url, is_active) VALUES (?, true)", destName)
+			}
+		}
+		c.SSEvent("progress", gin.H{"completed": i + 1, "total": total})
+		c.Writer.Flush()
+	}
+
+	c.SSEvent("done", gin.H{"total": total})
+	c.Writer.Flush()
+}
+
 func GetReactionList(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query("SELECT id, url, is_active FROM reactions ORDER BY id ASC")
 	if err != nil {

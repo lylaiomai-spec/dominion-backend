@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -276,6 +277,56 @@ func GetSmileList(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, list)
+}
+
+func BulkUploadSmiles(c *gin.Context, db *sql.DB) {
+	file, _, err := c.Request.FormFile("file")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "file field is required"})
+		c.Abort()
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "failed to read zip"})
+		c.Abort()
+		return
+	}
+
+	tmpDir, err := extractZipToTemp(data, "smiles")
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: err.Error()})
+		c.Abort()
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	var categoryId *int
+	if v := c.PostForm("category_id"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			categoryId = &parsed
+		}
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+
+	results, _ := Services.ImgbbClient{}.BulkUpload(tmpDir, db, func(completed, total int) {
+		c.SSEvent("progress", gin.H{"completed": completed, "total": total})
+		c.Writer.Flush()
+	})
+
+	for _, r := range results {
+		if r.Err == nil && r.Result != nil {
+			db.Exec("INSERT INTO smiles (url, category_id) VALUES (?, ?)", r.Result.URL, categoryId)
+		}
+	}
+
+	c.SSEvent("done", gin.H{"total": len(results)})
+	c.Writer.Flush()
 }
 
 func UploadSmile(c *gin.Context, db *sql.DB) {

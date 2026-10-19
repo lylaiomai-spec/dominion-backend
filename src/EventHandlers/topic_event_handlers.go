@@ -195,4 +195,21 @@ func RegisterTopicEventHandlers() {
 			Websockets.MainHub.SendNotification(u.UserID, notification)
 		}
 	})
+
+	// Subscriber: Broadcast topic_full to users currently viewing the topic
+	Events.Subscribe(Events.TopicFull, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.TopicFullEvent)
+		if !ok {
+			return
+		}
+		pageID := strconv.FormatInt(event.TopicID, 10)
+		userIDs := Websockets.MainHub.GetUserIDsOnPage("topic", pageID)
+		if len(userIDs) == 0 {
+			return
+		}
+		Websockets.MainHub.BroadcastToUsers(userIDs, map[string]interface{}{
+			"type":     "topic_full",
+			"topic_id": event.TopicID,
+		})
+	})
 }

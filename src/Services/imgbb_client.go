@@ -8,12 +8,53 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
-type ImgbbUploadResult struct {
-	URL          string
-	ThumbnailURL string
-	DeleteURL    string
+var imgbbImageExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true,
+	".gif": true, ".webp": true, ".bmp": true,
+}
+
+type ImgbbClient struct{}
+
+func (ImgbbClient) BulkUploadSupport() bool { return false }
+
+func (c ImgbbClient) UploadImage(imageData []byte, db *sql.DB) (*ImageUploadResult, error) {
+	return UploadImageToImgbb(imageData, db)
+}
+
+func (c ImgbbClient) BulkUpload(folderPath string, db *sql.DB, onProgress func(completed, total int)) ([]BulkUploadFileResult, error) {
+	entries, err := os.ReadDir(folderPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read folder: %w", err)
+	}
+
+	var files []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && imgbbImageExts[filepath.Ext(e.Name())] {
+			files = append(files, e)
+		}
+	}
+
+	total := len(files)
+	results := make([]BulkUploadFileResult, total)
+
+	for i, e := range files {
+		data, err := os.ReadFile(filepath.Join(folderPath, e.Name()))
+		if err != nil {
+			results[i] = BulkUploadFileResult{FileName: e.Name(), Err: err}
+		} else {
+			res, err := UploadImageToImgbb(data, db)
+			results[i] = BulkUploadFileResult{FileName: e.Name(), Result: res, Err: err}
+		}
+		if onProgress != nil {
+			onProgress(i+1, total)
+		}
+	}
+
+	return results, nil
 }
 
 type ImgbbResponse struct {
@@ -28,7 +69,7 @@ type ImgbbResponse struct {
 	Status  int  `json:"status"`
 }
 
-func UploadImageToImgbb(imageData []byte, db *sql.DB) (*ImgbbUploadResult, error) {
+func UploadImageToImgbb(imageData []byte, db *sql.DB) (*ImageUploadResult, error) {
 	apiKey, err := GetGlobalSetting("imgbb_api_key", db)
 	if err != nil || apiKey == "" {
 		return nil, fmt.Errorf("imgbb_api_key is not configured")
@@ -73,7 +114,7 @@ func UploadImageToImgbb(imageData []byte, db *sql.DB) (*ImgbbUploadResult, error
 		return nil, fmt.Errorf("imgbb upload failed with status %d", imgbbResp.Status)
 	}
 
-	return &ImgbbUploadResult{
+	return &ImageUploadResult{
 		URL:          imgbbResp.Data.URL,
 		ThumbnailURL: imgbbResp.Data.Thumb.URL,
 		DeleteURL:    imgbbResp.Data.DeleteURL,

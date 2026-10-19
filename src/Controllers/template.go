@@ -8,11 +8,46 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 var safeIdentifier = regexp.MustCompile(`^[a-z0-9_]+$`)
+
+type templateConfigWrapper struct {
+	Fields        json.RawMessage `json:"fields"`
+	Blocks        json.RawMessage `json:"blocks"`
+	BlockSettings json.RawMessage `json:"block_settings"`
+}
+
+func parseTemplateConfigRaw(configJSON string) (fields, blocks, blockSettings json.RawMessage) {
+	fields = json.RawMessage("[]")
+	blocks = json.RawMessage("[]")
+	blockSettings = json.RawMessage("[]")
+	trimmed := strings.TrimSpace(configJSON)
+	if len(trimmed) == 0 {
+		return
+	}
+	if trimmed[0] == '[' {
+		fields = json.RawMessage(configJSON)
+		return
+	}
+	var w templateConfigWrapper
+	if err := json.Unmarshal([]byte(configJSON), &w); err != nil {
+		return
+	}
+	if w.Fields != nil {
+		fields = w.Fields
+	}
+	if w.Blocks != nil {
+		blocks = w.Blocks
+	}
+	if w.BlockSettings != nil {
+		blockSettings = w.BlockSettings
+	}
+	return
+}
 
 func GetTemplate(c *gin.Context, db *sql.DB) {
 	entityType := c.Param("type")
@@ -20,8 +55,7 @@ func GetTemplate(c *gin.Context, db *sql.DB) {
 	err := db.QueryRow("SELECT config FROM custom_field_config WHERE entity_type = ?", entityType).Scan(&configJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// If no config exists, return an empty JSON array, as the config is a list of fields.
-			c.JSON(http.StatusOK, []gin.H{})
+			c.JSON(http.StatusOK, gin.H{"fields": []interface{}{}, "blocks": []interface{}{}, "block_settings": []interface{}{}})
 			return
 		}
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get template: " + err.Error()})
@@ -29,27 +63,62 @@ func GetTemplate(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	var configData interface{}
-	if err := json.Unmarshal([]byte(configJSON), &configData); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to parse template config: " + err.Error()})
-		c.Abort()
-		return
-	}
-	c.JSON(http.StatusOK, configData)
+	fieldsRaw, blocksRaw, blockSettingsRaw := parseTemplateConfigRaw(configJSON)
+
+	var fields, blocks, blockSettings interface{}
+	_ = json.Unmarshal(fieldsRaw, &fields)
+	_ = json.Unmarshal(blocksRaw, &blocks)
+	_ = json.Unmarshal(blockSettingsRaw, &blockSettings)
+
+	c.JSON(http.StatusOK, gin.H{
+		"fields":         fields,
+		"blocks":         blocks,
+		"block_settings": blockSettings,
+	})
 }
 
 func UpdateTemplate(c *gin.Context, db *sql.DB) {
 	entityType := c.Param("type")
-	jsonData, err := c.GetRawData()
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body"})
+
+	var req struct {
+		Fields        json.RawMessage `json:"fields"`
+		Blocks        json.RawMessage `json:"blocks"`
+		BlockSettings json.RawMessage `json:"block_settings"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
 		c.Abort()
 		return
 	}
 
-	// First, try to insert the config. If it already exists, update it.
-	// This handles the case where the config might not exist yet.
-	_, err = db.Exec("INSERT INTO custom_field_config (entity_type, config) VALUES (?, ?) ON DUPLICATE KEY UPDATE config = ?", entityType, string(jsonData), string(jsonData))
+	fieldsJSON := req.Fields
+	if fieldsJSON == nil {
+		fieldsJSON = json.RawMessage("[]")
+	}
+	blocksJSON := req.Blocks
+	if blocksJSON == nil {
+		blocksJSON = json.RawMessage("[]")
+	}
+	blockSettingsJSON := req.BlockSettings
+	if blockSettingsJSON == nil {
+		blockSettingsJSON = json.RawMessage("[]")
+	}
+
+	combined, err := json.Marshal(templateConfigWrapper{
+		Fields:        fieldsJSON,
+		Blocks:        blocksJSON,
+		BlockSettings: blockSettingsJSON,
+	})
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to serialize template config: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	_, err = db.Exec(
+		"INSERT INTO custom_field_config (entity_type, config) VALUES (?, ?) ON DUPLICATE KEY UPDATE config = ?",
+		entityType, string(combined), string(combined),
+	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update template config: " + err.Error()})
 		c.Abort()
@@ -65,9 +134,8 @@ func UpdateTemplate(c *gin.Context, db *sql.DB) {
 	}
 
 	var customConfig []Entities.CustomFieldConfig
-	err = json.Unmarshal(jsonData, &customConfig)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid config JSON: " + err.Error()})
+	if err := json.Unmarshal(fieldsJSON, &customConfig); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid fields JSON: " + err.Error()})
 		c.Abort()
 		return
 	}

@@ -97,6 +97,59 @@ func LinkifyURLs(input, domain string, db *sql.DB) string {
 var audioExtRegexp = regexp.MustCompile(`(?i)\.(mp3|ogg|wav|flac|aac|m4a|opus|webm)(\?.*)?$`)
 var cssDimensionRe = regexp.MustCompile(`^[a-zA-Z0-9.%\-]+$`)
 
+var allowedDivStyleProps = map[string]bool{
+	"border":          true,
+	"background":      true,
+	"width":           true,
+	"height":          true,
+	"max-height":      true,
+	"min-height":      true,
+	"max-width":       true,
+	"min-width":       true,
+	"display":         true,
+	"color":           true,
+	"font-family":     true,
+	"font-style":      true,
+	"text-decoration": true,
+	"text-shadow":     true,
+	"text-align":      true,
+	"text-transform":  true,
+	"padding":         true,
+	"margin":          true,
+	"flex-direction":  true,
+	"gap":             true,
+	"line-height":     true,
+	"float":           true,
+	"transform":       true,
+}
+
+var allowedDisplayValues = map[string]bool{
+	"inline":       true,
+	"block":        true,
+	"inline-block": true,
+	"flex":         true,
+}
+
+var allowedTextAlignValues = map[string]bool{
+	"left": true, "right": true, "center": true, "justify": true,
+}
+
+var allowedTextTransformValues = map[string]bool{
+	"none": true, "uppercase": true, "lowercase": true, "capitalize": true,
+}
+
+var allowedFlexDirectionValues = map[string]bool{
+	"row": true, "row-reverse": true, "column": true, "column-reverse": true,
+}
+
+var allowedFloatValues = map[string]bool{
+	"left": true, "right": true, "none": true,
+}
+
+var unsafeCSSRe = regexp.MustCompile(`(?i)(javascript\s*:|expression\s*\(|behavior\s*:|vbscript\s*:|-moz-binding)`)
+
+var transformRe = regexp.MustCompile(`(?i)^(?:(?:rotate|scale[XY]?|skew[XY]?)\([-\d.,\s%degratun]+\)\s*)+$`)
+
 // getRawArg extracts a named arg directly from the raw tag string, bypassing
 // the bbcode library's quoted-value parser which corrupts multi-byte UTF-8.
 func getRawArg(node *bbcode.BBCodeNode, key string) (string, bool) {
@@ -154,7 +207,22 @@ func getArgInt(node *bbcode.BBCodeNode, key string, min, max int) (int, bool) {
 
 var bbCompiler = GetBBCompiler()
 
+// Matches whitespace/newlines that sit between two structural grid/table BB
+// tags. Both neighbours must be structural so that newlines after [/table] or
+// before [table] (paragraph separators) are preserved.
+var structuralTagNewlineRe = regexp.MustCompile(`(?i)(\[/?(?:table|tr|td|grid(?:-item)?)[^\]]*\])([ \t]*\n)+[ \t]*(\[/?(?:table|tr|td|grid(?:-item)?)[^\]]*\])`)
+
 func ParseBBCode(text string) string {
+	// Each pass collapses one layer of whitespace; loop until nothing changes
+	// (needed because consuming the second tag as $3 prevents it from
+	// anchoring the next match in the same pass).
+	for {
+		stripped := structuralTagNewlineRe.ReplaceAllString(text, "$1$3")
+		if stripped == text {
+			break
+		}
+		text = stripped
+	}
 	return bbCompiler.Compile(text)
 }
 
@@ -327,6 +395,56 @@ func collectNpcIDs(node *bbcode.BBCodeNode) []string {
 	return ids
 }
 
+func sanitizeStyle(raw string) string {
+	var parts []string
+	for _, decl := range strings.Split(raw, ";") {
+		decl = strings.TrimSpace(decl)
+		if decl == "" {
+			continue
+		}
+		idx := strings.Index(decl, ":")
+		if idx < 0 {
+			continue
+		}
+		prop := strings.ToLower(strings.TrimSpace(decl[:idx]))
+		val := strings.TrimSpace(decl[idx+1:])
+		if val == "" || !allowedDivStyleProps[prop] {
+			continue
+		}
+		if unsafeCSSRe.MatchString(val) {
+			continue
+		}
+		if prop == "display" && !allowedDisplayValues[strings.ToLower(val)] {
+			continue
+		}
+		if prop == "text-align" && !allowedTextAlignValues[strings.ToLower(val)] {
+			continue
+		}
+		if prop == "text-transform" && !allowedTextTransformValues[strings.ToLower(val)] {
+			continue
+		}
+		if prop == "flex-direction" && !allowedFlexDirectionValues[strings.ToLower(val)] {
+			continue
+		}
+		if prop == "float" && !allowedFloatValues[strings.ToLower(val)] {
+			continue
+		}
+		if prop == "transform" && !transformRe.MatchString(val) {
+			continue
+		}
+		parts = append(parts, prop+": "+val)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func applyStyle(node *bbcode.BBCodeNode, out *bbcode.HTMLTag) {
+	if raw, ok := getRawArg(node, "style"); ok {
+		if sanitized := sanitizeStyle(raw); sanitized != "" {
+			out.Attrs["style"] = html.EscapeString(sanitized)
+		}
+	}
+}
+
 func GetBBCompiler() bbcode.Compiler {
 	compiler := bbcode.NewCompiler(true, true)
 
@@ -374,20 +492,15 @@ func GetBBCompiler() bbcode.Compiler {
 			out.Attrs["class"] = class
 		}
 
-		var style string
-		if border, ok := getArg(node, "border"); ok {
-			style += fmt.Sprintf("border: %s;", border)
-		}
-		if width, ok := getArg(node, "width"); ok {
-			style += fmt.Sprintf(" width: %s;", width)
-		}
-		if height, ok := getArg(node, "height"); ok {
-			style += fmt.Sprintf(" height: %s;", height)
-		}
-		if style != "" {
-			out.Attrs["style"] = style
-		}
+		applyStyle(node, out)
 
+		return out, true
+	})
+
+	compiler.SetTag("span", func(node *bbcode.BBCodeNode) (*bbcode.HTMLTag, bool) {
+		out := bbcode.NewHTMLTag("")
+		out.Name = "span"
+		applyStyle(node, out)
 		return out, true
 	})
 

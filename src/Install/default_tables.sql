@@ -70,6 +70,19 @@ CREATE TABLE global_settings
     PRIMARY KEY (setting_name)
 );
 
+CREATE TABLE backup_settings
+(
+    id                         INT          NOT NULL DEFAULT 1,
+    gdrive_service_account_key TEXT,
+    gdrive_enabled             TINYINT(1)   NOT NULL DEFAULT 0,
+    gdrive_frequency           VARCHAR(20)  NOT NULL DEFAULT 'daily',
+    gdrive_keep                INT          NOT NULL DEFAULT 5,
+    gdrive_last_run            DATETIME,
+    PRIMARY KEY (id)
+);
+
+INSERT IGNORE INTO backup_settings (id) VALUES (1);
+
 INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
 VALUES ('site_name', 'Site Name', 0);
 
@@ -165,6 +178,9 @@ VALUES ('user_avatar_width', '0', 0);
 
 INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
 VALUES ('user_avatar_height', '0', 0);
+
+INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
+VALUES ('user_avatar_less', 'n', 0);
 
 INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
 VALUES ('character_avatar_width', '0', 0);
@@ -426,6 +442,7 @@ create table global_stats
 
 INSERT IGNORE INTO global_stats (stat_name, stat_value) VALUES ('total_user_number', 0);
 INSERT IGNORE INTO global_stats (stat_name, stat_value) VALUES ('total_character_number', 0);
+INSERT IGNORE INTO global_stats (stat_name, stat_value) VALUES ('total_active_character_number', 0);
 INSERT IGNORE INTO global_stats (stat_name, stat_value) VALUES ('total_episode_number', 0);
 INSERT IGNORE INTO global_stats (stat_name, stat_value) VALUES ('total_topic_number', 0);
 INSERT IGNORE INTO global_stats (stat_name, stat_value) VALUES ('total_post_number', 0);
@@ -483,17 +500,20 @@ create table character_faction
 
 create table character_flattened
 (
-    entity_id int primary key
+    entity_id      int primary key,
+    block_settings json null
 );
 
 create table character_profile_flattened
 (
-    entity_id int primary key
+    entity_id      int primary key,
+    block_settings json null
 );
 
 create table episode_flattened
 (
-    entity_id int primary key
+    entity_id      int primary key,
+    block_settings json null
 );
 
 create table roles
@@ -720,7 +740,8 @@ create table wanted_character_main
 
 create table wanted_character_flattened
 (
-    entity_id int primary key
+    entity_id      int primary key,
+    block_settings json null
 );
 
 create table wanted_character_faction

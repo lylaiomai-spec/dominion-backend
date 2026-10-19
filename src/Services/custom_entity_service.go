@@ -73,20 +73,9 @@ func GetEntity(id int64, className string, db DBExecutor) (interface{}, error) {
 	}
 
 	// Fetch Config
-	var configBytes []byte
-	err := db.QueryRow(fmt.Sprintf("SELECT config FROM custom_field_config WHERE entity_type = '%s'", className)).Scan(&configBytes)
+	templateConfig, err := GetEntityTemplateConfig(className, db)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("no configuration found for entity type %s", className)
-		}
-		return nil, err
-	}
-
-	config := make([]Entities.CustomFieldConfig, 0)
-	if len(configBytes) > 0 {
-		if err := json.Unmarshal(configBytes, &config); err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("failed to load template config for %s: %w", className, err)
 	}
 
 	// 1. Fetch data as map
@@ -140,14 +129,15 @@ func GetEntity(id int64, className string, db DBExecutor) (interface{}, error) {
 	}
 
 	// 3. Fill struct
-	if err := fillEntity(entity, data, config); err != nil {
+	if err := fillEntity(entity, data, templateConfig); err != nil {
 		return nil, err
 	}
 
 	return entity, nil
 }
 
-func fillEntity(entity interface{}, data map[string]interface{}, config []Entities.CustomFieldConfig) error {
+func fillEntity(entity interface{}, data map[string]interface{}, templateConfig EntityTemplateConfig) error {
+	config := templateConfig.FieldConfig
 	v := reflect.ValueOf(entity).Elem()
 	t := v.Type()
 
@@ -173,6 +163,22 @@ func fillEntity(entity interface{}, data map[string]interface{}, config []Entiti
 	// Look for a field of type CustomFieldEntity
 	cfField := v.FieldByName("CustomFields")
 	if cfField.IsValid() && cfField.Type() == reflect.TypeOf(Entities.CustomFieldEntity{}) {
+
+		// Read entity's own block_settings value from flattened table
+		entityBlockSettings := make(map[string]string)
+		if bs, ok := data["block_settings"]; ok {
+			if bsMap, ok := bs.(map[string]interface{}); ok {
+				for k, bv := range bsMap {
+					if s, ok := bv.(string); ok {
+						entityBlockSettings[k] = s
+					}
+				}
+			}
+		}
+
+		// Determine which fields are hidden by inactive block toggles
+		hiddenFields := computeHiddenFields(templateConfig.Blocks, templateConfig.BlockSettings, entityBlockSettings)
+
 		cfMap := make(map[string]Entities.CustomFieldValue)
 
 		configMap := make(map[string]Entities.CustomFieldConfig)
@@ -185,7 +191,10 @@ func fillEntity(entity interface{}, data map[string]interface{}, config []Entiti
 		}
 
 		for key, val := range data {
-			if !usedKeys[key] && key != "entity_id" && !sortColumns[key] {
+			if !usedKeys[key] && key != "entity_id" && key != "block_settings" && !sortColumns[key] {
+				if hiddenFields[key] {
+					continue
+				}
 				cfValue := Entities.CustomFieldValue{Content: val}
 				if conf, ok := configMap[key]; ok {
 					if conf.FieldType == "text" {
@@ -226,6 +235,11 @@ func fillEntity(entity interface{}, data map[string]interface{}, config []Entiti
 		cfConfigField := cfField.FieldByName("FieldConfig")
 		if cfConfigField.IsValid() && cfConfigField.CanSet() {
 			cfConfigField.Set(reflect.ValueOf(config))
+		}
+
+		cfBlockSettingsField := cfField.FieldByName("BlockSettings")
+		if cfBlockSettingsField.IsValid() && cfBlockSettingsField.CanSet() && len(entityBlockSettings) > 0 {
+			cfBlockSettingsField.Set(reflect.ValueOf(entityBlockSettings))
 		}
 	}
 
@@ -680,21 +694,99 @@ func CreateEntity(className string, entity interface{}, db DBExecutor) (interfac
 }
 
 func GetFieldConfig(entityType string, db DBExecutor) ([]Entities.CustomFieldConfig, error) {
+	tc, err := GetEntityTemplateConfig(entityType, db)
+	if err != nil {
+		return nil, err
+	}
+	return tc.FieldConfig, nil
+}
+
+type EntityTemplateConfig struct {
+	FieldConfig   []Entities.CustomFieldConfig
+	Blocks        []Entities.Block
+	BlockSettings []Entities.BlockSettingToggle
+}
+
+func GetEntityTemplateConfig(entityType string, db DBExecutor) (EntityTemplateConfig, error) {
 	var configBytes []byte
 	err := db.QueryRow("SELECT config FROM custom_field_config WHERE entity_type = ?", entityType).Scan(&configBytes)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return []Entities.CustomFieldConfig{}, nil
+			return EntityTemplateConfig{}, nil
 		}
-		return nil, err
+		return EntityTemplateConfig{}, err
 	}
-	config := make([]Entities.CustomFieldConfig, 0)
-	if len(configBytes) > 0 {
-		if err := json.Unmarshal(configBytes, &config); err != nil {
-			return nil, err
+	if len(configBytes) == 0 {
+		return EntityTemplateConfig{}, nil
+	}
+	trimmed := strings.TrimSpace(string(configBytes))
+	var tc EntityTemplateConfig
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		// Legacy format: config is just a fields array
+		if err := json.Unmarshal(configBytes, &tc.FieldConfig); err != nil {
+			return EntityTemplateConfig{}, err
+		}
+		return tc, nil
+	}
+	// New format: config is {"fields":[...],"blocks":[...],"block_settings":[...]}
+	var wrapper struct {
+		Fields        []Entities.CustomFieldConfig  `json:"fields"`
+		Blocks        []Entities.Block              `json:"blocks"`
+		BlockSettings []Entities.BlockSettingToggle `json:"block_settings"`
+	}
+	if err := json.Unmarshal(configBytes, &wrapper); err != nil {
+		return EntityTemplateConfig{}, err
+	}
+	tc.FieldConfig = wrapper.Fields
+	tc.Blocks = wrapper.Blocks
+	tc.BlockSettings = wrapper.BlockSettings
+	return tc, nil
+}
+
+func SaveEntityBlockSettings(entityID int64, className string, blockSettings map[string]string, db DBExecutor) error {
+	if len(blockSettings) == 0 {
+		return nil
+	}
+	jsonBytes, err := json.Marshal(blockSettings)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(
+		fmt.Sprintf("INSERT INTO %s_flattened (entity_id, block_settings) VALUES (?, ?) ON DUPLICATE KEY UPDATE block_settings = ?", className),
+		entityID, string(jsonBytes), string(jsonBytes),
+	)
+	return err
+}
+
+func computeHiddenFields(blocks []Entities.Block, toggles []Entities.BlockSettingToggle, entitySettings map[string]string) map[string]bool {
+	if len(toggles) == 0 {
+		return nil
+	}
+	toggleControlled := make(map[string]bool)
+	for _, toggle := range toggles {
+		for _, childID := range toggle.Children {
+			toggleControlled[childID] = true
 		}
 	}
-	return config, nil
+	selectedBlockIDs := make(map[string]bool)
+	for _, toggle := range toggles {
+		selected, ok := entitySettings[toggle.MachineName]
+		if !ok && len(toggle.Children) > 0 {
+			selected = toggle.Children[0]
+		}
+		if selected != "" {
+			selectedBlockIDs[selected] = true
+		}
+	}
+	hiddenFields := make(map[string]bool)
+	for _, block := range blocks {
+		if toggleControlled[block.ID] && !selectedBlockIDs[block.ID] {
+			for _, f := range block.Fields {
+				hiddenFields[f] = true
+			}
+		}
+	}
+	return hiddenFields
 }
 
 func PatchEntity(id int64, className string, updates map[string]interface{}, db DBExecutor) (interface{}, error) {
@@ -879,6 +971,26 @@ func PatchEntity(id int64, className string, updates map[string]interface{}, db 
 				if err != nil {
 					return nil, fmt.Errorf("failed to save custom field %s: %w", fieldName, err)
 				}
+			}
+		}
+	}
+
+	// Handle block_settings
+	if bsVal, ok := updates["block_settings"]; ok {
+		blockSettings := make(map[string]string)
+		switch bs := bsVal.(type) {
+		case map[string]interface{}:
+			for k, bv := range bs {
+				if s, ok := bv.(string); ok {
+					blockSettings[k] = s
+				}
+			}
+		case map[string]string:
+			blockSettings = bs
+		}
+		if len(blockSettings) > 0 {
+			if err := SaveEntityBlockSettings(id, className, blockSettings, db); err != nil {
+				return nil, fmt.Errorf("failed to save block settings: %w", err)
 			}
 		}
 	}

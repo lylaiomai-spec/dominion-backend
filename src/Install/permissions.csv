@@ -89,6 +89,7 @@ role_id,type,permission
 2,0,/wanted-character/activate/:id
 2,0,/wanted-character/create
 2,0,/wanted-character/deactivate/:id
+2,0,/wanted-character/preview
 2,0,/wanted-character/update/:id
 2,0,/puzzle/:id/achievement
 2,0,/puzzle/achievement/:id
@@ -102,6 +103,7 @@ role_id,type,permission
 3,0,/admin/additional-navlink/delete/:id
 3,0,/admin/smile/list
 3,0,/admin/smile/upload
+3,0,/admin/smile/bulk-upload
 3,0,/admin/smile/delete/:id
 3,0,/admin/smile/update-category/:id
 3,0,/admin/smile-category/list
@@ -147,6 +149,7 @@ role_id,type,permission
 3,0,/post-top/:id/update
 3,0,/post-top/create
 3,0,/reaction/activate/:id
+3,0,/reaction/bulk-upload
 3,0,/reaction/create
 3,0,/reaction/deactivate/:id
 3,0,/static-file/list/:file_type
@@ -193,6 +196,7 @@ role_id,type,permission
 3,0,/admin/qdrant/status
 3,0,/admin/qdrant/subforum-matrix
 3,0,/admin/qdrant/subforum-matrix/update
+3,0,/admin/smile/bulk-upload
 3,0,/admin/smile/upload
 3,0,/character-claim/delete/:id
 3,0,/admin/claim-record/:id/close
@@ -294,6 +298,7 @@ role_id,type,permission
 3,0,/admin/posts/move
 2,0,/user/subforum-settings
 2,0,/user/subforum-settings/update-all
+2,0,/user/subscribed-topics
 2,0,/interactive-map/create
 2,0,/interactive-map/update/:id
 2,0,/interactive-map/delete/:id

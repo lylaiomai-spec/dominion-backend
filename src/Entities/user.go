@@ -24,6 +24,7 @@ type User struct {
 	Signature            *string                   `json:"signature"`
 	Roles                []Role                    `json:"roles"`
 	NotificationSettings []UserNotificationSetting `json:"notification_settings"`
+	IsSuperuser          bool                      `json:"is_superuser"`
 }
 
 type ShortUser struct {

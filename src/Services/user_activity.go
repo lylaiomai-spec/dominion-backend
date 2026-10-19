@@ -3,6 +3,7 @@ package Services
 import (
 	"cuento-backend/src/Events"
 	"database/sql"
+	"sort"
 	"sync"
 	"time"
 )
@@ -119,6 +120,9 @@ func (s *UserActivityStorage) GetActiveUsers() []*UserActivity {
 			activeUsers = append(activeUsers, user)
 		}
 	}
+	sort.Slice(activeUsers, func(i, j int) bool {
+		return activeUsers[i].LastActive.After(activeUsers[j].LastActive)
+	})
 	return activeUsers
 }
 
@@ -178,14 +182,22 @@ func (s *UserActivityStorage) GetInactiveUserIDs(timeout time.Duration) []int {
 }
 
 // UpdateTopicView updates the database table tracking the user's last read position in a topic.
+// postID nil means the topic has no posts yet; we store 0 as a sentinel so that
+// "utv.post_id IS NULL" continues to mean "never visited" while still clearing
+// the new-content indicator. When the first real post arrives its ID > 0, so the
+// indicator reappears correctly.
 func (s *UserActivityStorage) UpdateTopicView(db *sql.DB, userID int, topicID int64, postID *int64) error {
+	var effectivePostID int64 = 0
+	if postID != nil {
+		effectivePostID = *postID
+	}
 	query := `
 		INSERT INTO user_topic_view (user_id, topic_id, post_id, view_date)
 		VALUES (?, ?, ?, NOW())
-		ON DUPLICATE KEY UPDATE 
+		ON DUPLICATE KEY UPDATE
 			view_date = CASE WHEN VALUES(post_id) > post_id OR post_id IS NULL THEN NOW() ELSE view_date END,
 			post_id = CASE WHEN VALUES(post_id) > post_id OR post_id IS NULL THEN VALUES(post_id) ELSE post_id END
 	`
-	_, err := db.Exec(query, userID, topicID, postID)
+	_, err := db.Exec(query, userID, topicID, effectivePostID)
 	return err
 }

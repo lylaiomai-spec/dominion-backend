@@ -1,6 +1,7 @@
 package EventHandlers
 
 import (
+	"cuento-backend/src/Entities"
 	"cuento-backend/src/Events"
 	"database/sql"
 	"fmt"
@@ -167,6 +168,48 @@ func RegisterEpisodeEventHandlers() {
 					fmt.Printf("Error decrementing character total_episodes on episode updated: %v\n", err)
 				}
 			}
+		}
+	})
+
+	// Subscriber: Notify character owners when a new episode is created with their character
+	Events.Subscribe(Events.EpisodeCreated, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.EpisodeCreatedEvent)
+		if !ok {
+			return
+		}
+
+		rows, err := db.Query(`
+			SELECT cb.id, cb.name, cb.user_id
+			FROM episode_character ec
+			JOIN character_base cb ON ec.character_id = cb.id
+			WHERE ec.episode_id = ?`, event.EpisodeID)
+		if err != nil {
+			fmt.Printf("Error fetching characters for episode created notification: %v\n", err)
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var charID, ownerID int
+			var charName string
+			if rows.Scan(&charID, &charName, &ownerID) != nil {
+				continue
+			}
+			if ownerID == event.UserID {
+				continue
+			}
+			Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
+				UserID:  ownerID,
+				Type:    "game",
+				Message: fmt.Sprintf("Your character %s was added to a new episode: %s", charName, event.TopicName),
+				Data: Entities.NotificationGame{
+					TopicId:           int(event.TopicID),
+					TopicName:         event.TopicName,
+					Type:              "episode_created",
+					UserCharacterId:   charID,
+					UserCharacterName: charName,
+				},
+			})
 		}
 	})
 

@@ -26,10 +26,11 @@ type GetWantedCharacterListRequest struct {
 }
 
 type UpdateWantedCharacterRequest struct {
-	Name         string                 `json:"name" binding:"required"`
-	CustomFields map[string]interface{} `json:"custom_fields"`
-	Factions     []Entities.Faction     `json:"factions"`
-	RelationIds  []int                  `json:"relations"`
+	Name          string                 `json:"name" binding:"required"`
+	CustomFields  map[string]interface{} `json:"custom_fields"`
+	Factions      []Entities.Faction     `json:"factions"`
+	RelationIds   []int                  `json:"relations"`
+	BlockSettings map[string]string      `json:"block_settings"`
 }
 
 type CreateWantedCharacterRequest struct {
@@ -39,6 +40,7 @@ type CreateWantedCharacterRequest struct {
 	CustomFields     map[string]interface{} `json:"custom_fields"`
 	Factions         []Entities.Faction     `json:"factions"`
 	RelationIds      []int                  `json:"relations"`
+	BlockSettings    map[string]string      `json:"block_settings"`
 }
 
 func GetWantedCharacterList(c *gin.Context, db *sql.DB) {
@@ -398,6 +400,14 @@ func CreateWantedCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	if len(req.BlockSettings) > 0 {
+		if err := Services.SaveEntityBlockSettings(wantedCharacterID, "wanted_character", req.BlockSettings, tx); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save block settings: " + err.Error()})
+			c.Abort()
+			return
+		}
+	}
+
 	var claimID int64
 	if req.CharacterClaimId != nil {
 		claimID = int64(*req.CharacterClaimId)
@@ -543,6 +553,9 @@ func UpdateWantedCharacter(c *gin.Context, db *sql.DB) {
 	updates := map[string]interface{}{
 		"name":          req.Name,
 		"custom_fields": req.CustomFields,
+	}
+	if req.BlockSettings != nil {
+		updates["block_settings"] = req.BlockSettings
 	}
 	_, err = Services.PatchEntity(int64(wantedCharacterID), "wanted_character", updates, tx)
 	if err != nil {
@@ -840,6 +853,88 @@ func GetClaimAutocomplete(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 	c.JSON(http.StatusOK, scanClaimAutocompleteRows(c, rows, "Failed to scan claim: "))
+}
+
+func PreviewWantedCharacter(c *gin.Context, db *sql.DB) {
+	var req struct {
+		Name         string                 `json:"name"`
+		CustomFields map[string]interface{} `json:"custom_fields"`
+		Factions     []Entities.Faction     `json:"factions"`
+		RelationIds  []int                  `json:"relations"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
+		c.Abort()
+		return
+	}
+
+	cfMap := make(map[string]Entities.CustomFieldValue)
+	for k, v := range req.CustomFields {
+		var rawContent interface{}
+		if m, ok := v.(map[string]interface{}); ok {
+			rawContent = m["content"]
+		} else {
+			rawContent = v
+		}
+		cfMap[k] = Entities.CustomFieldValue{Content: rawContent}
+	}
+
+	fieldConfig, _ := Services.GetFieldConfig("wanted_character", db)
+	for _, conf := range fieldConfig {
+		if conf.FieldType == "text" {
+			if val, ok := cfMap[conf.MachineFieldName]; ok {
+				if s, ok := val.Content.(string); ok {
+					val.ContentHtml = Services.ParseBBCode(s)
+					cfMap[conf.MachineFieldName] = val
+				}
+			}
+		}
+	}
+
+	relations := fetchCharactersByIDs(req.RelationIds, db)
+
+	wantedCharacter := Entities.WantedCharacter{
+		Name:     req.Name,
+		Factions: req.Factions,
+		Relations: relations,
+		CustomFields: Entities.CustomFieldEntity{
+			CustomFields: cfMap,
+			FieldConfig:  fieldConfig,
+		},
+	}
+
+	c.JSON(http.StatusOK, wantedCharacter)
+}
+
+func fetchCharactersByIDs(ids []int, db *sql.DB) []Entities.ShortCharacter {
+	if len(ids) == 0 {
+		return []Entities.ShortCharacter{}
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	rows, err := db.Query(
+		"SELECT id, name, avatar FROM character_base WHERE id IN ("+strings.Join(placeholders, ",")+")",
+		args...,
+	)
+	if err != nil {
+		return []Entities.ShortCharacter{}
+	}
+	defer rows.Close()
+	var result []Entities.ShortCharacter
+	for rows.Next() {
+		var sc Entities.ShortCharacter
+		if rows.Scan(&sc.Id, &sc.Name, &sc.Avatar) == nil {
+			result = append(result, sc)
+		}
+	}
+	if result == nil {
+		return []Entities.ShortCharacter{}
+	}
+	return result
 }
 
 func fetchWantedCharacterRelations(wantedCharacterID int, db *sql.DB) []Entities.ShortCharacter {

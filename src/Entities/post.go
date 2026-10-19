@@ -17,6 +17,7 @@ type PostReaction struct {
 type Post struct {
 	Id                   int               `json:"id"`
 	TopicId              int               `json:"topic_id"`
+	TopicName            string            `json:"topic_name,omitempty"`
 	AuthorUserId         int               `json:"author_user_id"`
 	AuthorUserName       string            `json:"author_user_name"`
 	GuestName            *string           `json:"guest_name,omitempty"`

@@ -40,6 +40,9 @@ func main() {
 	// Start archiving warning notifier (checks daily, sends notifications at 10/5/3/2/1 days before archiving)
 	Services.StartArchivingNotifier(Services.DB)
 
+	// Start Google Drive backup scheduler (checks hourly, runs backup per configured frequency)
+	Services.StartBackupScheduler(Services.DB)
+
 	// Start WebSocket Hub
 	go Websockets.MainHub.Run()
 
@@ -195,7 +198,7 @@ func main() {
 		Controllers.GetActiveUserActivity(c, Services.DB)
 	})
 	publicRouter.POST("/guest/activity", "Update guest location for active users list", func(c *gin.Context) {
-		Controllers.UpdateGuestLocation(c)
+		Controllers.UpdateGuestLocation(c, Services.DB)
 	})
 	optionalAuthRouter.GET("/search", "Search across buckets", func(c *gin.Context) {
 		Controllers.Search(c, Services.DB)
@@ -271,6 +274,12 @@ func main() {
 	optionalAuthRouter.GET("/topic-posts/:id", "Get posts in a topic by page", func(c *gin.Context) {
 		Controllers.GetPostsByTopic(c, Services.DB)
 	})
+	optionalAuthRouter.GET("/user-posts/:user_id", "Get posts by a specific user", func(c *gin.Context) {
+		Controllers.GetPostsByUser(c, Services.DB)
+	})
+	optionalAuthRouter.GET("/character-posts/:character_id", "Get posts written as a specific character", func(c *gin.Context) {
+		Controllers.GetPostsByCharacter(c, Services.DB)
+	})
 	optionalAuthRouter.GET("/users/page/:page_type/:page_id", "Get users currently viewing a page", func(c *gin.Context) {
 		Controllers.GetUsersByPage(c, Services.DB)
 	})
@@ -312,6 +321,18 @@ func main() {
 	})
 	authOnlyRouter.POST("/admin/backup/restore", "Restore the database from an uploaded SQL file", func(c *gin.Context) {
 		Controllers.RestoreDB(c)
+	})
+	authOnlyRouter.GET("/admin/backup/gdrive", "Get Google Drive backup settings and backup list", func(c *gin.Context) {
+		Controllers.GetGDriveBackupSettings(c, Services.DB)
+	})
+	authOnlyRouter.POST("/admin/backup/gdrive", "Save Google Drive backup settings", func(c *gin.Context) {
+		Controllers.UpdateGDriveBackupSettings(c, Services.DB)
+	})
+	authOnlyRouter.POST("/admin/backup/gdrive/trigger", "Trigger an immediate Google Drive backup", func(c *gin.Context) {
+		Controllers.TriggerGDriveBackup(c, Services.DB)
+	})
+	authOnlyRouter.GET("/admin/backup/gdrive/download/:fileId", "Download a backup file from Google Drive", func(c *gin.Context) {
+		Controllers.DownloadGDriveBackup(c, Services.DB)
 	})
 
 	// Protected routes
@@ -460,6 +481,9 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	protectedRouter.POST("/wanted-character/create", "Create a new wanted character", func(c *gin.Context) {
 		Controllers.CreateWantedCharacter(c, Services.DB)
 	})
+	protectedRouter.POST("/wanted-character/preview", "Preview a wanted character without saving", func(c *gin.Context) {
+		Controllers.PreviewWantedCharacter(c, Services.DB)
+	})
 	protectedRouter.POST("/wanted-character/update/:id", "Update a wanted character by ID", func(c *gin.Context) {
 		Controllers.UpdateWantedCharacter(c, Services.DB)
 	})
@@ -522,6 +546,9 @@ protectedRouter.GET("/character-claims", "Get list of all character claims group
 	})
 	protectedRouter.POST("/topic/:id/unsubscribe", "Unsubscribe from a topic", func(c *gin.Context) {
 		Controllers.UnsubscribeFromTopic(c, Services.DB)
+	})
+	protectedRouter.GET("/user/subscribed-topics", "Get current user's topic subscriptions", func(c *gin.Context) {
+		Controllers.GetUserSubscribedTopics(c, Services.DB)
 	})
 	publicRouter.GET("/lore-topic/:id/pages", "Get lore pages by topic ID", func(c *gin.Context) {
 		Controllers.GetLorePagesByTopic(c, Services.DB)
@@ -800,6 +827,9 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	protectedRouter.POST("/reaction/create", "Upload and create a new reaction", func(c *gin.Context) {
 		Controllers.CreateReaction(c, Services.DB)
 	})
+	protectedRouter.POST("/reaction/bulk-upload", "Bulk upload reactions from a ZIP archive", func(c *gin.Context) {
+		Controllers.BulkUploadReactions(c, Services.DB)
+	})
 	protectedRouter.POST("/reaction/deactivate/:id", "Deactivate a reaction by ID", func(c *gin.Context) {
 		Controllers.DeactivateReaction(c, Services.DB)
 	})
@@ -874,6 +904,9 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	})
 	protectedRouter.POST("/admin/smile/upload", "Upload a smile image", func(c *gin.Context) {
 		Controllers.UploadSmile(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/smile/bulk-upload", "Bulk upload smiles from a ZIP archive", func(c *gin.Context) {
+		Controllers.BulkUploadSmiles(c, Services.DB)
 	})
 	protectedRouter.GET("/admin/smile/delete/:id", "Delete smile by ID", func(c *gin.Context) {
 		Controllers.DeleteSmile(c, Services.DB)

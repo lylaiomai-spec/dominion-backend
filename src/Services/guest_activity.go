@@ -51,9 +51,9 @@ func (s *GuestActivityStorage) Track(fingerprint string) {
 	defer s.mu.Unlock()
 	if r, exists := s.guests[fingerprint]; exists {
 		r.lastActive = time.Now()
-	} else {
-		s.guests[fingerprint] = &guestRecord{lastActive: time.Now()}
 	}
+	// New guests are only created via UpdateLocation (POST /guest/activity),
+	// which ensures a page type is always present when a guest is first stored.
 }
 
 func (s *GuestActivityStorage) UpdateLocation(fingerprint, pageType, pageId string) {

@@ -5,15 +5,22 @@ import (
 	"cuento-backend/src/Middlewares"
 	"database/sql"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-// parseDateRange parses date_from and date_to query params (YYYY-MM-DD).
-// dateTo is extended to 23:59:59 so the full day is included.
-// Returns false and aborts the request on any parse error.
+// parseDateRange parses date_from, date_to (YYYY-MM-DD) and optional tz_offset
+// (minutes, JS getTimezoneOffset() convention: positive = west of UTC).
+// The returned bounds are shifted to match the caller's local midnight expressed in UTC.
 func parseDateRange(c *gin.Context) (dateFrom, dateTo time.Time, ok bool) {
+	tzOffset := 0
+	if s := c.Query("tz_offset"); s != "" {
+		tzOffset, _ = strconv.Atoi(s)
+	}
+	shift := time.Duration(tzOffset) * time.Minute
+
 	var err error
 	dateFrom, err = time.Parse("2006-01-02", c.Query("date_from"))
 	if err != nil {
@@ -27,7 +34,8 @@ func parseDateRange(c *gin.Context) (dateFrom, dateTo time.Time, ok bool) {
 		c.Abort()
 		return
 	}
-	dateTo = dateTo.Add(24*time.Hour - time.Second)
+	dateFrom = dateFrom.Add(shift)
+	dateTo = dateTo.Add(24*time.Hour - time.Second + shift)
 	ok = true
 	return
 }
@@ -129,18 +137,25 @@ func GetWritingActivity(c *gin.Context, db *sql.DB) {
 	if !ok {
 		return
 	}
-	// Keep the raw date (without time component) for the day-loop upper bound.
-	dateTo, _ := time.Parse("2006-01-02", c.Query("date_to"))
+	tzOffset := 0
+	if s := c.Query("tz_offset"); s != "" {
+		tzOffset, _ = strconv.Atoi(s)
+	}
 
+	// Parse local date strings for the loop (independent of timezone shift).
+	loopFrom, _ := time.Parse("2006-01-02", c.Query("date_from"))
+	loopTo, _ := time.Parse("2006-01-02", c.Query("date_to"))
+
+	// Group by local date: shift UTC timestamp by -tz_offset minutes to get local time.
 	rows, err := db.Query(`
-		SELECT DATE(p.date_created) AS day, COUNT(*) AS post_count
+		SELECT DATE(DATE_ADD(p.date_created, INTERVAL ? MINUTE)) AS day, COUNT(*) AS post_count
 		FROM posts p
 		JOIN episode_base eb ON eb.topic_id = p.topic_id
 		WHERE p.date_created BETWEEN ? AND ?
 		  AND (p.is_deleted IS NULL OR p.is_deleted != 1)
 		GROUP BY day
 		ORDER BY day
-	`, dateFrom, dateToInclusive)
+	`, -tzOffset, dateFrom, dateToInclusive)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to query writing activity"})
 		c.Abort()
@@ -157,9 +172,9 @@ func GetWritingActivity(c *gin.Context, db *sql.DB) {
 		}
 	}
 
-	// Build a contiguous slice covering every day in the range, filling zeros.
+	// Build a contiguous slice covering every local day in the range, filling zeros.
 	var result []DailyPostCount
-	for d := dateFrom; !d.After(dateTo); d = d.AddDate(0, 0, 1) {
+	for d := loopFrom; !d.After(loopTo); d = d.AddDate(0, 0, 1) {
 		key := d.Format("2006-01-02")
 		result = append(result, DailyPostCount{Date: key, Count: postsByDay[key]})
 	}

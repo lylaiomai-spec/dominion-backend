@@ -37,9 +37,10 @@ var allowedAvatarMIMEs = map[string]bool{
 func SaveUserAvatar(data []byte, userID int, db *sql.DB) (string, error) {
 	wStr, _ := GetGlobalSetting("user_avatar_width", db)
 	hStr, _ := GetGlobalSetting("user_avatar_height", db)
+	lessStr, _ := GetGlobalSetting("user_avatar_less", db)
 	w, _ := strconv.Atoi(wStr)
 	h, _ := strconv.Atoi(hStr)
-	return saveAvatar(data, "user", userID, w, h)
+	return saveAvatar(data, "user", userID, w, h, lessStr == "y")
 }
 
 func SaveCharacterAvatar(data []byte, characterID int, db *sql.DB) (string, error) {
@@ -47,7 +48,7 @@ func SaveCharacterAvatar(data []byte, characterID int, db *sql.DB) (string, erro
 	hStr, _ := GetGlobalSetting("character_avatar_height", db)
 	w, _ := strconv.Atoi(wStr)
 	h, _ := strconv.Atoi(hStr)
-	return saveAvatar(data, "character", characterID, w, h)
+	return saveAvatar(data, "character", characterID, w, h, false)
 }
 
 func SaveCharacterProfileAvatar(data []byte, profileID int, db *sql.DB) (string, error) {
@@ -55,10 +56,10 @@ func SaveCharacterProfileAvatar(data []byte, profileID int, db *sql.DB) (string,
 	hStr, _ := GetGlobalSetting("user_avatar_height", db)
 	w, _ := strconv.Atoi(wStr)
 	h, _ := strconv.Atoi(hStr)
-	return saveAvatar(data, "character_profile", profileID, w, h)
+	return saveAvatar(data, "character_profile", profileID, w, h, false)
 }
 
-func saveAvatar(data []byte, subdir string, id int, width, height int) (string, error) {
+func saveAvatar(data []byte, subdir string, id int, width, height int, less bool) (string, error) {
 	if len(data) > maxAvatarInputBytes {
 		return "", errors.New("image exceeds maximum allowed size of 10 MB")
 	}
@@ -73,7 +74,12 @@ func saveAvatar(data []byte, subdir string, id int, width, height int) (string, 
 		return "", errors.New("invalid or corrupt image data")
 	}
 
+	bounds := src.Bounds()
 	switch {
+	case less && width > 0 && height > 0:
+		if bounds.Dx() > width || bounds.Dy() > height {
+			src = imaging.Fit(src, width, height, imaging.Lanczos)
+		}
 	case width > 0 && height > 0:
 		src = imaging.Fill(src, width, height, imaging.Center, imaging.Lanczos)
 	case width > 0:

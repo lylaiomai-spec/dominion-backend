@@ -27,6 +27,7 @@ type CreateEpisodeRequest struct {
 	RatingSex      int                    `json:"rating_sex"`
 	CustomFields   map[string]interface{} `json:"custom_fields"`
 	ArcID          *int                   `json:"arc_id"`
+	BlockSettings  map[string]string      `json:"block_settings"`
 }
 
 type UpdateEpisodeRequest struct {
@@ -40,6 +41,7 @@ type UpdateEpisodeRequest struct {
 	RatingSex      *int                   `json:"rating_sex"`
 	CustomFields   map[string]interface{} `json:"custom_fields"`
 	OpenToEveryone *bool                  `json:"open_to_everyone"`
+	BlockSettings  map[string]string      `json:"block_settings"`
 }
 
 type GetEpisodesRequest struct {
@@ -132,6 +134,14 @@ func CreateEpisode(c *gin.Context, db *sql.DB) {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create episode entity: " + err.Error()})
 		c.Abort()
 		return
+	}
+
+	if len(req.BlockSettings) > 0 {
+		if err := Services.SaveEntityBlockSettings(episodeID, "episode", req.BlockSettings, tx); err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save block settings: " + err.Error()})
+			c.Abort()
+			return
+		}
 	}
 
 	createdEpisode, ok := createdEntity.(*Entities.Episode)
@@ -938,6 +948,9 @@ func UpdateEpisode(c *gin.Context, db *sql.DB) {
 	}
 	if req.RatingSex != nil {
 		updates["rating_sex"] = *req.RatingSex
+	}
+	if req.BlockSettings != nil {
+		updates["block_settings"] = req.BlockSettings
 	}
 	_, err = Services.PatchEntity(int64(episodeID), "episode", updates, tx)
 	if err != nil {

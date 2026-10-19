@@ -26,9 +26,12 @@ func RegisterPostEventHandlers() {
 			msgType = "post_created"
 		}
 
-		// Get all users currently reading this topic
+		// Get all users who have at least one connection on this topic page.
+		// Use the hub's per-connection tracking so multiple tabs work correctly:
+		// a user on the topic in Tab A still receives the event even if their most
+		// recent page_change came from Tab B on a different page.
 		topicIDStr := strconv.FormatInt(event.TopicID, 10)
-		users := Services.ActivityStorage.GetUsersOnPage("topic", topicIDStr)
+		userIDs := Websockets.MainHub.GetUserIDsOnPage("topic", topicIDStr)
 
 		var totalPosts int
 		db.QueryRow(
@@ -41,28 +44,28 @@ func RegisterPostEventHandlers() {
 		baseHtml := Services.LinkifyURLs(Services.ResolveNPCPlaceholders(Services.ParseBBCode(event.Post.Content), db), domain, db)
 
 		// Send to each user on the page with their localized date and per-user CanEdit
-		for _, u := range users {
+		for _, uid := range userIDs {
 			userPost := event.Post
-			userPost.ContentHtml = Services.ProcessHideBlocks(baseHtml, u.UserID, int(event.TopicID), db)
-			userPost.DateCreatedLocalized = Services.LocalizeTime(userPost.DateCreated, Services.GetUserTimezone(u.UserID, db))
+			userPost.ContentHtml = Services.ProcessHideBlocks(baseHtml, uid, int(event.TopicID), db)
+			userPost.DateCreatedLocalized = Services.LocalizeTime(userPost.DateCreated, Services.GetUserTimezone(uid, db))
 
 			canEdit := false
-			if u.UserID != 0 {
-				if u.UserID == userPost.AuthorUserId {
+			if uid != 0 {
+				if uid == userPost.AuthorUserId {
 					perm := fmt.Sprintf("subforum_edit_own_post:%d", event.SubforumID)
-					if hasPerm, err := Services.HasPermission(u.UserID, perm, db); err == nil && hasPerm {
+					if hasPerm, err := Services.HasPermission(uid, perm, db); err == nil && hasPerm {
 						canEdit = true
 					}
 				} else {
 					perm := fmt.Sprintf("subforum_edit_others_post:%d", event.SubforumID)
-					if hasPerm, err := Services.HasPermission(u.UserID, perm, db); err == nil && hasPerm {
+					if hasPerm, err := Services.HasPermission(uid, perm, db); err == nil && hasPerm {
 						canEdit = true
 					}
 				}
 			}
 			userPost.CanEdit = &canEdit
 
-			Websockets.MainHub.SendNotification(u.UserID, map[string]interface{}{
+			Websockets.MainHub.SendNotification(uid, map[string]interface{}{
 				"type":        msgType,
 				"data":        userPost,
 				"total_posts": totalPosts,
