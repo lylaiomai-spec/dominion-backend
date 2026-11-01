@@ -1079,6 +1079,8 @@ type CreateClaimRecordRequest struct {
 	ClaimId   int    `json:"claim_id" binding:"required"`
 }
 
+// generateGuestHash returns a random 6-character alphanumeric token used as a
+// public claim identifier for non-registered applicants.
 func generateGuestHash() string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	result := make([]byte, 6)
