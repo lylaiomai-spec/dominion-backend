@@ -24,6 +24,8 @@ func NewGeminiClient(apiKey string, model string) (*GeminiClient, error) {
 	return &GeminiClient{client: client, model: model}, nil
 }
 
+func (g *GeminiClient) ModelID() string { return g.model }
+
 func (g *GeminiClient) Chat(ctx context.Context, history []ChatMessage, systemInstruction string) (string, []ChatSource, error) {
 	contents := make([]*genai.Content, len(history))
 	for i, msg := range history {
@@ -49,10 +51,26 @@ func (g *GeminiClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 	}
 
 	var collectedSources []ChatSource
+	citedTopicIDs := make(map[int64]bool)
 
-	const maxRounds = 10
+	const maxRounds = 20
+	const toolBudget = 15
+	toolRounds := 0
 	for round := 0; round < maxRounds; round++ {
-		result, err := g.client.Models.GenerateContent(ctx, g.model, contents, cfg)
+		activeCfg := cfg
+		if toolRounds >= toolBudget {
+			activeCfg = &genai.GenerateContentConfig{
+				Temperature:       cfg.Temperature,
+				SystemInstruction: cfg.SystemInstruction,
+			}
+			if toolRounds == toolBudget {
+				contents = append(contents, &genai.Content{
+					Role:  "user",
+					Parts: []*genai.Part{{Text: "You have reached the search limit. Do not call any more tools. Write your final answer now based only on the results you have already gathered."}},
+				})
+			}
+		}
+		result, err := g.client.Models.GenerateContent(ctx, g.model, contents, activeCfg)
 		if err != nil {
 			return "", nil, err
 		}
@@ -78,16 +96,22 @@ func (g *GeminiClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 
 		if len(functionCalls) == 0 {
 			if len(textParts) > 0 {
-				return textParts[0].Text, collectedSources, nil
+				return textParts[0].Text, filterSourcesByCitations(collectedSources, citedTopicIDs), nil
 			}
 			return "", nil, fmt.Errorf("empty response from Gemini (finish_reason=%v)", candidate.FinishReason)
 		}
 
+		toolRounds++
 		contents = append(contents, candidate.Content)
 
 		responseParts := make([]*genai.Part, 0, len(functionCalls))
 		for _, part := range functionCalls {
 			fc := part.FunctionCall
+			if fc.Name == "cite_sources" {
+				for _, id := range postIDsFromArgs(fc.Args) {
+					citedTopicIDs[id] = true
+				}
+			}
 			executor, ok := findExecutor(fc.Name)
 			if !ok {
 				responseParts = append(responseParts, genai.NewPartFromFunctionResponse(fc.Name, map[string]any{
@@ -116,6 +140,50 @@ func (g *GeminiClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 	}
 
 	return "", nil, fmt.Errorf("exceeded maximum tool call rounds")
+}
+
+// postIDsFromArgs extracts the post_ids array from a cite_sources tool call.
+// Handles numeric types and string-encoded integers (search results expose IDs as strings).
+func postIDsFromArgs(args map[string]any) []int64 {
+	raw, ok := args["post_ids"]
+	if !ok || raw == nil {
+		return nil
+	}
+	slice, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	ids := make([]int64, 0, len(slice))
+	for _, v := range slice {
+		switch n := v.(type) {
+		case float64:
+			ids = append(ids, int64(n))
+		case int64:
+			ids = append(ids, n)
+		case int:
+			ids = append(ids, int64(n))
+		case string:
+			if parsed, err := strconv.ParseInt(n, 10, 64); err == nil {
+				ids = append(ids, parsed)
+			}
+		}
+	}
+	return ids
+}
+
+// filterSourcesByCitations returns only sources whose PostID is in cited.
+// If cited is empty (model never called cite_sources), returns nil.
+func filterSourcesByCitations(sources []ChatSource, cited map[int64]bool) []ChatSource {
+	if len(cited) == 0 {
+		return nil
+	}
+	out := make([]ChatSource, 0, len(cited))
+	for _, s := range sources {
+		if s.PostID != nil && cited[*s.PostID] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // extractSources parses tool output JSON and collects post/topic ID pairs.

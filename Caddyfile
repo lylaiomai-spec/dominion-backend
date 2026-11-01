@@ -3,6 +3,11 @@
     root * /usr/share/caddy
     file_server
 
+    # Proxy WebSocket connections
+    handle /ws {
+        reverse_proxy app:8080
+    }
+
     # Proxy API requests to the Go backend
     # handle_path strips the /api prefix before forwarding
     handle_path /api/* {

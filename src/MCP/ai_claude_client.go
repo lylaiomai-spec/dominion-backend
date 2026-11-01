@@ -19,6 +19,8 @@ func NewClaudeClient(apiKey, model string) (*ClaudeClient, error) {
 	return &ClaudeClient{client: client, model: model}, nil
 }
 
+func (c *ClaudeClient) ModelID() string { return c.model }
+
 func (c *ClaudeClient) Chat(ctx context.Context, history []ChatMessage, systemInstruction string) (string, []ChatSource, error) {
 	messages := make([]anthropic.MessageParam, 0, len(history))
 	for _, msg := range history {
@@ -38,15 +40,22 @@ func (c *ClaudeClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 	}
 
 	var collectedSources []ChatSource
+	citedPostIDs := make(map[int64]bool)
 
-	const maxRounds = 10
+	const maxRounds = 20
+	const toolBudget = 15
+	toolRounds := 0
 	for round := 0; round < maxRounds; round++ {
 		params := anthropic.MessageNewParams{
 			Model:       anthropic.Model(c.model),
 			Messages:    messages,
 			MaxTokens:   4096,
-			Tools:       toolUnions,
 			Temperature: anthropic.Float(0),
+		}
+		if toolRounds < toolBudget {
+			params.Tools = toolUnions
+		} else if toolRounds == toolBudget {
+			messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock("You have reached the search limit. Do not call any more tools. Write your final answer now based only on the results you have already gathered.")))
 		}
 		if systemInstruction != "" {
 			params.System = []anthropic.TextBlockParam{{Text: systemInstruction}}
@@ -70,9 +79,10 @@ func (c *ClaudeClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 		}
 
 		if len(toolUseBlocks) == 0 {
-			return textContent, collectedSources, nil
+			return textContent, filterSourcesByCitations(collectedSources, citedPostIDs), nil
 		}
 
+		toolRounds++
 		// Add assistant turn to history
 		messages = append(messages, resp.ToParam())
 
@@ -82,6 +92,12 @@ func (c *ClaudeClient) Chat(ctx context.Context, history []ChatMessage, systemIn
 			var args map[string]any
 			if err := json.Unmarshal(block.Input, &args); err != nil {
 				args = map[string]any{}
+			}
+
+			if block.Name == "cite_sources" {
+				for _, id := range postIDsFromArgs(args) {
+					citedPostIDs[id] = true
+				}
 			}
 
 			executor, ok := findExecutor(block.Name)

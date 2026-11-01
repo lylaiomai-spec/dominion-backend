@@ -253,7 +253,7 @@ func QdrantPushFlattenedEntity(bucket, entityName string, id int64, db *sql.DB) 
 
 // QdrantSearchInBucket performs a semantic search via Qdrant, then applies the same
 // permission and filter logic as SearchInBucket before fetching content from the DB.
-func QdrantSearchInBucket(bucket, query string, limit, filterSubforum, filterTopicType int, visibleSubforums map[int]bool, db *sql.DB) ([]SearchResultItem, error) {
+func QdrantSearchInBucket(bucket, query string, limit, filterSubforum, filterTopicType, filterFactionID int, visibleSubforums map[int]bool, db *sql.DB) ([]SearchResultItem, error) {
 	qdrantIDs, err := QdrantQuery(bucket, query, limit)
 	if err != nil || len(qdrantIDs) == 0 {
 		return nil, nil
@@ -271,10 +271,18 @@ func QdrantSearchInBucket(bucket, query string, limit, filterSubforum, filterTop
 		metaQuery = fmt.Sprintf(`SELECT p.id, t.subforum_id, t.type FROM posts p JOIN topics t ON p.topic_id = t.id WHERE p.id IN (%s)`, placeholders)
 	case SonicBucketCharacters:
 		metaQuery = fmt.Sprintf(`SELECT cb.id, t.subforum_id, t.type FROM character_base cb JOIN topics t ON cb.topic_id = t.id WHERE cb.id IN (%s)`, placeholders)
+		if filterFactionID != 0 {
+			metaQuery += ` AND EXISTS (SELECT 1 FROM character_faction cf WHERE cf.character_id = cb.id AND cf.faction_id = ?)`
+			args = append(args, filterFactionID)
+		}
 	case SonicBucketWantedPosts:
 		metaQuery = fmt.Sprintf(`SELECT wc.id, t.subforum_id, t.type FROM wanted_character_base wc JOIN topics t ON wc.topic_id = t.id WHERE wc.id IN (%s)`, placeholders)
 	case SonicBucketEpisodes:
 		metaQuery = fmt.Sprintf(`SELECT eb.id, t.subforum_id, t.type FROM episode_base eb JOIN topics t ON eb.topic_id = t.id WHERE eb.id IN (%s)`, placeholders)
+		if filterFactionID != 0 {
+			metaQuery += ` AND EXISTS (SELECT 1 FROM episode_character ec JOIN character_faction cf ON ec.character_id = cf.character_id WHERE ec.episode_id = eb.id AND cf.faction_id = ?)`
+			args = append(args, filterFactionID)
+		}
 	default:
 		return nil, fmt.Errorf("unknown bucket: %s", bucket)
 	}

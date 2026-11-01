@@ -213,9 +213,11 @@ type SubforumUpdatedEvent struct {
 }
 
 type TopicFullEvent struct {
-	TopicID    int64
-	SubforumID int
-	TopicName  string
+	TopicID             int64
+	SubforumID          int
+	TopicName           string
+	TriggeredByUser     int       // user ID of the post that filled the topic (0 if unknown)
+	TriggeredByPostDate time.Time // creation date of the post that filled the topic
 }
 
 type TopicStatusChangedEvent struct {

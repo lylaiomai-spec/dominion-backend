@@ -1880,71 +1880,6 @@ func CloseActiveClaimRecord(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"message": "Claim record closed"})
 }
 
-type characterDeactivationResult struct {
-	CharacterID    int
-	UserID         int
-	TopicID        int64
-	SubforumID     int
-	OldTopicStatus int
-	OldCharStatus  int
-}
-
-// deactivateCharacterInTx sets a character inactive within an existing transaction:
-// deactivates the character, its topic, archives its profiles, and frees any claim.
-// Returns (result, found, error). found=false means the character ID did not exist.
-func deactivateCharacterInTx(tx *sql.Tx, db *sql.DB, characterID int) (characterDeactivationResult, bool, error) {
-	var res characterDeactivationResult
-	res.CharacterID = characterID
-	_ = db.QueryRow(`
-		SELECT t.id, t.subforum_id, t.status, cb.character_status, cb.user_id
-		FROM topics t JOIN character_base cb ON cb.topic_id = t.id
-		WHERE cb.id = ?`, characterID,
-	).Scan(&res.TopicID, &res.SubforumID, &res.OldTopicStatus, &res.OldCharStatus, &res.UserID)
-
-	result, err := tx.Exec("UPDATE character_base SET character_status = ? WHERE id = ?", Entities.InactiveCharacter, characterID)
-	if err != nil {
-		return res, false, fmt.Errorf("failed to deactivate character: %w", err)
-	}
-	if n, _ := result.RowsAffected(); n == 0 {
-		return res, false, nil
-	}
-
-	if res.TopicID > 0 {
-		if _, err := tx.Exec("UPDATE topics SET status = ? WHERE id = ?", Entities.InactiveTopic, res.TopicID); err != nil {
-			return res, true, fmt.Errorf("failed to deactivate character topic: %w", err)
-		}
-	}
-	if _, err := tx.Exec("UPDATE character_profile_base SET is_archived = 1 WHERE character_id = ?", characterID); err != nil {
-		return res, true, fmt.Errorf("failed to archive character profiles: %w", err)
-	}
-
-	// If this character was accepted via a claim, free the wanted character slot again.
-	var claimID int
-	if err := tx.QueryRow("SELECT claim_id FROM claim_record WHERE character_id = ? ORDER BY claim_date DESC LIMIT 1", characterID).Scan(&claimID); err == nil {
-		_, _ = tx.Exec("UPDATE character_claim SET is_claimed = false WHERE id = ?", claimID)
-		_, _ = tx.Exec("UPDATE wanted_character_base SET is_claimed = false WHERE character_claim_id = ?", claimID)
-	}
-
-	return res, true, nil
-}
-
-func publishCharacterDeactivatedEvents(db *sql.DB, res characterDeactivationResult) {
-	Events.Publish(db, Events.CharacterStatusChanged, Events.CharacterStatusChangedEvent{
-		CharacterID: res.CharacterID,
-		UserID:      res.UserID,
-		OldStatus:   Entities.CharacterStatus(res.OldCharStatus),
-		NewStatus:   Entities.InactiveCharacter,
-	})
-	Events.Publish(db, Events.CharacterDeactivated, Events.CharacterDeactivatedEvent{CharacterID: res.CharacterID})
-	if res.TopicID > 0 && res.OldTopicStatus != int(Entities.InactiveTopic) {
-		Events.Publish(db, Events.TopicStatusChanged, Events.TopicStatusChangedEvent{
-			TopicID:    res.TopicID,
-			SubforumID: res.SubforumID,
-			OldStatus:  res.OldTopicStatus,
-			NewStatus:  int(Entities.InactiveTopic),
-		})
-	}
-}
 
 func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 	id, err := strconv.Atoi(c.Param("id"))
@@ -1962,7 +1897,7 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 	}
 	defer tx.Rollback()
 
-	res, found, err := deactivateCharacterInTx(tx, db, id)
+	res, found, err := Services.DeactivateCharacterInTx(tx, db, id)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: err.Error()})
 		c.Abort()
@@ -1983,7 +1918,7 @@ func DeactivateCharacter(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	publishCharacterDeactivatedEvents(db, res)
+	Services.PublishCharacterDeactivatedEvents(db, res)
 
 	var topicStatus Entities.TopicStatus
 	_ = db.QueryRow("SELECT status FROM topics WHERE id = ?", res.TopicID).Scan(&topicStatus)

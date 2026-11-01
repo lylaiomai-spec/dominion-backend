@@ -282,7 +282,7 @@ func Login(c *gin.Context, db *sql.DB) {
 		user.Roles = append(user.Roles, role)
 	}
 	if Services.IsSuperuserID(user.Id) {
-		user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup"}})
+		user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup", "show_admin_ai_models"}})
 		user.IsSuperuser = true
 	}
 
@@ -407,7 +407,7 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 			}
 		}
 		if Services.IsSuperuserID(user.Id) {
-			user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup"}})
+			user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup", "show_admin_ai_models"}})
 			user.IsSuperuser = true
 		}
 	}
@@ -733,7 +733,7 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 			}
 		}
 		if Services.IsSuperuserID(user.Id) {
-			user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup"}})
+			user.Roles = append(user.Roles, Entities.Role{Id: 0, Name: "superadmin", Permissions: []string{"show_admin_backup", "show_admin_ai_models"}})
 			user.IsSuperuser = true
 		}
 	}
@@ -1459,7 +1459,7 @@ type topicDeletion struct {
 // characters/wanted characters/profiles to user 1, and deletes the user — all within the
 // provided transaction. Returns per-topic post batches and deactivation results for
 // post-commit event firing.
-func wipeUserInTx(tx *sql.Tx, db *sql.DB, userID int) ([]topicDeletion, []characterDeactivationResult, []wantedCharDeactivationResult, int, error) {
+func wipeUserInTx(tx *sql.Tx, db *sql.DB, userID int) ([]topicDeletion, []Services.CharacterDeactivationResult, []wantedCharDeactivationResult, int, error) {
 	if _, err := tx.Exec("DELETE FROM direct_chat_messages WHERE user_id = ?", userID); err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("failed to delete direct messages: %w", err)
 	}
@@ -1505,7 +1505,7 @@ func wipeUserInTx(tx *sql.Tx, db *sql.DB, userID int) ([]topicDeletion, []charac
 	}
 
 	// Deactivate each active character via the shared helper so all downstream logic is consistent.
-	var charResults []characterDeactivationResult
+	var charResults []Services.CharacterDeactivationResult
 	charRows, err := db.Query(
 		"SELECT id FROM character_base WHERE user_id = ? AND character_status = ?",
 		userID, Entities.ActiveCharacter,
@@ -1520,7 +1520,7 @@ func wipeUserInTx(tx *sql.Tx, db *sql.DB, userID int) ([]topicDeletion, []charac
 		}
 		charRows.Close()
 		for _, cid := range charIDs {
-			res, _, err := deactivateCharacterInTx(tx, db, cid)
+			res, _, err := Services.DeactivateCharacterInTx(tx, db, cid)
 			if err != nil {
 				return nil, nil, nil, 0, fmt.Errorf("failed to deactivate character %d: %w", cid, err)
 			}
@@ -1634,7 +1634,7 @@ func WipeOutMyUser(c *gin.Context, db *sql.DB) {
 		})
 	}
 	for _, r := range charResults {
-		publishCharacterDeactivatedEvents(db, r)
+		Services.PublishCharacterDeactivatedEvents(db, r)
 	}
 	for _, r := range wcResults {
 		publishWantedCharDeactivatedEvents(db, r)
@@ -1689,7 +1689,7 @@ func AdminWipeUser(c *gin.Context, db *sql.DB) {
 		})
 	}
 	for _, r := range charResults {
-		publishCharacterDeactivatedEvents(db, r)
+		Services.PublishCharacterDeactivatedEvents(db, r)
 	}
 	for _, r := range wcResults {
 		publishWantedCharDeactivatedEvents(db, r)

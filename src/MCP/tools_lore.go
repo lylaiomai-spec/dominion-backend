@@ -30,6 +30,49 @@ func registerLoreTools(s *server.MCPServer, db *sql.DB) {
 			},
 		},
 	)
+
+	registerTool(s,
+		mcp.NewTool("get_factions",
+			mcp.WithDescription("Returns the list of all active factions with their ID and name. Use this to identify which faction a question is about before filtering searches by faction_id."),
+		),
+		ToolDefinition{
+			Name:        "get_factions",
+			Description: "Returns the list of all active factions with their ID and name.",
+			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+				return executeGetFactions(ctx, db)
+			},
+		},
+	)
+}
+
+type factionResult struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+func executeGetFactions(ctx context.Context, db *sql.DB) (string, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, name FROM factions WHERE faction_status = 0 ORDER BY name ASC`,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to query factions: %w", err)
+	}
+	defer rows.Close()
+
+	factions := make([]factionResult, 0)
+	for rows.Next() {
+		var f factionResult
+		if err := rows.Scan(&f.ID, &f.Name); err != nil {
+			continue
+		}
+		factions = append(factions, f)
+	}
+
+	data, err := json.Marshal(factions)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize factions")
+	}
+	return string(data), nil
 }
 
 func executGetLoreTopics(ctx context.Context, db *sql.DB) (string, error) {

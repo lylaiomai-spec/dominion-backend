@@ -208,8 +208,10 @@ func RegisterTopicEventHandlers() {
 			return
 		}
 		Websockets.MainHub.BroadcastToUsers(userIDs, map[string]interface{}{
-			"type":     "topic_full",
-			"topic_id": event.TopicID,
+			"type":                   "topic_full",
+			"topic_id":               event.TopicID,
+			"triggered_by_user_id":   event.TriggeredByUser,
+			"triggered_by_post_date": event.TriggeredByPostDate,
 		})
 	})
 }

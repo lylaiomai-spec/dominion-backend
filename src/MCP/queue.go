@@ -1,7 +1,6 @@
 package MCP
 
 import (
-	"context"
 	"cuento-backend/src/Entities"
 	"cuento-backend/src/Services"
 	"cuento-backend/src/Websockets"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 )
@@ -78,7 +76,7 @@ func processAllPending(db *sql.DB) {
 // processNextTask claims and executes one pending task.
 // Returns (true, nil) if a task was processed, (false, nil) if the queue is empty.
 func processNextTask(db *sql.DB) (bool, error) {
-	if activeAgent == nil {
+	if getActivePool() == nil {
 		return false, nil
 	}
 
@@ -115,151 +113,9 @@ func processNextTask(db *sql.DB) (bool, error) {
 	case "GameDigest":
 		executeGameDigestTask(db, taskID)
 	default:
-		executeTask(db, taskID, int(userID.Int64))
+		executeChatTask(db, taskID, int(userID.Int64))
 	}
 	return true, nil
-}
-
-// executeTask runs the AI chat for one queued task and delivers the result.
-func executeTask(db *sql.DB, taskID, userID int) {
-	ctx := context.Background()
-
-	history, err := loadChatHistory(userID, db)
-	if err != nil {
-		markFailed(db, taskID, userID, "failed to load history: "+err.Error())
-		return
-	}
-
-	systemInstruction := fmt.Sprintf(
-		"You are a helpful assistant for a forum community. "+
-			"The current user's ID is %d. Use this when calling tools that require a user_id.\n\n"+
-			"CRITICAL RULES — follow these without exception:\n"+
-			"1. Before answering ANY question about the community, its characters, factions, lore, topics, or posts, "+
-			"you MUST call the appropriate search or lookup tool first. Never answer from memory alone.\n"+
-			"2. Base your answer ONLY on what the tools return. Do not add, infer, or extrapolate facts "+
-			"that are not explicitly present in the tool results.\n"+
-			"3. If the tools return no relevant results, respond honestly: say you could not find any "+
-			"information on that topic in the forum and suggest the user try different search terms.\n"+
-			"4. Never invent character names, faction names, lore details, usernames, post contents, "+
-			"or any other community-specific facts.\n"+
-			"5. Never include post IDs, topic IDs, or any other raw technical identifiers in your response text.\n"+
-			"6. Always respond in the same language the user wrote their message in.",
-		userID,
-	)
-
-	const maxRetries = 4
-	var replyText string
-	var sources []ChatSource
-	var lastErr error
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		replyText, sources, lastErr = activeAgent.Chat(ctx, history, systemInstruction)
-		if lastErr == nil {
-			break
-		}
-
-		is429 := strings.Contains(lastErr.Error(), "429") || strings.Contains(lastErr.Error(), "quota")
-		if !is429 || attempt == maxRetries {
-			markFailed(db, taskID, userID, lastErr.Error())
-			pushError(userID, lastErr.Error())
-			notifyQueuePositions(db, taskID)
-			return
-		}
-
-		// Rate-limited: record the retry and pause before the next attempt.
-		_, _ = db.Exec(`UPDATE ai_task_queue SET retries = retries + 1 WHERE id = ?`, taskID)
-		log.Printf("AI queue: task %d rate-limited (attempt %d/%d), retrying in 30s", taskID, attempt+1, maxRetries)
-		time.Sleep(30 * time.Second)
-	}
-
-	replyText = Services.MarkdownToHTML(replyText)
-
-	// Deduplicate sources by (PostID, TopicID) before saving.
-	sources = uniqueSources(sources)
-
-	// Serialize sources.
-	var sourcesJSON []byte
-	if len(sources) > 0 {
-		sourcesJSON, _ = json.Marshal(sources)
-	}
-
-	// Save assistant reply.
-	var replyID int64
-	r, err := db.Exec(
-		"INSERT INTO ai_chat_messages (user_id, role, content, sources, date_created) VALUES (?, 'assistant', ?, ?, NOW())",
-		userID, replyText, sourcesJSON,
-	)
-	if err == nil {
-		replyID, _ = r.LastInsertId()
-	}
-
-	// Mark task done.
-	_, _ = db.Exec(
-		`UPDATE ai_task_queue SET status = 'done', date_completed = NOW() WHERE id = ?`,
-		taskID,
-	)
-
-	// Build the reply entity.
-	entitySources := make([]Entities.AISource, len(sources))
-	for i, s := range sources {
-		entitySources[i] = Entities.AISource{
-			PostID:    s.PostID,
-			TopicID:   s.TopicID,
-			TopicName: s.TopicName,
-			TopicType: s.TopicType,
-		}
-	}
-	msg := Entities.AIChatMessage{
-		Id:          int(replyID),
-		UserId:      userID,
-		Role:        "assistant",
-		Content:     replyText,
-		Sources:     entitySources,
-		DateCreated: time.Now(),
-	}
-
-	// Notify subscribers and determine how to deliver the reply.
-	wasSubscriber := notifySubscribersOnCompletion(db, taskID, userID, msg)
-
-	if !wasSubscriber {
-		// Immediate response: deliver as a regular chat message.
-		Websockets.MainHub.SendNotification(userID, map[string]interface{}{
-			"type": "ai_message",
-			"data": msg,
-		})
-	}
-}
-
-// loadChatHistory fetches the last 20 user/assistant messages after the most
-// recent 'clear' marker for the given user.
-func loadChatHistory(userID int, db *sql.DB) ([]ChatMessage, error) {
-	rows, err := db.Query(
-		`SELECT role, content FROM (
-		     SELECT role, content, date_created FROM ai_chat_messages
-		     WHERE user_id = ?
-		       AND role != 'clear'
-		       AND date_created > COALESCE(
-		             (SELECT MAX(date_created) FROM ai_chat_messages WHERE user_id = ? AND role = 'clear'),
-		             '1970-01-01'
-		           )
-		     ORDER BY date_created DESC LIMIT 20
-		 ) sub ORDER BY date_created ASC`,
-		userID, userID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var history []ChatMessage
-	for rows.Next() {
-		var msg ChatMessage
-		if err := rows.Scan(&msg.Role, &msg.Content); err != nil {
-			continue
-		}
-		history = append(history, msg)
-	}
-	return history, nil
 }
 
 // markFailed marks a task as failed and logs the error.
@@ -374,31 +230,6 @@ func executeEmbeddingQueueTask(db *sql.DB, taskID int) {
 	}
 
 	_, _ = db.Exec(`UPDATE ai_task_queue SET status = 'done', date_completed = NOW() WHERE id = ?`, taskID)
-}
-
-// uniqueSources removes duplicate ChatSource entries, keeping the first
-// occurrence of each (PostID, TopicID) pair.
-func uniqueSources(sources []ChatSource) []ChatSource {
-	type key struct {
-		postID  int64
-		topicID int64
-	}
-	seen := make(map[key]bool, len(sources))
-	out := sources[:0]
-	for _, s := range sources {
-		var k key
-		if s.PostID != nil {
-			k.postID = *s.PostID
-		}
-		if s.TopicID != nil {
-			k.topicID = *s.TopicID
-		}
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // sendQueuePosition queries the current position of a subscriber's task and

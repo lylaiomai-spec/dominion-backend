@@ -12,6 +12,7 @@ type ChatSource struct {
 
 type AIClient interface {
 	Chat(ctx context.Context, history []ChatMessage, systemInstruction string) (string, []ChatSource, error)
+	ModelID() string
 }
 
 type ChatMessage struct {

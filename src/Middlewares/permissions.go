@@ -14,6 +14,12 @@ func PermissionsMiddleware(db *sql.DB) gin.HandlerFunc {
 		// Get user ID from context, default to 0 (guest) if not present
 		userID := Services.GetUserIdFromContext(c)
 
+		// Superuser bypasses all endpoint permission checks
+		if Services.IsSuperuser(c) {
+			c.Next()
+			return
+		}
+
 		// Get the matched route pattern from gin context
 		endpointPath := c.FullPath()
 

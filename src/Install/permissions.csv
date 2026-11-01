@@ -273,6 +273,14 @@ role_id,type,permission
 3,0,/admin/ai-agent-implementation/update/:id
 3,0,/admin/ai-agent-implementation/delete/:id
 3,0,/admin/ai-agent-implementation/:id/call
+3,0,/admin/ai-pool/switch
+3,0,/admin/ai-pool/status
+3,0,/admin/ai-pool/available-models
+3,0,/admin/ai-models
+3,0,/admin/ai-models/:id
+3,0,/admin/ai-models/create
+3,0,/admin/ai-models/update/:id
+3,0,/admin/ai-models/delete/:id
 2,0,/post-draft/topic/:topic_id/latest
 2,0,/post-draft/entity/:entity_type/latest
 2,0,/post-draft/list/:draft_id
@@ -295,6 +303,7 @@ role_id,type,permission
 3,0,/admin/workflow/create
 3,0,/admin/workflow/update/:id
 3,0,/admin/workflow/delete/:id
+2,0,/ai/proofread
 3,0,/admin/posts/move
 2,0,/user/subforum-settings
 2,0,/user/subforum-settings/update-all

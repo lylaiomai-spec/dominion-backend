@@ -116,20 +116,29 @@ func runAutoArchiving(db *sql.DB) {
 	rows.Close()
 
 	for _, ch := range chars {
-		if _, err := db.Exec(
-			"UPDATE character_base SET character_status = ? WHERE id = ?",
-			Entities.InactiveCharacter, ch.id,
-		); err != nil {
-			log.Printf("Auto archiving: failed to deactivate character %d: %v", ch.id, err)
+		tx, err := db.Begin()
+		if err != nil {
+			log.Printf("Auto archiving: failed to begin transaction for character %d: %v", ch.id, err)
 			continue
 		}
 
-		Events.Publish(db, Events.CharacterStatusChanged, Events.CharacterStatusChangedEvent{
-			CharacterID: ch.id,
-			UserID:      ch.userID,
-			OldStatus:   Entities.ActiveCharacter,
-			NewStatus:   Entities.InactiveCharacter,
-		})
+		res, found, err := DeactivateCharacterInTx(tx, db, ch.id)
+		if err != nil {
+			log.Printf("Auto archiving: failed to deactivate character %d: %v", ch.id, err)
+			tx.Rollback()
+			continue
+		}
+		if !found {
+			tx.Rollback()
+			continue
+		}
+
+		if err := tx.Commit(); err != nil {
+			log.Printf("Auto archiving: failed to commit for character %d: %v", ch.id, err)
+			continue
+		}
+
+		PublishCharacterDeactivatedEvents(db, res)
 
 		lang := GetUserLanguage(ch.userID, db)
 		localizer := NewLocalizer(lang)

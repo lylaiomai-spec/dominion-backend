@@ -246,4 +246,13 @@ func RegisterCharacterEventHandlers() {
 			Data:    map[string]interface{}{"topic_id": event.TopicID},
 		})
 	})
+
+	// Subscriber 15: Notify character owner to refresh so the new profile appears in post form
+	Events.Subscribe(Events.CharacterAccepted, func(db *sql.DB, data Events.EventData) {
+		event, ok := data.(Events.CharacterAcceptedEvent)
+		if !ok {
+			return
+		}
+		Services.NotifyUserRefresh(event.UserID, db)
+	})
 }

@@ -72,8 +72,9 @@ type digestPost struct {
 func executeGameDigestTask(db *sql.DB, taskID int) {
 	ctx := context.Background()
 
-	if activeAgent == nil {
-		markFailed(db, taskID, 0, "AI agent not configured")
+	client, err := getActivePool().ClientForMinSize(Entities.AIModelSizeMedium, Entities.AIModelTypeText)
+	if err != nil {
+		markFailed(db, taskID, 0, "no AI model available: "+err.Error())
 		return
 	}
 
@@ -122,7 +123,7 @@ func executeGameDigestTask(db *sql.DB, taskID int) {
 	var sections []string
 	for i := range episodes {
 		ep := &episodes[i]
-		section, err := generateEpisodeDigestSection(ctx, ep, config.Language)
+		section, err := generateEpisodeDigestSection(ctx, ep, config.Language, client)
 		if err != nil {
 			log.Printf("game_digest: episode %d: %v", ep.EpisodeID, err)
 			continue
@@ -298,7 +299,7 @@ func updateDigestContext(db *sql.DB, implementationID int, topicID int64, contex
 }
 
 // generateEpisodeDigestSection calls the AI to produce one BB-tagged digest section for an episode.
-func generateEpisodeDigestSection(ctx context.Context, ep *digestEpisode, language string) (string, error) {
+func generateEpisodeDigestSection(ctx context.Context, ep *digestEpisode, language string, client AIClient) (string, error) {
 	var sb strings.Builder
 
 	if language != "" {
@@ -333,7 +334,7 @@ func generateEpisodeDigestSection(ctx context.Context, ep *digestEpisode, langua
 	}
 
 	history := []ChatMessage{{Role: "user", Content: sb.String()}}
-	result, _, err := activeAgent.Chat(ctx, history, gameDigestInstructions)
+	result, _, err := NewAIAgent(client).Chat(ctx, history, gameDigestInstructions)
 	return result, err
 }
 

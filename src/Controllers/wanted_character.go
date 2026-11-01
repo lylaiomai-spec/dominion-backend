@@ -855,6 +855,34 @@ func GetClaimAutocomplete(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, scanClaimAutocompleteRows(c, rows, "Failed to scan claim: "))
 }
 
+func GetMyClaimRecords(c *gin.Context, db *sql.DB) {
+	userID := Services.GetUserIdFromContext(c)
+	if userID == 0 {
+		c.JSON(http.StatusOK, []ClaimAutocompleteItem{})
+		return
+	}
+	rows, err := db.Query(`
+		SELECT wcb.id, wcb.name, cr.user_id, cr.guest_hash, cr.claim_expiration_date
+		FROM claim_record cr
+		JOIN character_claim cc ON cc.id = cr.claim_id
+		JOIN wanted_character_base wcb ON wcb.character_claim_id = cc.id
+		JOIN topics t_wc ON t_wc.id = wcb.topic_id AND t_wc.status != ?
+		WHERE cr.user_id = ?
+		  AND cr.character_id IS NULL
+		  AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())
+		  AND (wcb.is_deleted IS NULL OR wcb.is_deleted = false)
+		  AND wcb.wanted_character_status = 0
+		ORDER BY cr.claim_expiration_date ASC
+	`, Entities.DeletedTopic, userID)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get claim records: " + err.Error()})
+		c.Abort()
+		return
+	}
+	defer rows.Close()
+	c.JSON(http.StatusOK, scanClaimAutocompleteRows(c, rows, "Failed to scan claim record: "))
+}
+
 func PreviewWantedCharacter(c *gin.Context, db *sql.DB) {
 	var req struct {
 		Name         string                 `json:"name"`

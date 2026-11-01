@@ -188,6 +188,18 @@ VALUES ('character_avatar_width', '0', 0);
 INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
 VALUES ('character_avatar_height', '0', 0);
 
+INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
+VALUES ('model_pool_source', 'db', 1);
+
+INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
+VALUES ('openrouter_api_key', '', 1);
+
+INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
+VALUES ('openrouter_use_free_only', 'y', 1);
+
+INSERT IGNORE INTO global_settings (setting_name, setting_value, needs_superuser)
+VALUES ('groq_api_key', '', 1);
+
 CREATE TABLE categories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NULL,
@@ -1288,6 +1300,19 @@ create table topic_activity_log
     index idx_topic_activity_log_date (date),
     constraint fk_topic_activity_log_topic foreign key (topic_id) references topics (id) on delete cascade,
     constraint fk_topic_activity_log_user  foreign key (user_id)  references users (id)  on delete set null
+);
+
+create table ai_models
+(
+    id            int          auto_increment primary key,
+    name          varchar(255) not null,
+    size          int          not null,
+    api_address   varchar(255) not null,
+    api_key       varchar(255) not null,
+    machine_name  varchar(255) not null,
+    is_active     boolean      not null default false,
+    protocol_type int          not null,
+    model_type    int          not null default 1
 );
 
 create table user_subforum_settings

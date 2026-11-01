@@ -223,3 +223,11 @@ func schemaStringArray(description string) *ToolProp {
 		Items:       &ToolProp{Type: PropTypeString},
 	}
 }
+
+func schemaIntegerArray(description string) *ToolProp {
+	return &ToolProp{
+		Type:        PropTypeArray,
+		Description: description,
+		Items:       &ToolProp{Type: PropTypeInteger},
+	}
+}

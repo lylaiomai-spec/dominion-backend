@@ -103,9 +103,14 @@ func UpdateGlobalSettings(c *gin.Context, db *sql.DB) {
 	}
 
 	aiSettings := map[string]bool{"ai_api_key": true, "ai_name": true, "ai_model": true}
+	poolSettings := map[string]bool{"model_pool_source": true, "openrouter_api_key": true, "openrouter_use_free_only": true}
 	for _, s := range req {
 		if aiSettings[s.SettingName] {
 			MCP.ReinitializeAgent(db)
+			break
+		}
+		if poolSettings[s.SettingName] {
+			MCP.InitPoolFromSettings(db)
 			break
 		}
 	}

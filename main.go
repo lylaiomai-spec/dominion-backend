@@ -43,6 +43,9 @@ func main() {
 	// Start Google Drive backup scheduler (checks hourly, runs backup per configured frequency)
 	Services.StartBackupScheduler(Services.DB)
 
+	// Clean up published post drafts older than 1 month (runs weekly)
+	Services.StartDraftCleanupScheduler(Services.DB)
+
 	// Start WebSocket Hub
 	go Websockets.MainHub.Run()
 
@@ -444,7 +447,10 @@ func main() {
 	protectedRouter.POST("/global-settings/update", "Update global settings", func(c *gin.Context) {
 		Controllers.UpdateGlobalSettings(c, Services.DB)
 	})
-protectedRouter.GET("/character-claims", "Get list of all character claims grouped by faction", func(c *gin.Context) {
+protectedRouter.GET("/my-claim-records", "Get current user's active claim records for wanted characters", func(c *gin.Context) {
+		Controllers.GetMyClaimRecords(c, Services.DB)
+	})
+	protectedRouter.GET("/character-claims", "Get list of all character claims grouped by faction", func(c *gin.Context) {
 		Controllers.GetCharacterClaims(c, Services.DB)
 	})
 	protectedRouter.POST("/character-claim/create", "Create a new character claim", func(c *gin.Context) {
@@ -994,9 +1000,11 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 	})
 
 	// AI Chat routes
-	protectedRouter.POST("/ai-chat/message", "Send a message to the AI", func(c *gin.Context) {
-		MCP.SendMessage(c, Services.DB)
-	})
+	protectedRouter.POST("/ai-chat/message", "Send a message to the AI",
+		MCP.InjectionCheckMiddleware(Services.DB, "content"),
+		func(c *gin.Context) {
+			MCP.SendMessage(c, Services.DB)
+		})
 	protectedRouter.GET("/ai-chat/history", "Get AI chat history for the current user", func(c *gin.Context) {
 		MCP.GetAIChatHistory(c, Services.DB)
 	})
@@ -1267,6 +1275,38 @@ protectedRouter.GET("/admin/ai-agent-implementation/list", "Get list of all AI a
 	})
 	protectedRouter.POST("/admin/ai-agent-implementation/:id/call", "Trigger an AI agent implementation", func(c *gin.Context) {
 		Controllers.AdminCallAiAgentImplementation(c, Services.DB)
+	})
+
+	protectedRouter.POST("/ai/proofread", "Proofread text: fix typos, grammar and punctuation",
+		MCP.InjectionCheckMiddleware(Services.DB, "text"),
+		func(c *gin.Context) {
+			Controllers.ProofreadText(c, Services.DB)
+		})
+
+	protectedRouter.POST("/admin/ai-pool/switch", "Switch the active AI model pool at runtime", func(c *gin.Context) {
+		Controllers.AdminSwitchAIPool(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/ai-pool/status", "Get current AI model pool status", func(c *gin.Context) {
+		Controllers.AdminGetPoolStatus(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/ai-pool/available-models", "List available models from the active AI model pool", func(c *gin.Context) {
+		Controllers.AdminListAvailablePoolModels(c, Services.DB)
+	})
+
+	protectedRouter.GET("/admin/ai-models", "List all AI models", func(c *gin.Context) {
+		Controllers.AdminListAIModels(c, Services.DB)
+	})
+	protectedRouter.GET("/admin/ai-models/:id", "Get a single AI model by ID", func(c *gin.Context) {
+		Controllers.AdminGetAIModel(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/ai-models/create", "Create a new AI model", func(c *gin.Context) {
+		Controllers.AdminCreateAIModel(c, Services.DB)
+	})
+	protectedRouter.POST("/admin/ai-models/update/:id", "Update an AI model", func(c *gin.Context) {
+		Controllers.AdminUpdateAIModel(c, Services.DB)
+	})
+	protectedRouter.DELETE("/admin/ai-models/delete/:id", "Delete an AI model", func(c *gin.Context) {
+		Controllers.AdminDeleteAIModel(c, Services.DB)
 	})
 
 	protectedRouter.GET("/admin/workflow/list", "Get list of all workflows", func(c *gin.Context) {

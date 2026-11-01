@@ -5,30 +5,54 @@ import (
 	"cuento-backend/src/Services"
 	"database/sql"
 	"fmt"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/server"
 	"google.golang.org/genai"
 )
 
-var activeAgent *AIAgent
+var (
+	activePoolMu sync.RWMutex
+	activePool   ModelPool
+)
+
+func getActivePool() ModelPool {
+	activePoolMu.RLock()
+	defer activePoolMu.RUnlock()
+	return activePool
+}
+
+// SwitchPool replaces the active model pool without restarting the server.
+func SwitchPool(pool ModelPool) {
+	activePoolMu.Lock()
+	defer activePoolMu.Unlock()
+	activePool = pool
+	fmt.Printf("MCP: switched to pool %T\n", pool)
+}
+
+// InitPoolFromSettings reads model_pool_source and related settings from the DB
+// and activates the appropriate pool. Called on startup and after settings change.
+func InitPoolFromSettings(db *sql.DB) {
+	source, _ := Services.GetGlobalSetting("model_pool_source", db)
+	switch source {
+	case "openrouter":
+		apiKey, _ := Services.GetGlobalSetting("openrouter_api_key", db)
+		freeOnly, _ := Services.GetGlobalSetting("openrouter_use_free_only", db)
+		SwitchPool(NewOpenRouterModelPool(apiKey, freeOnly != "n"))
+	case "groq":
+		apiKey, _ := Services.GetGlobalSetting("groq_api_key", db)
+		SwitchPool(NewGroqModelPool(apiKey))
+	default:
+		SwitchPool(NewAIModelPool(db))
+	}
+}
 
 func ReinitializeAgent(db *sql.DB) {
-	agent, err := buildAgent(db)
-	if err != nil {
-		fmt.Printf("MCP: AI agent reinitialization failed: %v\n", err)
-		activeAgent = nil
-		return
-	}
-	activeAgent = agent
-	fmt.Println("MCP: AI agent reinitialized successfully")
+	InitPoolFromSettings(db)
 }
 
 func StartMCPServer(db *sql.DB, addr string) error {
-	agent, err := buildAgent(db)
-	if err != nil {
-		fmt.Printf("MCP: AI agent not initialized: %v\n", err)
-	}
-	activeAgent = agent
+	InitPoolFromSettings(db)
 
 	s := server.NewMCPServer(
 		"cuento",
@@ -38,6 +62,7 @@ func StartMCPServer(db *sql.DB, addr string) error {
 
 	registerLoreTools(s, db)
 	registerSearchTools(s, db)
+	registerCitationTools(s)
 
 	StartQueueWorker(db)
 
@@ -77,58 +102,3 @@ func ListAvailableModels(db *sql.DB) ([]string, error) {
 	}
 }
 
-// openAIBaseURLs re-exports the provider→base URL map from Services.
-var openAIBaseURLs = Services.OpenAIBaseURLs
-
-// defaultModels maps provider names to sensible default model names.
-var defaultModels = map[string]string{
-	"gemini":   "gemini-2.0-flash",
-	"claude":   "claude-3-5-sonnet-20241022",
-	"openai":   "gpt-4o",
-	"deepseek": "deepseek-chat",
-	"groq":     "llama-3.3-70b-versatile",
-	"mistral":  "mistral-large-latest",
-}
-
-func buildAgent(db *sql.DB) (*AIAgent, error) {
-	apiKey, err := Services.GetGlobalSetting("ai_api_key", db)
-	if err != nil || apiKey == "" {
-		return nil, fmt.Errorf("ai_api_key not set")
-	}
-
-	aiName, err := Services.GetGlobalSetting("ai_name", db)
-	if err != nil || aiName == "" {
-		return nil, fmt.Errorf("ai_name not set")
-	}
-
-	aiModel, err := Services.GetGlobalSetting("ai_model", db)
-	if err != nil || aiModel == "" {
-		if def, ok := defaultModels[aiName]; ok {
-			aiModel = def
-		} else {
-			aiModel = "gemini-2.0-flash"
-		}
-	}
-
-	switch aiName {
-	case "gemini":
-		client, err := NewGeminiClient(apiKey, aiModel)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Gemini client: %w", err)
-		}
-		return NewAIAgent(client), nil
-
-	case "claude":
-		client, err := NewClaudeClient(apiKey, aiModel)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Claude client: %w", err)
-		}
-		return NewAIAgent(client), nil
-
-	case "openai", "deepseek", "groq", "mistral":
-		return NewAIAgent(&OpenAICompatClient{client: Services.OpenAIClient, model: aiModel}), nil
-
-	default:
-		return nil, fmt.Errorf("unknown ai_name: %s (supported: gemini, claude, openai, deepseek, groq, mistral)", aiName)
-	}
-}

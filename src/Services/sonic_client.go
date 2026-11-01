@@ -159,7 +159,7 @@ type SearchResultItem struct {
 // SearchInBucket queries Sonic for query in the given bucket, then fetches full content
 // from the database. Results are filtered to visibleSubforums; filterSubforum and
 // filterTopicType (0 = no filter) are applied as additional constraints.
-func SearchInBucket(bucket, query string, limit, filterSubforum, filterTopicType int, visibleSubforums map[int]bool, db *sql.DB) ([]SearchResultItem, error) {
+func SearchInBucket(bucket, query string, limit, filterSubforum, filterTopicType, filterFactionID int, visibleSubforums map[int]bool, db *sql.DB) ([]SearchResultItem, error) {
 	sonicIDs, err := SonicQuery(SonicCollection, bucket, query, limit, 0, sonic.LangAutoDetect)
 	if err != nil || len(sonicIDs) == 0 {
 		return nil, nil
@@ -178,10 +178,18 @@ func SearchInBucket(bucket, query string, limit, filterSubforum, filterTopicType
 		metaQuery = fmt.Sprintf(`SELECT p.id, t.subforum_id, t.type FROM posts p JOIN topics t ON p.topic_id = t.id WHERE p.id IN (%s)`, placeholders)
 	case SonicBucketCharacters:
 		metaQuery = fmt.Sprintf(`SELECT cb.id, t.subforum_id, t.type FROM character_base cb JOIN topics t ON cb.topic_id = t.id WHERE cb.id IN (%s)`, placeholders)
+		if filterFactionID != 0 {
+			metaQuery += ` AND EXISTS (SELECT 1 FROM character_faction cf WHERE cf.character_id = cb.id AND cf.faction_id = ?)`
+			args = append(args, filterFactionID)
+		}
 	case SonicBucketWantedPosts:
 		metaQuery = fmt.Sprintf(`SELECT wc.id, t.subforum_id, t.type FROM wanted_character_base wc JOIN topics t ON wc.topic_id = t.id WHERE wc.id IN (%s)`, placeholders)
 	case SonicBucketEpisodes:
 		metaQuery = fmt.Sprintf(`SELECT eb.id, t.subforum_id, t.type FROM episode_base eb JOIN topics t ON eb.topic_id = t.id WHERE eb.id IN (%s)`, placeholders)
+		if filterFactionID != 0 {
+			metaQuery += ` AND EXISTS (SELECT 1 FROM episode_character ec JOIN character_faction cf ON ec.character_id = cf.character_id WHERE ec.episode_id = eb.id AND cf.faction_id = ?)`
+			args = append(args, filterFactionID)
+		}
 	default:
 		return nil, fmt.Errorf("unknown bucket: %s", bucket)
 	}
@@ -335,13 +343,10 @@ func extractMatchingParagraphs(text, query string) string {
 		return strings.Join(matched, "\n")
 	}
 
-	// Fallback: first non-empty paragraph
-	for _, p := range paragraphs {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			return p
-		}
-	}
+	// Fallback: Sonic/Qdrant matched via stemming or fuzzy — the post is relevant
+	// even though the query string doesn't appear verbatim (e.g. Russian inflections).
+	// Return full content so the AI has access to the actual data.
+	return strings.TrimSpace(text)
 	return text
 }
 
