@@ -61,6 +61,8 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 		Ciphertext            string     `json:"ciphertext"`
 		IV                    string     `json:"iv"`
 		Key                   string     `json:"key"`
+		AuthorKeyId           *int       `json:"author_key_id"`
+		ReceiverKeyId         *int       `json:"receiver_key_id"`
 	}
 
 	userTimezone := Services.GetUserTimezone(userID, db)
@@ -70,7 +72,7 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 		for rows.Next() {
 			var msg Message
 			var keyAuthor, keyReceiver string
-			if err := rows.Scan(&msg.Id, &msg.UserID, &msg.Username, &msg.Avatar, &msg.DateSend, &msg.DateReceived, &msg.Ciphertext, &msg.IV, &keyAuthor, &keyReceiver); err != nil {
+			if err := rows.Scan(&msg.Id, &msg.UserID, &msg.Username, &msg.Avatar, &msg.DateSend, &msg.DateReceived, &msg.Ciphertext, &msg.IV, &keyAuthor, &keyReceiver, &msg.AuthorKeyId, &msg.ReceiverKeyId); err != nil {
 				return nil, err
 			}
 			if msg.UserID == userID {
@@ -94,7 +96,7 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 		var rows *sql.Rows
 		if blockedSince != nil {
 			rows, err = db.Query(`
-				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 				FROM direct_chat_messages m
 				JOIN users u ON u.id = m.user_id
 				WHERE m.chat_id = ? AND m.date_send <= ?
@@ -103,7 +105,7 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 			`, chatID, blockedSince, n)
 		} else {
 			rows, err = db.Query(`
-				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 				FROM direct_chat_messages m
 				JOIN users u ON u.id = m.user_id
 				WHERE m.chat_id = ?
@@ -138,7 +140,7 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 		var beforeRows *sql.Rows
 		if blockedSince != nil {
 			beforeRows, err = db.Query(`
-				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 				FROM direct_chat_messages m
 				JOIN users u ON u.id = m.user_id
 				WHERE m.chat_id = ? AND m.id < ? AND m.date_send <= ?
@@ -147,7 +149,7 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 			`, chatID, messageID, blockedSince, n)
 		} else {
 			beforeRows, err = db.Query(`
-				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 				FROM direct_chat_messages m
 				JOIN users u ON u.id = m.user_id
 				WHERE m.chat_id = ? AND m.id < ?
@@ -176,7 +178,7 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 		var afterRows *sql.Rows
 		if blockedSince != nil {
 			afterRows, err = db.Query(`
-				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 				FROM direct_chat_messages m
 				JOIN users u ON u.id = m.user_id
 				WHERE m.chat_id = ? AND m.id > ? AND m.date_send <= ?
@@ -185,7 +187,7 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 			`, chatID, messageID, blockedSince, n)
 		} else {
 			afterRows, err = db.Query(`
-				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+				SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 				FROM direct_chat_messages m
 				JOIN users u ON u.id = m.user_id
 				WHERE m.chat_id = ? AND m.id > ?
@@ -269,6 +271,8 @@ func GetMessagesBefore(c *gin.Context, db *sql.DB) {
 		Ciphertext            string     `json:"ciphertext"`
 		IV                    string     `json:"iv"`
 		Key                   string     `json:"key"`
+		AuthorKeyId           *int       `json:"author_key_id"`
+		ReceiverKeyId         *int       `json:"receiver_key_id"`
 	}
 
 	userTimezone := Services.GetUserTimezone(userID, db)
@@ -276,7 +280,7 @@ func GetMessagesBefore(c *gin.Context, db *sql.DB) {
 	var rows *sql.Rows
 	if blockedSince != nil {
 		rows, err = db.Query(`
-			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 			FROM direct_chat_messages m
 			JOIN users u ON u.id = m.user_id
 			WHERE m.chat_id = ? AND m.id < ? AND m.date_send <= ?
@@ -285,7 +289,7 @@ func GetMessagesBefore(c *gin.Context, db *sql.DB) {
 		`, chatID, messageID, blockedSince, n)
 	} else {
 		rows, err = db.Query(`
-			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 			FROM direct_chat_messages m
 			JOIN users u ON u.id = m.user_id
 			WHERE m.chat_id = ? AND m.id < ?
@@ -304,7 +308,7 @@ func GetMessagesBefore(c *gin.Context, db *sql.DB) {
 	for rows.Next() {
 		var msg Message
 		var keyAuthor, keyReceiver string
-		if err := rows.Scan(&msg.Id, &msg.UserID, &msg.Username, &msg.Avatar, &msg.DateSend, &msg.DateReceived, &msg.Ciphertext, &msg.IV, &keyAuthor, &keyReceiver); err != nil {
+		if err := rows.Scan(&msg.Id, &msg.UserID, &msg.Username, &msg.Avatar, &msg.DateSend, &msg.DateReceived, &msg.Ciphertext, &msg.IV, &keyAuthor, &keyReceiver, &msg.AuthorKeyId, &msg.ReceiverKeyId); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan messages: " + err.Error()})
 			c.Abort()
 			return
@@ -387,6 +391,8 @@ func GetMessagesAfter(c *gin.Context, db *sql.DB) {
 		Ciphertext            string     `json:"ciphertext"`
 		IV                    string     `json:"iv"`
 		Key                   string     `json:"key"`
+		AuthorKeyId           *int       `json:"author_key_id"`
+		ReceiverKeyId         *int       `json:"receiver_key_id"`
 	}
 
 	userTimezone := Services.GetUserTimezone(userID, db)
@@ -394,7 +400,7 @@ func GetMessagesAfter(c *gin.Context, db *sql.DB) {
 	var rows *sql.Rows
 	if blockedSince != nil {
 		rows, err = db.Query(`
-			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 			FROM direct_chat_messages m
 			JOIN users u ON u.id = m.user_id
 			WHERE m.chat_id = ? AND m.id > ? AND m.date_send <= ?
@@ -403,7 +409,7 @@ func GetMessagesAfter(c *gin.Context, db *sql.DB) {
 		`, chatID, messageID, blockedSince, n)
 	} else {
 		rows, err = db.Query(`
-			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver
+			SELECT m.id, m.user_id, u.username, u.avatar, m.date_send, m.date_received, m.ciphertext, m.iv, m.key_author, m.key_receiver, m.author_key_id, m.receiver_key_id
 			FROM direct_chat_messages m
 			JOIN users u ON u.id = m.user_id
 			WHERE m.chat_id = ? AND m.id > ?
@@ -422,7 +428,7 @@ func GetMessagesAfter(c *gin.Context, db *sql.DB) {
 	for rows.Next() {
 		var msg Message
 		var keyAuthor, keyReceiver string
-		if err := rows.Scan(&msg.Id, &msg.UserID, &msg.Username, &msg.Avatar, &msg.DateSend, &msg.DateReceived, &msg.Ciphertext, &msg.IV, &keyAuthor, &keyReceiver); err != nil {
+		if err := rows.Scan(&msg.Id, &msg.UserID, &msg.Username, &msg.Avatar, &msg.DateSend, &msg.DateReceived, &msg.Ciphertext, &msg.IV, &keyAuthor, &keyReceiver, &msg.AuthorKeyId, &msg.ReceiverKeyId); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan messages: " + err.Error()})
 			c.Abort()
 			return
@@ -521,6 +527,7 @@ type DirectChatParticipant struct {
 	Username          string  `json:"username"`
 	Avatar            *string `json:"avatar"`
 	PublicKey         *string `json:"public_key"`
+	PublicKeyId       *int    `json:"public_key_id"`
 	LastReadMessageId *int    `json:"last_read_message_id"`
 }
 
@@ -558,11 +565,11 @@ func GetDirectChat(c *gin.Context, db *sql.DB) {
 
 	// Verify current user is in the chat and get both participants
 	rows, err := db.Query(`
-		SELECT u.id, u.username, u.avatar, pk.public_key, dcu.last_read_message_id
+		SELECT u.id, u.username, u.avatar, pk.public_key, pk.id, dcu.last_read_message_id
 		FROM direct_chat_users dcu
 		JOIN direct_chat_users dcu_self ON dcu_self.direct_chat_id = dcu.direct_chat_id AND dcu_self.user_id = ?
 		JOIN users u ON dcu.user_id = u.id
-		LEFT JOIN public_keys pk ON pk.user_id = u.id
+		LEFT JOIN public_keys pk ON pk.user_id = u.id AND pk.is_active = true
 		WHERE dcu.direct_chat_id = ?
 	`, userID, chatID)
 	if err != nil {
@@ -575,7 +582,7 @@ func GetDirectChat(c *gin.Context, db *sql.DB) {
 	var participants []DirectChatParticipant
 	for rows.Next() {
 		var p DirectChatParticipant
-		if err := rows.Scan(&p.Id, &p.Username, &p.Avatar, &p.PublicKey, &p.LastReadMessageId); err != nil {
+		if err := rows.Scan(&p.Id, &p.Username, &p.Avatar, &p.PublicKey, &p.PublicKeyId, &p.LastReadMessageId); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan participant: " + err.Error()})
 			c.Abort()
 			return
@@ -608,11 +615,13 @@ func GetDirectChat(c *gin.Context, db *sql.DB) {
 }
 
 type CreateDirectChatMessageRequest struct {
-	ChatID      int    `json:"chat_id" binding:"required"`
-	Ciphertext  string `json:"ciphertext" binding:"required"`
-	IV          string `json:"iv" binding:"required"`
-	KeyAuthor   string `json:"key_author" binding:"required"`
-	KeyReceiver string `json:"key_receiver" binding:"required"`
+	ChatID        int    `json:"chat_id" binding:"required"`
+	Ciphertext    string `json:"ciphertext" binding:"required"`
+	IV            string `json:"iv" binding:"required"`
+	KeyAuthor     string `json:"key_author" binding:"required"`
+	KeyReceiver   string `json:"key_receiver" binding:"required"`
+	AuthorKeyId   *int   `json:"author_key_id"`
+	ReceiverKeyId *int   `json:"receiver_key_id"`
 }
 
 func CreateDirectChatMessage(c *gin.Context, db *sql.DB) {
@@ -644,8 +653,8 @@ func CreateDirectChatMessage(c *gin.Context, db *sql.DB) {
 
 	dateSend := time.Now()
 	res, err := db.Exec(
-		"INSERT INTO direct_chat_messages (chat_id, user_id, date_send, ciphertext, iv, key_author, key_receiver) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		req.ChatID, userID, dateSend, req.Ciphertext, req.IV, req.KeyAuthor, req.KeyReceiver,
+		"INSERT INTO direct_chat_messages (chat_id, user_id, date_send, ciphertext, iv, key_author, key_receiver, author_key_id, receiver_key_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		req.ChatID, userID, dateSend, req.Ciphertext, req.IV, req.KeyAuthor, req.KeyReceiver, req.AuthorKeyId, req.ReceiverKeyId,
 	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create message: " + err.Error()})

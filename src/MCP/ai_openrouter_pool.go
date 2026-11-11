@@ -53,20 +53,46 @@ func NewOpenRouterModelPool(apiKey string, useFreeOnly bool) *OpenRouterModelPoo
 }
 
 func (p *OpenRouterModelPool) ClientForMinSize(minSize Entities.AIModelSize, modelType Entities.AIModelType) (AIClient, error) {
-	return p.selectModel(minSize, modelType, "", nil)
+	if p.useFreeOnly {
+		return p.freeClient()
+	}
+	return p.selectModel(minSize, modelType, "", nil, true)
 }
 
 func (p *OpenRouterModelPool) ClientForMinSizeAndProtocol(minSize Entities.AIModelSize, modelType Entities.AIModelType, _ Entities.AIModelProtocolType) (AIClient, error) {
-	// OpenRouter exposes all providers through one OpenAI-compat API, so
-	// protocol-based prefix filtering doesn't apply here.
-	return p.selectModel(minSize, modelType, "", nil)
+	if p.useFreeOnly {
+		return p.freeClient()
+	}
+	return p.selectModel(minSize, modelType, "", nil, true)
 }
 
 func (p *OpenRouterModelPool) ClientExcluding(minSize Entities.AIModelSize, modelType Entities.AIModelType, excluded []string) (AIClient, error) {
-	return p.selectModel(minSize, modelType, "", excluded)
+	if p.useFreeOnly {
+		return p.freeClient()
+	}
+	return p.selectModel(minSize, modelType, "", excluded, true)
 }
 
-func (p *OpenRouterModelPool) selectModel(minSize Entities.AIModelSize, modelType Entities.AIModelType, providerPrefix string, excluded []string) (AIClient, error) {
+func (p *OpenRouterModelPool) ClientForSimpleChat(minSize Entities.AIModelSize, modelType Entities.AIModelType) (AIClient, error) {
+	if p.useFreeOnly {
+		return p.freeClient()
+	}
+	return p.selectModel(minSize, modelType, "", nil, false)
+}
+
+func (p *OpenRouterModelPool) ClientExcludingForSimpleChat(minSize Entities.AIModelSize, modelType Entities.AIModelType, excluded []string) (AIClient, error) {
+	if p.useFreeOnly {
+		return p.freeClient()
+	}
+	return p.selectModel(minSize, modelType, "", excluded, false)
+}
+
+func (p *OpenRouterModelPool) freeClient() (AIClient, error) {
+	log.Printf("OpenRouter: using openrouter/free virtual model")
+	return NewOpenAICompatClient(p.apiKey, "openrouter/free", openRouterBaseURL)
+}
+
+func (p *OpenRouterModelPool) selectModel(minSize Entities.AIModelSize, modelType Entities.AIModelType, providerPrefix string, excluded []string, requireTools bool) (AIClient, error) {
 	models, err := p.fetchModels()
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: failed to fetch models: %w", err)
@@ -102,7 +128,7 @@ func (p *OpenRouterModelPool) selectModel(minSize Entities.AIModelSize, modelTyp
 		if p.useFreeOnly && !strings.HasSuffix(m.ID, ":free") {
 			continue
 		}
-		if !supportsTools(m.SupportedParameters) {
+		if requireTools && !supportsTools(m.SupportedParameters) {
 			continue
 		}
 		if excludedSet[m.ID] {
@@ -128,9 +154,15 @@ func (p *OpenRouterModelPool) selectModel(minSize Entities.AIModelSize, modelTyp
 		return nil, fmt.Errorf("openrouter: no model available for size=%d type=%d prefix=%q", minSize, modelType, providerPrefix)
 	}
 
-	// Pick the cheapest qualifying model (lowest prompt price = smallest sufficient model).
+	// Pick the cheapest qualifying model. Models with price=0 (new/unpriced) sort last
+	// since we can't compare them against known prices.
 	sort.Slice(candidates, func(i, j int) bool {
-		return parsePrice(candidates[i].Pricing.Prompt) < parsePrice(candidates[j].Pricing.Prompt)
+		pi := parsePrice(candidates[i].Pricing.Prompt)
+		pj := parsePrice(candidates[j].Pricing.Prompt)
+		if (pi == 0) != (pj == 0) {
+			return pj == 0 // known price beats unknown/free
+		}
+		return pi < pj
 	})
 
 	chosen := candidates[0]

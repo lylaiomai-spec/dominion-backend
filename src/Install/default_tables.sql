@@ -1414,3 +1414,29 @@ create table user_topic_subscription
     constraint fk_user_topic_sub_user  foreign key (user_id)  references users  (id) on delete cascade,
     constraint fk_user_topic_sub_topic foreign key (topic_id) references topics (id) on delete cascade
 );
+
+-- Admin-initiated password reset: stores the one-time 6-digit PIN and the
+-- security_code token that authorises CompletePasswordReset after PIN verification.
+create table admin_password_resets
+(
+    id                int auto_increment primary key,
+    user_id           int         not null,
+    pin_hash          varchar(64) not null,
+    security_code     varchar(64) null,
+    created_at        datetime    not null default current_timestamp,
+    used_at           datetime    null,
+    constraint fk_admin_password_resets_user foreign key (user_id) references users (id) on delete cascade
+);
+
+-- Track which generation of RSA key pair each public_keys row belongs to.
+-- Only one row per user may have is_active = true at a time.
+ALTER TABLE public_keys ADD COLUMN is_active boolean not null default true;
+
+-- Link each DM to the specific public key generation used to wrap the AES key
+-- for each side. NULL for messages created before key-versioning was introduced.
+ALTER TABLE direct_chat_messages ADD COLUMN author_key_id int null;
+ALTER TABLE direct_chat_messages ADD COLUMN receiver_key_id int null;
+ALTER TABLE direct_chat_messages
+    ADD CONSTRAINT fk_dcm_author_key   foreign key (author_key_id)   references public_keys (id) on delete set null;
+ALTER TABLE direct_chat_messages
+    ADD CONSTRAINT fk_dcm_receiver_key foreign key (receiver_key_id) references public_keys (id) on delete set null;

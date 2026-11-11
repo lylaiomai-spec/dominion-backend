@@ -767,7 +767,8 @@ func GetCharacterList(c *gin.Context, db *sql.DB) {
 			FROM wanted_character_base
 			GROUP BY character_claim_id
 		) wc ON wc.character_claim_id = r.id
-		LEFT JOIN claim_record cr ON cr.id = r.claim_record_id AND (cr.claim_expiration_date IS NULL OR cr.claim_expiration_date > NOW())
+		LEFT JOIN claim_record cr ON cr.claim_id = r.id
+		    AND cr.id = (SELECT MAX(sub.id) FROM claim_record sub WHERE sub.claim_id = r.id AND (sub.claim_expiration_date IS NULL OR sub.claim_expiration_date > NOW()))
 		LEFT JOIN users u ON u.id = cr.user_id
 		LEFT JOIN character_base cb ON cb.id = cr.character_id
 		WHERE r.rn = 1

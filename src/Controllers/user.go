@@ -15,23 +15,22 @@ import (
 	"strings"
 	"time"
 
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Credentials holds the username/password pair for login.
 type Credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
+// RefreshTokenRequest is the payload for token refresh.
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+// UserProfileResponse is the public profile payload returned by GetUserProfile.
 type UserProfileResponse struct {
 	UserId                    int                        `json:"user_id"`
 	Username                  string                     `json:"username"`
@@ -48,6 +47,7 @@ type UserProfileResponse struct {
 	ArchiveReason             *string                    `json:"archive_reason"`
 }
 
+// MaskProfileListItem is a summary of a mask shown on the user profile page.
 type MaskProfileListItem struct {
 	Id            int        `json:"id"`
 	Name          *string    `json:"name"`
@@ -57,6 +57,7 @@ type MaskProfileListItem struct {
 	DateLastPost  *time.Time `json:"date_last_post"`
 }
 
+// CharacterProfileListItem is a summary of a character shown on the user profile page.
 type CharacterProfileListItem struct {
 	Id              int                      `json:"id"`
 	Name            string                   `json:"name"`
@@ -67,6 +68,7 @@ type CharacterProfileListItem struct {
 	Factions        []Entities.Faction       `json:"factions"`
 }
 
+// UpdateSettingsRequest is the payload for the user settings update endpoint.
 type UpdateSettingsRequest struct {
 	Avatar          *string        `json:"avatar"`
 	Timezone        *string        `json:"interface_timezone"`
@@ -79,12 +81,14 @@ type UpdateSettingsRequest struct {
 	DoNotBlur       *bool          `json:"do_not_blur"`
 }
 
+// CreateUserRequest is the payload for admin-created user accounts.
 type CreateUserRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
 	Language string `json:"interface_language,omitempty"`
 }
 
+// UserListItem is a user entry in the user-facing list, including active characters.
 type UserListItem struct {
 	Id            int                       `json:"id"`
 	Username      string                    `json:"username"`
@@ -94,6 +98,8 @@ type UserListItem struct {
 	ArchiveReason *string                   `json:"archive_reason"`
 }
 
+// Register creates a new user account via the self-registration form.
+// Hashes the password, inserts the user, and assigns the default "user" role.
 func Register(c *gin.Context, db *sql.DB) {
 	var user Entities.User
 	if err := c.ShouldBindJSON(&user); err != nil {
@@ -135,7 +141,6 @@ func Register(c *gin.Context, db *sql.DB) {
 	user.InterfaceLanguage = &defaultLang
 	user.InterfaceTimezone = &defaultTZ
 
-	// Get default role ID (assuming role with name "user" exists)
 	var defaultRoleID int
 	err = db.QueryRow("SELECT id FROM roles WHERE name = ?", "user").Scan(&defaultRoleID)
 	if err != nil {
@@ -144,7 +149,6 @@ func Register(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Assign default role to user
 	_, err = db.Exec("INSERT INTO user_role (user_id, role_id) VALUES (?, ?)", user.Id, defaultRoleID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to assign role to user: " + err.Error()})
@@ -152,10 +156,9 @@ func Register(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	user.Password = "" // Don't return password
+	user.Password = ""
 	user.Roles = []Entities.Role{{Id: defaultRoleID, Name: "user"}}
 
-	// Emit UserRegistered event
 	Events.Publish(db, Events.UserRegistered, Events.UserRegisteredEvent{
 		UserID:   user.Id,
 		Username: user.Username,
@@ -164,6 +167,7 @@ func Register(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusCreated, gin.H{"user": user})
 }
 
+// CreateUser creates a user account on behalf of an admin, skipping the self-registration flow.
 func CreateUser(c *gin.Context, db *sql.DB) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -223,6 +227,8 @@ func CreateUser(c *gin.Context, db *sql.DB) {
 	})
 }
 
+// Login authenticates a username/password pair and returns JWT access and refresh tokens.
+// Returns 401 with error "password_reset_required" if the account is pending an admin reset.
 func Login(c *gin.Context, db *sql.DB) {
 	var creds Credentials
 	if err := c.ShouldBindJSON(&creds); err != nil {
@@ -244,6 +250,12 @@ func Login(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	if user.Password == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "password_reset_required"})
+		c.Abort()
+		return
+	}
+
 	if err := user.CheckPassword(creds.Password); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Invalid credentials"})
 		c.Abort()
@@ -256,7 +268,6 @@ func Login(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Fetch user roles from many-to-many relationship
 	rolesQuery := `
 		SELECT r.id, r.name
 		FROM roles r
@@ -286,14 +297,12 @@ func Login(c *gin.Context, db *sql.DB) {
 		user.IsSuperuser = true
 	}
 
-	// Check for errors during iteration
 	if err := rows.Err(); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Error iterating roles: " + err.Error()})
 		c.Abort()
 		return
 	}
 
-	// Generate Access Token
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Middlewares.Claims{
 		Username: user.Username,
@@ -312,7 +321,6 @@ func Login(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Generate Refresh Token
 	refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
 	refreshClaims := &Middlewares.Claims{
 		Username: user.Username,
@@ -330,7 +338,7 @@ func Login(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	user.Password = "" // Don't return password
+	user.Password = ""
 
 	user.NotificationSettings = []Entities.UserNotificationSetting{}
 	settingsRows, err := db.Query(
@@ -354,6 +362,8 @@ func Login(c *gin.Context, db *sql.DB) {
 	})
 }
 
+// RefreshToken exchanges a valid refresh token for new access and refresh tokens,
+// re-fetching the user's current roles and status.
 func RefreshToken(c *gin.Context, db *sql.DB) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -373,7 +383,6 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Fetch user details
 	var user Entities.User
 	query := "SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature, editor_type, do_not_blur FROM users WHERE id = ?"
 	err = db.QueryRow(query, claims.UserID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature, &user.EditorType, &user.DoNotBlur)
@@ -389,7 +398,6 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Fetch user roles
 	rolesQuery := `
 		SELECT r.id, r.name
 		FROM roles r
@@ -412,7 +420,6 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 		}
 	}
 
-	// Generate new Access Token
 	expirationTime := time.Now().Add(24 * time.Hour)
 	newClaims := &Middlewares.Claims{
 		Username: user.Username,
@@ -431,7 +438,6 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Generate new Refresh Token
 	refreshExpirationTime := time.Now().Add(7 * 24 * time.Hour)
 	newRefreshClaims := &Middlewares.Claims{
 		Username: user.Username,
@@ -456,6 +462,7 @@ func RefreshToken(c *gin.Context, db *sql.DB) {
 	})
 }
 
+// GetUsersByPage returns the list of authenticated users currently browsing a given page.
 func GetUsersByPage(c *gin.Context, db *sql.DB) {
 	pageType := c.Param("page_type")
 	pageId := c.Param("page_id")
@@ -470,7 +477,6 @@ func GetUsersByPage(c *gin.Context, db *sql.DB) {
 		})
 	}
 
-	// Return empty array instead of null
 	if shortUsers == nil {
 		shortUsers = []Entities.ShortUser{}
 	}
@@ -478,6 +484,8 @@ func GetUsersByPage(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, shortUsers)
 }
 
+// GetUserProfile returns public profile data for a user, including characters, masks,
+// and optional currency balance. Registration date is localized to the viewer's timezone.
 func GetUserProfile(c *gin.Context, db *sql.DB) {
 	userIDStr := c.Param("userID")
 	userID, err := strconv.Atoi(userIDStr)
@@ -503,7 +511,6 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 	viewerTimezone := Services.GetUserTimezone(currentUserID, db)
 	profile.RegistrationDateLocalized = Services.LocalizeTime(profile.RegistrationDate, viewerTimezone)
 
-	// Fetch characters for this user
 	charRows, err := db.Query("SELECT cb.id, cb.name, cb.total_episodes, cb.total_posts, cb.date_last_post, cb.character_status FROM character_base cb LEFT JOIN topics t ON cb.topic_id = t.id WHERE cb.user_id = ? AND (cb.topic_id IS NULL OR t.status != ?)", userID, Entities.DeletedTopic)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get user characters: " + err.Error()})
@@ -518,7 +525,6 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 			continue
 		}
 
-		// Fetch factions of level 0 (root factions) for this character
 		factionRows, err := db.Query("SELECT f.id, f.name FROM factions f JOIN character_faction cf ON f.id = cf.faction_id WHERE cf.character_id = ? AND f.level = 0", char.Id)
 		if err == nil {
 			var factions []Entities.Faction
@@ -539,8 +545,7 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 		profile.Characters = []CharacterProfileListItem{}
 	}
 
-	// Fetch masks with per-mask stats computed from the source tables.
-	// mask_stats is keyed per user (not per mask), so we cannot use it here.
+	// mask_stats is keyed per user (not per mask), so stats are computed from source tables.
 	maskRows, err := db.Query(`
 		SELECT
 			cpb.id,
@@ -590,6 +595,7 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, profile)
 }
 
+// UploadUserAvatar saves a new avatar image for the authenticated user.
 func UploadUserAvatar(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 	if userID == 0 {
@@ -629,6 +635,8 @@ func UploadUserAvatar(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"avatar": avatarURL})
 }
 
+// UpdateSettings applies partial updates to the authenticated user's profile and preferences.
+// Returns the full updated user object including roles.
 func UpdateSettings(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 	if userID == 0 {
@@ -680,7 +688,6 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 		args = append(args, *req.DoNotBlur)
 	}
 	if req.Password != nil {
-		// Hash the password before updating
 		dummyUser := Entities.User{}
 		if err := dummyUser.HashPassword(*req.Password); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to hash password"})
@@ -706,7 +713,6 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Fetch updated user details
 	var user Entities.User
 	err = db.QueryRow("SELECT id, username, avatar, interface_language, interface_timezone, interface_font_size, user_status, total_posts, total_general_posts, interface_design, signature, editor_type, do_not_blur FROM users WHERE id = ?", userID).Scan(&user.Id, &user.Username, &user.Avatar, &user.InterfaceLanguage, &user.InterfaceTimezone, &user.InterfaceFontSize, &user.UserStatus, &user.TotalPosts, &user.TotalGeneralPosts, &user.InterfaceDesign, &user.Signature, &user.EditorType, &user.DoNotBlur)
 	if err != nil {
@@ -715,7 +721,6 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Fetch user roles
 	rolesQuery := `
 		SELECT r.id, r.name
 		FROM roles r
@@ -744,10 +749,12 @@ func UpdateSettings(c *gin.Context, db *sql.DB) {
 	})
 }
 
+// SetDoNotBlurRequest is the payload for toggling the NSFW blur preference.
 type SetDoNotBlurRequest struct {
 	DoNotBlur bool `json:"do_not_blur"`
 }
 
+// SetDoNotBlur updates the NSFW image blur preference for the authenticated user.
 func SetDoNotBlur(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 	if userID == 0 {
@@ -772,6 +779,7 @@ func SetDoNotBlur(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"do_not_blur": req.DoNotBlur})
 }
 
+// AdminUserListItem is a user entry in the admin user list, including activity stats.
 type AdminUserListItem struct {
 	Id               int        `json:"id"`
 	Username         string     `json:"username"`
@@ -784,6 +792,8 @@ type AdminUserListItem struct {
 	ArchiveReason    *string    `json:"archive_reason"`
 }
 
+// GetAdminUserList returns all users with registration date, last visit, character count,
+// and archive status. Excludes the system user (id = 1).
 func GetAdminUserList(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT
@@ -823,8 +833,8 @@ func GetAdminUserList(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, users)
 }
 
+// GetUserList returns all active users ordered alphabetically, each with their active characters.
 func GetUserList(c *gin.Context, db *sql.DB) {
-	// 1. Fetch active users ordered alphabetically
 	query := "SELECT id, username, user_status, archive_date, archive_reason FROM users WHERE user_status = 0 AND id > 1 ORDER BY username ASC"
 	rows, err := db.Query(query)
 	if err != nil {
@@ -841,7 +851,6 @@ func GetUserList(c *gin.Context, db *sql.DB) {
 			continue
 		}
 
-		// 2. Fetch active characters for each user
 		charQuery := "SELECT id, name FROM character_base WHERE user_id = ? AND character_status = 0 ORDER BY name ASC"
 		charRows, err := db.Query(charQuery, user.Id)
 		if err == nil {
@@ -865,6 +874,7 @@ func GetUserList(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, users)
 }
 
+// GetRecentActiveUsers returns users who visited within the last 24 hours, ordered alphabetically.
 func GetRecentActiveUsers(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT id, username FROM users
@@ -891,6 +901,7 @@ func GetRecentActiveUsers(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, users)
 }
 
+// GetRecentActiveCharacters returns characters whose owners visited within the last 24 hours.
 func GetRecentActiveCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT c.id, c.name FROM character_base c
@@ -918,358 +929,7 @@ func GetRecentActiveCharacters(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, characters)
 }
 
-type SaveKeysPrivateKeyItem struct {
-	PrivateKey string `json:"private_key" binding:"required"`
-	IV         string `json:"iv" binding:"required"`
-	Salt       string `json:"salt" binding:"required"`
-}
-
-type SaveKeysRequest struct {
-	Codes               []string                 `json:"codes" binding:"required"`
-	PrivateKey          SaveKeysPrivateKeyItem   `json:"private_key" binding:"required"`
-	RecoveryPrivateKeys []SaveKeysPrivateKeyItem `json:"recovery_private_keys" binding:"required"`
-	PublicKey           Entities.PublicKey       `json:"public_key" binding:"required"`
-}
-
-func SaveKeys(c *gin.Context, db *sql.DB) {
-	userID := Services.GetUserIdFromContext(c)
-	if userID == 0 {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
-		c.Abort()
-		return
-	}
-
-	var req SaveKeysRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	if len(req.Codes) != len(req.RecoveryPrivateKeys) {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "codes and recovery_private_keys must have the same length"})
-		c.Abort()
-		return
-	}
-
-	// Insert the active (password-encrypted) private key
-	_, err := db.Exec(
-		"INSERT INTO private_keys (user_id, private_key, salt, iv, recovery_code_id, is_active) VALUES (?, ?, ?, ?, NULL, true)",
-		userID, req.PrivateKey.PrivateKey, req.PrivateKey.Salt, req.PrivateKey.IV,
-	)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save private key: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	// Insert recovery codes and their linked private keys
-	for i, code := range req.Codes {
-		hashBytes := sha256.Sum256([]byte(code))
-		hashHex := fmt.Sprintf("%x", hashBytes)
-
-		res, err := db.Exec(
-			"INSERT INTO recovery_codes (user_id, recovery_code) VALUES (?, ?)",
-			userID, hashHex,
-		)
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save recovery code: " + err.Error()})
-			c.Abort()
-			return
-		}
-
-		codeID, err := res.LastInsertId()
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get recovery code ID: " + err.Error()})
-			c.Abort()
-			return
-		}
-
-		pk := req.RecoveryPrivateKeys[i]
-		_, err = db.Exec(
-			"INSERT INTO private_keys (user_id, private_key, salt, iv, recovery_code_id, is_active) VALUES (?, ?, ?, ?, ?, false)",
-			userID, pk.PrivateKey, pk.Salt, pk.IV, codeID,
-		)
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save recovery private key: " + err.Error()})
-			c.Abort()
-			return
-		}
-	}
-
-	_, err = db.Exec(
-		"INSERT INTO public_keys (user_id, public_key) VALUES (?, ?)",
-		userID, req.PublicKey.PublicKey,
-	)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save public key: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"message": "Keys saved successfully"})
-}
-
-func GetPrivateKey(c *gin.Context, db *sql.DB) {
-	userID := Services.GetUserIdFromContext(c)
-	if userID == 0 {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
-		c.Abort()
-		return
-	}
-
-	var privateKey, salt, iv string
-	err := db.QueryRow(
-		"SELECT private_key, salt, iv FROM private_keys WHERE user_id = ? AND is_active = true",
-		userID,
-	).Scan(&privateKey, &salt, &iv)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "No active private key found"})
-		} else {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get private key: " + err.Error()})
-		}
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"private_key": privateKey, "salt": salt, "iv": iv})
-}
-
-func GetPublicKeyByUserId(c *gin.Context, db *sql.DB) {
-	userID, err := strconv.Atoi(c.Param("userID"))
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid user ID"})
-		c.Abort()
-		return
-	}
-
-	var pk Entities.PublicKey
-	err = db.QueryRow(
-		"SELECT user_id, public_key FROM public_keys WHERE user_id = ?",
-		userID,
-	).Scan(&pk.UserId, &pk.PublicKey)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "No public key found for user"})
-		} else {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get public key: " + err.Error()})
-		}
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusOK, pk)
-}
-
-type RecoveryKeyItem struct {
-	PrivateKey string `json:"private_key" binding:"required"`
-	IV         string `json:"iv" binding:"required"`
-	Salt       string `json:"salt" binding:"required"`
-}
-
-type SaveRecoveryKeysRequest struct {
-	Codes       []string          `json:"codes" binding:"required"`
-	PrivateKeys []RecoveryKeyItem `json:"recovery_private_keys" binding:"required"`
-}
-
-func SaveRecoveryKeys(c *gin.Context, db *sql.DB) {
-	userID := Services.GetUserIdFromContext(c)
-	if userID == 0 {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
-		c.Abort()
-		return
-	}
-
-	var req SaveRecoveryKeysRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	if len(req.Codes) != len(req.PrivateKeys) {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "codes and private_keys must have the same length"})
-		c.Abort()
-		return
-	}
-
-	for i, code := range req.Codes {
-		res, err := db.Exec(
-			"INSERT INTO recovery_codes (user_id, recovery_code) VALUES (?, ?)",
-			userID, code,
-		)
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save recovery code: " + err.Error()})
-			c.Abort()
-			return
-		}
-
-		codeID, err := res.LastInsertId()
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get recovery code ID: " + err.Error()})
-			c.Abort()
-			return
-		}
-
-		pk := req.PrivateKeys[i]
-		_, err = db.Exec(
-			"INSERT INTO private_keys (user_id, private_key, salt, iv, recovery_code_id, is_active) VALUES (?, ?, ?, ?, ?, false)",
-			userID, pk.PrivateKey, pk.Salt, pk.IV, codeID,
-		)
-		if err != nil {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save recovery key: " + err.Error()})
-			c.Abort()
-			return
-		}
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"message": "Recovery keys saved successfully"})
-}
-
-type RecoveryRequest struct {
-	Code string `json:"code" binding:"required"`
-}
-
-type UpdatePasswordRequest struct {
-	Password     string `json:"password" binding:"required"`
-	PrivateKey   string `json:"private_key" binding:"required"`
-	IV           string `json:"iv" binding:"required"`
-	Salt         string `json:"salt" binding:"required"`
-	SecurityCode string `json:"security_code" binding:"required"`
-}
-
-func UpdatePassword(c *gin.Context, db *sql.DB) {
-	var req UpdatePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	var userID int
-	err := db.QueryRow(
-		"SELECT user_id FROM recovery_codes WHERE security_code = ?",
-		req.SecurityCode,
-	).Scan(&userID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Invalid security code"})
-		} else {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to validate security code: " + err.Error()})
-		}
-		c.Abort()
-		return
-	}
-
-	dummyUser := Entities.User{}
-	if err := dummyUser.HashPassword(req.Password); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to hash password: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	_, err = db.Exec("UPDATE users SET password = ? WHERE id = ?", dummyUser.Password, userID)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update password: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	_, err = db.Exec(
-		"UPDATE private_keys SET private_key = ?, iv = ?, salt = ? WHERE user_id = ? AND is_active = true",
-		req.PrivateKey, req.IV, req.Salt, userID,
-	)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update private key: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	_, _ = db.Exec("UPDATE recovery_codes SET security_code = NULL, date_used = ? WHERE user_id = ?", time.Now(), userID)
-
-	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
-}
-
-func Recovery(c *gin.Context, db *sql.DB) {
-	var req RecoveryRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	hashBytes := sha256.Sum256([]byte(req.Code))
-	hashHex := fmt.Sprintf("%x", hashBytes)
-
-	var recoveryCodeID int
-	err := db.QueryRow(
-		"SELECT id FROM recovery_codes WHERE recovery_code = ? AND date_used IS NULL",
-		hashHex,
-	).Scan(&recoveryCodeID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "Recovery code not found"})
-		} else {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to look up recovery code: " + err.Error()})
-		}
-		c.Abort()
-		return
-	}
-
-	var pk Entities.PrivateKey
-	err = db.QueryRow(
-		"SELECT user_id, private_key, salt, iv, recovery_code_id FROM private_keys WHERE recovery_code_id = ?",
-		recoveryCodeID,
-	).Scan(&pk.UserId, &pk.PrivateKey, &pk.Salt, &pk.IV, &pk.RecoveryKeyId)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "No private key found for this recovery code"})
-		} else {
-			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get private key: " + err.Error()})
-		}
-		c.Abort()
-		return
-	}
-
-	securityCodeBytes := make([]byte, 32)
-	if _, err := rand.Read(securityCodeBytes); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to generate security code: " + err.Error()})
-		c.Abort()
-		return
-	}
-	securityCode := hex.EncodeToString(securityCodeBytes)
-
-	_, err = db.Exec(
-		"UPDATE recovery_codes SET security_code = ? WHERE id = ?",
-		securityCode, recoveryCodeID,
-	)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save security code: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"private_key": pk, "security_code": securityCode})
-}
-
-func PrivateKeyCheck(c *gin.Context, db *sql.DB) {
-	userID := Services.GetUserIdFromContext(c)
-	if userID == 0 {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusUnauthorized, Message: "Unauthorized"})
-		c.Abort()
-		return
-	}
-
-	var keyCount int
-	_ = db.QueryRow("SELECT COUNT(*) FROM private_keys WHERE user_id = ?", userID).Scan(&keyCount)
-
-	var messageCount int
-	_ = db.QueryRow("SELECT COUNT(*) FROM direct_chat_messages WHERE user_id = ?", userID).Scan(&messageCount)
-
-	c.JSON(http.StatusOK, gin.H{"result": keyCount > 0 || messageCount > 0})
-}
-
+// ActiveUserInfo is one entry in the active-users activity list.
 type ActiveUserInfo struct {
 	UserID              int     `json:"user_id"`
 	Username            string  `json:"username"`
@@ -1280,6 +940,9 @@ type ActiveUserInfo struct {
 	LastActiveLocalized string  `json:"last_active"`
 }
 
+// buildActiveUserActivity assembles the active-user list for forUserID, applying subforum
+// visibility rules so users cannot see who is reading subforums they cannot access.
+// Topic names are only included when the viewer has read access to that subforum.
 func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
 	timezone := Services.GetUserTimezone(forUserID, db)
 	activeUsers := Services.ActivityStorage.GetActiveUsers()
@@ -1341,6 +1004,8 @@ func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
 	return result
 }
 
+// BroadcastActiveUserActivity pushes updated activity data via WebSocket to every user
+// currently viewing the active-users page.
 func BroadcastActiveUserActivity(db *sql.DB) {
 	viewers := Services.ActivityStorage.GetUsersOnPageType("active-users")
 	if len(viewers) == 0 {
@@ -1354,11 +1019,14 @@ func BroadcastActiveUserActivity(db *sql.DB) {
 	}
 }
 
+// GetActiveUserActivity returns the current active-user activity list for the caller.
 func GetActiveUserActivity(c *gin.Context, db *sql.DB) {
 	currentUserID := Services.GetUserIdFromContext(c)
 	c.JSON(http.StatusOK, buildActiveUserActivity(currentUserID, db))
 }
 
+// UpdateGuestLocation records a guest's current page for the active-users display
+// and broadcasts the updated list to all viewers.
 func UpdateGuestLocation(c *gin.Context, db *sql.DB) {
 	var req struct {
 		PageType string `json:"page_type" binding:"required"`
@@ -1375,6 +1043,7 @@ func UpdateGuestLocation(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// GetUserRoles returns all roles assigned to a given user.
 func GetUserRoles(c *gin.Context, db *sql.DB) {
 	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1405,6 +1074,8 @@ func GetUserRoles(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, roles)
 }
 
+// UpdateUserRoles replaces all role assignments for a user in a single transaction
+// and forces a token refresh so the new permissions take effect immediately.
 func UpdateUserRoles(c *gin.Context, db *sql.DB) {
 	var req struct {
 		UserID  int   `json:"user_id" binding:"required"`
@@ -1449,253 +1120,7 @@ func UpdateUserRoles(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"message": "User roles updated"})
 }
 
-type topicDeletion struct {
-	TopicID    int
-	SubforumID int
-	PostIDs    []int
-}
-
-// wipeUserInTx deletes direct messages, removes general posts, deactivates and reassigns
-// characters/wanted characters/profiles to user 1, and deletes the user — all within the
-// provided transaction. Returns per-topic post batches and deactivation results for
-// post-commit event firing.
-func wipeUserInTx(tx *sql.Tx, db *sql.DB, userID int) ([]topicDeletion, []Services.CharacterDeactivationResult, []wantedCharDeactivationResult, int, error) {
-	if _, err := tx.Exec("DELETE FROM direct_chat_messages WHERE user_id = ?", userID); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to delete direct messages: %w", err)
-	}
-
-	// Collect post IDs grouped by topic before deletion so handlers can work per-topic batch.
-	rows, err := db.Query(`
-		SELECT p.id, p.topic_id, t.subforum_id
-		FROM posts p
-		JOIN topics t ON t.id = p.topic_id
-		WHERE p.author_user_id = ? AND t.type = ?
-		ORDER BY p.topic_id`,
-		userID, Entities.GeneralTopic,
-	)
-	var batches []topicDeletion
-	topicIndex := map[int]int{}
-	if err == nil {
-		for rows.Next() {
-			var pid, tid, sfid int
-			if rows.Scan(&pid, &tid, &sfid) == nil {
-				if idx, ok := topicIndex[tid]; ok {
-					batches[idx].PostIDs = append(batches[idx].PostIDs, pid)
-				} else {
-					topicIndex[tid] = len(batches)
-					batches = append(batches, topicDeletion{TopicID: tid, SubforumID: sfid, PostIDs: []int{pid}})
-				}
-			}
-		}
-		rows.Close()
-	}
-
-	if _, err := tx.Exec(
-		"DELETE FROM posts WHERE author_user_id = ? AND topic_id IN (SELECT id FROM topics WHERE type = ?)",
-		userID, Entities.GeneralTopic,
-	); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to delete general posts: %w", err)
-	}
-
-	if _, err := tx.Exec("UPDATE posts SET author_user_id = 1 WHERE author_user_id = ?", userID); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to reassign posts: %w", err)
-	}
-	if _, err := tx.Exec("UPDATE topics SET author_user_id = 1 WHERE author_user_id = ?", userID); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to reassign topics: %w", err)
-	}
-
-	// Deactivate each active character via the shared helper so all downstream logic is consistent.
-	var charResults []Services.CharacterDeactivationResult
-	charRows, err := db.Query(
-		"SELECT id FROM character_base WHERE user_id = ? AND character_status = ?",
-		userID, Entities.ActiveCharacter,
-	)
-	if err == nil {
-		var charIDs []int
-		for charRows.Next() {
-			var cid int
-			if charRows.Scan(&cid) == nil {
-				charIDs = append(charIDs, cid)
-			}
-		}
-		charRows.Close()
-		for _, cid := range charIDs {
-			res, _, err := Services.DeactivateCharacterInTx(tx, db, cid)
-			if err != nil {
-				return nil, nil, nil, 0, fmt.Errorf("failed to deactivate character %d: %w", cid, err)
-			}
-			charResults = append(charResults, res)
-		}
-	}
-
-	var wipedCharCount int
-	_ = db.QueryRow("SELECT COUNT(*) FROM character_base WHERE user_id = ?", userID).Scan(&wipedCharCount)
-
-	if _, err := tx.Exec("UPDATE character_base SET user_id = 1 WHERE user_id = ?", userID); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to reassign characters: %w", err)
-	}
-	if _, err := tx.Exec("UPDATE character_profile_base SET user_id = 1 WHERE user_id = ?", userID); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to reassign character profiles: %w", err)
-	}
-
-	// Deactivate each active wanted character via the shared helper.
-	var wcResults []wantedCharDeactivationResult
-	wcRows, err := db.Query(
-		"SELECT id FROM wanted_character_base WHERE author_user_id = ? AND wanted_character_status = ?",
-		userID, Entities.ActiveWantedCharacter,
-	)
-	if err == nil {
-		var wcIDs []int
-		for wcRows.Next() {
-			var wcid int
-			if wcRows.Scan(&wcid) == nil {
-				wcIDs = append(wcIDs, wcid)
-			}
-		}
-		wcRows.Close()
-		for _, wcid := range wcIDs {
-			res, _, err := deactivateWantedCharacterInTx(tx, db, wcid)
-			if err != nil {
-				return nil, nil, nil, 0, fmt.Errorf("failed to deactivate wanted character %d: %w", wcid, err)
-			}
-			wcResults = append(wcResults, res)
-		}
-	}
-
-	if _, err := tx.Exec("UPDATE wanted_character_base SET author_user_id = 1 WHERE author_user_id = ?", userID); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to reassign wanted characters: %w", err)
-	}
-
-	if _, err := tx.Exec("DELETE FROM users WHERE id = ?", userID); err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("failed to delete user: %w", err)
-	}
-
-	return batches, charResults, wcResults, wipedCharCount, nil
-}
-
-type WipeOutMyUserRequest struct {
-	RecoveryCode string `json:"recovery_code" binding:"required"`
-}
-
-func WipeOutMyUser(c *gin.Context, db *sql.DB) {
-	var req WipeOutMyUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid request body: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	var codeID, userID int
-	if err := db.QueryRow(
-		"SELECT id, user_id FROM recovery_codes WHERE recovery_code = ? AND date_used IS NULL",
-		req.RecoveryCode,
-	).Scan(&codeID, &userID); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid or already used recovery code"})
-		c.Abort()
-		return
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction: " + err.Error()})
-		c.Abort()
-		return
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec("UPDATE recovery_codes SET date_used = NOW() WHERE id = ?", codeID); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to mark recovery code as used: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	batches, charResults, wcResults, wipedCharCount, err := wipeUserInTx(tx, db, userID)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: err.Error()})
-		c.Abort()
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "User account wiped"})
-
-	Events.Publish(db, Events.UserWiped, Events.UserWipedEvent{CharacterCount: wipedCharCount})
-	for _, b := range batches {
-		Events.Publish(db, Events.GeneralPostsDeleted, Events.GeneralPostsDeletedEvent{
-			TopicID:    b.TopicID,
-			SubforumID: b.SubforumID,
-			Count:      len(b.PostIDs),
-			PostIDs:    b.PostIDs,
-		})
-	}
-	for _, r := range charResults {
-		Services.PublishCharacterDeactivatedEvents(db, r)
-	}
-	for _, r := range wcResults {
-		publishWantedCharDeactivatedEvents(db, r)
-	}
-}
-
-func AdminWipeUser(c *gin.Context, db *sql.DB) {
-	userID, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: "Invalid user ID"})
-		c.Abort()
-		return
-	}
-
-	var exists bool
-	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)", userID).Scan(&exists); err != nil || !exists {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusNotFound, Message: "User not found"})
-		c.Abort()
-		return
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to start transaction: " + err.Error()})
-		c.Abort()
-		return
-	}
-	defer tx.Rollback()
-
-	batches, charResults, wcResults, wipedCharCount, err := wipeUserInTx(tx, db, userID)
-	if err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: err.Error()})
-		c.Abort()
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to commit transaction: " + err.Error()})
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "User account deleted"})
-
-	Events.Publish(db, Events.UserWiped, Events.UserWipedEvent{CharacterCount: wipedCharCount})
-	for _, b := range batches {
-		Events.Publish(db, Events.GeneralPostsDeleted, Events.GeneralPostsDeletedEvent{
-			TopicID:    b.TopicID,
-			SubforumID: b.SubforumID,
-			Count:      len(b.PostIDs),
-			PostIDs:    b.PostIDs,
-		})
-	}
-	for _, r := range charResults {
-		Services.PublishCharacterDeactivatedEvents(db, r)
-	}
-	for _, r := range wcResults {
-		publishWantedCharDeactivatedEvents(db, r)
-	}
-}
-
+// ArchiveAccount archives the authenticated user's own account and deactivates all characters.
 func ArchiveAccount(c *gin.Context, db *sql.DB) {
 	userID := Services.GetUserIdFromContext(c)
 
@@ -1762,6 +1187,7 @@ func ArchiveAccount(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"user_status": Entities.ArchivedUser})
 }
 
+// ReactivateUser clears archive status and reactivates a user. Admin only.
 func ReactivateUser(c *gin.Context, db *sql.DB) {
 	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1789,6 +1215,8 @@ func ReactivateUser(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"user_status": Entities.ActiveUser})
 }
 
+// BanUser archives a user with an optional reason, deactivates their characters,
+// and forces a token refresh. Admin only.
 func BanUser(c *gin.Context, db *sql.DB) {
 	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1866,11 +1294,14 @@ func BanUser(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"user_status": Entities.ArchivedUser})
 }
 
+// AdminUpdateUserRequest is the payload for admin edits to a user's account.
 type AdminUpdateUserRequest struct {
 	Username *string `json:"username"`
 	Avatar   *string `json:"avatar"`
 }
 
+// AdminUpdateUser allows an admin to change a user's username or avatar.
+// Syncs the in-memory activity store and forces a token refresh on username change.
 func AdminUpdateUser(c *gin.Context, db *sql.DB) {
 	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1926,6 +1357,8 @@ func AdminUpdateUser(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
 }
 
+// UserAutocomplete returns up to 10 users matching a username search term.
+// If episode_id is provided, results are limited to participants of that episode.
 func UserAutocomplete(c *gin.Context, db *sql.DB) {
 	term := c.Param("term")
 

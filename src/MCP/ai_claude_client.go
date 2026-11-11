@@ -21,6 +21,35 @@ func NewClaudeClient(apiKey, model string) (*ClaudeClient, error) {
 
 func (c *ClaudeClient) ModelID() string { return c.model }
 
+// SimpleChat sends a single-turn request without tools and returns the text response.
+func (c *ClaudeClient) SimpleChat(ctx context.Context, messages []ChatMessage, systemInstruction string) (string, error) {
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(c.model),
+		MaxTokens: 4096,
+	}
+	if systemInstruction != "" {
+		params.System = []anthropic.TextBlockParam{{Text: systemInstruction}}
+	}
+	for _, msg := range messages {
+		switch msg.Role {
+		case "user":
+			params.Messages = append(params.Messages, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+		case "assistant":
+			params.Messages = append(params.Messages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(msg.Content)))
+		}
+	}
+	resp, err := c.client.Messages.New(ctx, params)
+	if err != nil {
+		return "", err
+	}
+	for _, block := range resp.Content {
+		if block.Type == "text" {
+			return block.Text, nil
+		}
+	}
+	return "", fmt.Errorf("empty response (no text block)")
+}
+
 func (c *ClaudeClient) Chat(ctx context.Context, history []ChatMessage, systemInstruction string) (string, []ChatSource, error) {
 	messages := make([]anthropic.MessageParam, 0, len(history))
 	for _, msg := range history {

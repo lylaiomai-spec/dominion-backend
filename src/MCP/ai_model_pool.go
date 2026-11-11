@@ -14,6 +14,12 @@ type ModelPool interface {
 	// ClientExcluding is like ClientForMinSize but skips models whose ID is in excluded.
 	// Used to retry with a different model after a rate-limit failure.
 	ClientExcluding(minSize Entities.AIModelSize, modelType Entities.AIModelType, excluded []string) (AIClient, error)
+	// ClientForSimpleChat is like ClientForMinSize but does not require tool-call support.
+	// Use this for tasks (e.g. proofreading) that never invoke tools.
+	ClientForSimpleChat(minSize Entities.AIModelSize, modelType Entities.AIModelType) (AIClient, error)
+	// ClientExcludingForSimpleChat is like ClientExcluding but does not require tool-call support.
+	// Use this to retry a simple-chat task (e.g. proofreading) with a different model.
+	ClientExcludingForSimpleChat(minSize Entities.AIModelSize, modelType Entities.AIModelType, excluded []string) (AIClient, error)
 }
 
 type AIModelPool struct {
@@ -32,6 +38,17 @@ func (p *AIModelPool) ClientForMinSize(minSize Entities.AIModelSize, modelType E
 // ClientForMinSizeAndProtocol is like ClientForMinSize but also restricts to a specific protocol.
 func (p *AIModelPool) ClientForMinSizeAndProtocol(minSize Entities.AIModelSize, modelType Entities.AIModelType, protocol Entities.AIModelProtocolType) (AIClient, error) {
 	return p.clientForMinSize(minSize, modelType, &protocol)
+}
+
+// ClientForSimpleChat is the same as ClientForMinSize for the DB-managed pool
+// (tool support is tracked per-model in the DB and not filtered here).
+func (p *AIModelPool) ClientForSimpleChat(minSize Entities.AIModelSize, modelType Entities.AIModelType) (AIClient, error) {
+	return p.clientForMinSize(minSize, modelType, nil)
+}
+
+// ClientExcludingForSimpleChat is the same as ClientExcluding for the DB-managed pool.
+func (p *AIModelPool) ClientExcludingForSimpleChat(minSize Entities.AIModelSize, modelType Entities.AIModelType, excluded []string) (AIClient, error) {
+	return p.ClientExcluding(minSize, modelType, excluded)
 }
 
 func (p *AIModelPool) ClientExcluding(minSize Entities.AIModelSize, modelType Entities.AIModelType, excluded []string) (AIClient, error) {

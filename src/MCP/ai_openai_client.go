@@ -30,6 +30,80 @@ func NewOpenAICompatClient(apiKey, model, baseURL string) (*OpenAICompatClient, 
 
 func (o *OpenAICompatClient) ModelID() string { return o.model }
 
+// ChatSimpleStream sends a single-turn request and streams response tokens to onToken.
+// No tool calls are made. Returns error if the stream fails or onToken returns an error.
+func (o *OpenAICompatClient) ChatSimpleStream(
+	ctx context.Context,
+	messages []ChatMessage,
+	systemInstruction string,
+	onToken func(string) error,
+) error {
+	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages)+1)
+	if systemInstruction != "" {
+		msgs = append(msgs, openai.SystemMessage(systemInstruction))
+	}
+	for _, msg := range messages {
+		switch msg.Role {
+		case "user":
+			msgs = append(msgs, openai.UserMessage(msg.Content))
+		case "assistant":
+			msgs = append(msgs, openai.AssistantMessage(msg.Content))
+		}
+	}
+
+	params := openai.ChatCompletionNewParams{
+		Model:       openai.ChatModel(o.model),
+		Messages:    msgs,
+		Temperature: openai.Float(0),
+	}
+
+	stream := o.client.Chat.Completions.NewStreaming(ctx, params)
+	defer stream.Close()
+
+	for stream.Next() {
+		chunk := stream.Current()
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta.Content
+		if delta == "" {
+			continue
+		}
+		if err := onToken(delta); err != nil {
+			return err
+		}
+	}
+	return stream.Err()
+}
+
+// SimpleChat sends a single-turn request without tools and returns the text response.
+func (o *OpenAICompatClient) SimpleChat(ctx context.Context, messages []ChatMessage, systemInstruction string) (string, error) {
+	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages)+1)
+	if systemInstruction != "" {
+		msgs = append(msgs, openai.SystemMessage(systemInstruction))
+	}
+	for _, msg := range messages {
+		switch msg.Role {
+		case "user":
+			msgs = append(msgs, openai.UserMessage(msg.Content))
+		case "assistant":
+			msgs = append(msgs, openai.AssistantMessage(msg.Content))
+		}
+	}
+	resp, err := o.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model:       openai.ChatModel(o.model),
+		Messages:    msgs,
+		Temperature: openai.Float(0),
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("empty response (no choices)")
+	}
+	return resp.Choices[0].Message.Content, nil
+}
+
 func (o *OpenAICompatClient) Chat(ctx context.Context, history []ChatMessage, systemInstruction string) (string, []ChatSource, error) {
 	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(history)+1)
 	if systemInstruction != "" {

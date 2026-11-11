@@ -178,6 +178,7 @@ role_id,type,permission
 3,0,/admin/user/ban/:id
 3,0,/admin/user/reactivate/:id
 3,0,/admin/user/delete/:id
+3,0,/admin/users/:id/reset-password
 3,0,/admin/user/roles/update
 3,0,/admin/user/roles/:id
 3,0,/admin/home
@@ -304,6 +305,7 @@ role_id,type,permission
 3,0,/admin/workflow/update/:id
 3,0,/admin/workflow/delete/:id
 2,0,/ai/proofread
+2,0,/ai/proofread/stream
 3,0,/admin/posts/move
 2,0,/user/subforum-settings
 2,0,/user/subforum-settings/update-all

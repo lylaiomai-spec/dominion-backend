@@ -14,6 +14,10 @@ type ModelRetryOptions struct {
 	ShouldRetry func(error) bool
 	// OnRetry is called before each retry with the failing model ID.
 	OnRetry func(modelID string)
+	// SimpleChat uses ClientExcludingForSimpleChat on retry instead of ClientExcluding.
+	// Set this for tasks that do not use tool calls (e.g. proofreading), so the retry
+	// stays in the same model pool as the initial ClientForSimpleChat call.
+	SimpleChat bool
 }
 
 // withModelRetry calls fn with a client from pool, retrying with a fresh model when
@@ -88,7 +92,11 @@ func withModelRetryOpts(
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			var err error
-			client, err = pool.ClientExcluding(minSize, modelType, excluded)
+			if opts.SimpleChat {
+				client, err = pool.ClientExcludingForSimpleChat(minSize, modelType, excluded)
+			} else {
+				client, err = pool.ClientExcluding(minSize, modelType, excluded)
+			}
 			if err != nil {
 				return err
 			}

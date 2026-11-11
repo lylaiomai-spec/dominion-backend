@@ -26,6 +26,36 @@ func NewGeminiClient(apiKey string, model string) (*GeminiClient, error) {
 
 func (g *GeminiClient) ModelID() string { return g.model }
 
+// SimpleChat sends a single-turn request without tools and returns the text response.
+func (g *GeminiClient) SimpleChat(ctx context.Context, messages []ChatMessage, systemInstruction string) (string, error) {
+	contents := make([]*genai.Content, len(messages))
+	for i, msg := range messages {
+		role := msg.Role
+		if role == "assistant" {
+			role = "model"
+		}
+		contents[i] = &genai.Content{
+			Role:  role,
+			Parts: []*genai.Part{{Text: msg.Content}},
+		}
+	}
+	temperature := float32(0)
+	cfg := &genai.GenerateContentConfig{Temperature: &temperature}
+	if systemInstruction != "" {
+		cfg.SystemInstruction = &genai.Content{
+			Parts: []*genai.Part{{Text: systemInstruction}},
+		}
+	}
+	result, err := g.client.Models.GenerateContent(ctx, g.model, contents, cfg)
+	if err != nil {
+		return "", err
+	}
+	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("empty response")
+	}
+	return result.Candidates[0].Content.Parts[0].Text, nil
+}
+
 func (g *GeminiClient) Chat(ctx context.Context, history []ChatMessage, systemInstruction string) (string, []ChatSource, error) {
 	contents := make([]*genai.Content, len(history))
 	for i, msg := range history {

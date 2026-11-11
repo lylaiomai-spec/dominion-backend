@@ -59,6 +59,7 @@ type PrivateKey struct {
 }
 
 type PublicKey struct {
+	Id        int    `json:"id"`
 	UserId    int    `json:"user_id"`
 	PublicKey string `json:"public_key"`
 }
