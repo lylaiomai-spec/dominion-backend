@@ -93,9 +93,10 @@ func GetLorePagesByTopic(c *gin.Context, db *sql.DB) {
 }
 
 type LoreTopicPostRow struct {
-	Id          int64         `json:"id"`
-	DateCreated time.Time     `json:"date_created"`
-	LorePage    *LorePageInfo `json:"lore_page"`
+	Id                   int64         `json:"id"`
+	DateCreated          time.Time     `json:"date_created"`
+	DateCreatedLocalized string        `json:"date_created_localized,omitempty"`
+	LorePage             *LorePageInfo `json:"lore_page"`
 }
 
 func GetLoreTopicPosts(c *gin.Context, db *sql.DB) {
@@ -135,6 +136,7 @@ func GetLoreTopicPosts(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
+
 	var list []LoreTopicPostRow
 	for rows.Next() {
 		var row LoreTopicPostRow
@@ -148,6 +150,7 @@ func GetLoreTopicPosts(c *gin.Context, db *sql.DB) {
 			c.Abort()
 			return
 		}
+		row.DateCreatedLocalized = Services.LocalizeTime(c, row.DateCreated)
 		if lpName.Valid {
 			info := &LorePageInfo{
 				Name:     lpName.String,

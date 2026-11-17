@@ -1,4 +1,9 @@
 {
+  "date.format": "2 Jan 2006",
+  "date.usePm": "true",
+  "date.today": "Today",
+  "date.yesterday": "Yesterday",
+
   "currency_income_game_post.name": "Game post",
   "currency_income_game_post.description": "Currency for every game post",
   "currency_income_wanted_character.name": "Wanted character",
@@ -23,7 +28,7 @@
 
   "permission.subforum_read": "View subforum",
   "permission.subforum_create_general_topic": "Create general topic",
-  "permission.subforum_create_episode_topic": "Create episode topic",
+  "permission.subforum_create_episode_topic": "Create scene topic",
   "permission.subforum_create_character_topic": "Create character topic",
   "permission.subforum_create_wanted_character_topic": "Create wanted character topic",
   "permission.subforum_create_lore_topic": "Create lore topic",

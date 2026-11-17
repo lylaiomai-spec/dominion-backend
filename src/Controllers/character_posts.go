@@ -126,7 +126,6 @@ func GetPostsByCharacter(c *gin.Context, db *sql.DB) {
 
 	cols, _ := rows.Columns()
 	posts := make([]Entities.Post, 0)
-	userTimezone := Services.GetUserTimezone(currentUserID, db)
 
 	dateCreatedIdx := -1
 	for i, col := range cols {
@@ -171,7 +170,7 @@ func GetPostsByCharacter(c *gin.Context, db *sql.DB) {
 			post.AuthorUserName = username.(string)
 		}
 		post.DateCreated = dateCreated
-		post.DateCreatedLocalized = Services.LocalizeTime(post.DateCreated, userTimezone)
+		post.DateCreatedLocalized = Services.LocalizeTime(c, post.DateCreated)
 		post.Content = rowMap["content"].(string)
 		post.ContentHtml = Services.ProcessHideBlocks(Services.LinkifyURLs(Services.ResolveNPCPlaceholders(Services.ParseBBCode(post.Content), db), domain, db), currentUserID, post.TopicId, db)
 		post.UseCharacterProfile, _ = strconv.ParseBool(rowMap["use_character_profile"].(string))

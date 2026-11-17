@@ -17,6 +17,8 @@ func TestUserActivityStorage(t *testing.T) {
 
 	t.Run("Add and Remove User", func(t *testing.T) {
 		s.AddUser(1, "user1")
+		// Connected users stay hidden until they report a page.
+		s.UpdateUserLocation(nil, 1, "forum", "1")
 		active := s.GetActiveUsers()
 		found := false
 		for _, u := range active {

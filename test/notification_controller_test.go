@@ -1,100 +1,84 @@
 package test
 
 import (
-	"cuento-backend/src/Controllers"
 	"cuento-backend/src/Entities"
-	"cuento-backend/src/Middlewares"
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"regexp"
 	"testing"
-	"time"
-
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/gin-gonic/gin"
 )
 
-func TestGetUnreadNotifications(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestGetUnreadNotifications_Access(t *testing.T) {
+	t.Run("unauthenticated", func(t *testing.T) {
+		f := newFixture(t)
+		expectStatus(t, f.do(t, "GET", "/notifications/unread", 0, nil), http.StatusUnauthorized)
+	})
 
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
-	}
-	defer db.Close()
-
-	t.Run("Successful GetUnreadNotifications", func(t *testing.T) {
-		userID := 1
-		now := time.Now()
-
-		mock.ExpectQuery("SELECT id, type, title, message, data, date_created, is_read FROM notifications").
-			WithArgs(userID).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "type", "title", "message", "data", "date_created", "is_read"}).
-				AddRow(1, "mention", "Title", "Message", `{"user_id": 2, "user_name": "user2", "post_id": 10, "topic_id": 100}`, now, false))
-
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set("user_id", userID)
-			c.Next()
-		})
-		r.Use(Middlewares.ErrorMiddleware())
-		r.GET("/notifications/unread", func(c *gin.Context) {
-			Controllers.GetUnreadNotifications(c, db)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/notifications/unread", nil)
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
-		}
-
-		var response map[string][]Entities.Notification
-		json.Unmarshal(w.Body.Bytes(), &response)
-		if len(response["mention"]) != 1 {
-			t.Errorf("Expected 1 mention notification, got %d", len(response["mention"]))
-		}
-		if response["mention"][0].Mention.UserName != "user2" {
-			t.Errorf("Expected mention author 'user2', got %s", response["mention"][0].Mention.UserName)
-		}
+	// The guest role holds /notifications/unread, so only a user without any role is refused.
+	t.Run("user without any role", func(t *testing.T) {
+		f := newFixture(t)
+		expectStatus(t, f.do(t, "GET", "/notifications/unread", f.noRole, nil), http.StatusForbidden)
 	})
 }
 
-func TestDismissNotification(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestGetUnreadNotifications_OnlyOwnUnread(t *testing.T) {
+	f := newFixture(t)
+	own := f.addNotification(t, f.member)
+	read := f.addNotification(t, f.member)
+	f.exec(t, "UPDATE notifications SET is_read = TRUE WHERE id = ?", read)
+	f.addNotification(t, f.admin)
 
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
+	w := f.do(t, "GET", "/notifications/unread", f.member, nil)
+	expectStatus(t, w, http.StatusOK)
+
+	var response map[string][]Entities.MentionNotification
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decoding response: %v", err)
 	}
-	defer db.Close()
+	mentions := response["mention"]
+	if len(mentions) != 1 {
+		t.Fatalf("expected 1 unread mention, got %d: %s", len(mentions), w.Body.String())
+	}
+	if mentions[0].Id != own {
+		t.Errorf("expected notification %d, got %d", own, mentions[0].Id)
+	}
+	if mentions[0].Data.UserName != "author" {
+		t.Errorf("expected mention author 'author', got %q", mentions[0].Data.UserName)
+	}
+	if mentions[0].DateCreatedLocalized == "" {
+		t.Error("expected a localized creation date")
+	}
+}
 
-	t.Run("Successful DismissNotification", func(t *testing.T) {
-		userID := 1
-		notificationID := 100
+func TestDismissNotification(t *testing.T) {
+	tests := []struct {
+		name     string
+		owner    func(f *fixture) int
+		caller   func(f *fixture) int
+		want     int
+		wantRead bool
+	}{
+		{"unauthenticated", func(f *fixture) int { return f.member }, func(f *fixture) int { return 0 }, http.StatusUnauthorized, false},
+		{"guest role cannot dismiss", func(f *fixture) int { return f.guestUser }, func(f *fixture) int { return f.guestUser }, http.StatusForbidden, false},
+		{"owner dismisses", func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusOK, true},
+		{"another user's notification stays unread", func(f *fixture) int { return f.admin }, func(f *fixture) int { return f.member }, http.StatusOK, false},
+	}
 
-		mock.ExpectExec(regexp.QuoteMeta("UPDATE notifications SET is_read = TRUE WHERE id = ? AND user_id = ?")).
-			WithArgs(notificationID, userID).
-			WillReturnResult(sqlmock.NewResult(0, 1))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			id := f.addNotification(t, tt.owner(f))
 
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set("user_id", userID)
-			c.Next()
+			w := f.do(t, "POST", fmt.Sprintf("/notifications/dismiss/%d", id), tt.caller(f), nil)
+			expectStatus(t, w, tt.want)
+
+			var isRead bool
+			if err := f.db.QueryRow("SELECT is_read FROM notifications WHERE id = ?", id).Scan(&isRead); err != nil {
+				t.Fatalf("reading notification: %v", err)
+			}
+			if isRead != tt.wantRead {
+				t.Errorf("expected is_read=%v, got %v", tt.wantRead, isRead)
+			}
 		})
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/notifications/dismiss/:id", func(c *gin.Context) {
-			Controllers.DismissNotification(c, db)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/notifications/dismiss/100", nil)
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
-		}
-	})
+	}
 }

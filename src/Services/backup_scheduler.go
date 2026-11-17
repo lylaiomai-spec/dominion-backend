@@ -31,11 +31,11 @@ type BackupFile struct {
 
 // resolveBackupProvider returns the configured provider, or nil if none is set up.
 func resolveBackupProvider(db *sql.DB) BackupStorageProvider {
-	key, _ := GetBackupSetting("gdrive_service_account_key", db)
-	if key != "" {
-		return NewGDriveProvider(db)
+	settings, err := GetBackupSettings(db)
+	if err != nil || settings.GdriveClientID == "" || settings.GdriveRefreshToken == "" {
+		return nil
 	}
-	return nil
+	return NewGDriveProvider(db)
 }
 
 func StartBackupScheduler(db *sql.DB) {
@@ -50,39 +50,41 @@ func StartBackupScheduler(db *sql.DB) {
 }
 
 func runScheduledBackupIfDue(db *sql.DB) {
-	enabled, _ := GetBackupSetting("gdrive_backup_enabled", db)
-	if enabled != "y" {
+	settings, err := GetBackupSettings(db)
+	if err != nil {
+		log.Printf("Backup scheduler: failed to read settings: %v", err)
 		return
 	}
-	frequency, _ := GetBackupSetting("gdrive_backup_frequency", db)
+	if !settings.GdriveEnabled {
+		return
+	}
+	frequency := settings.GdriveFrequency
 	if frequency == "" {
 		frequency = "daily"
 	}
-	lastRunStr, _ := GetBackupSetting("gdrive_backup_last_run", db)
 
-	due := lastRunStr == ""
+	due := settings.GdriveLastRun == nil
 	if !due {
-		lastRun, err := time.Parse(time.RFC3339, lastRunStr)
-		if err != nil {
-			due = true
-		} else {
-			now := time.Now().UTC()
-			switch frequency {
-			case "daily":
-				due = now.Sub(lastRun) >= 24*time.Hour
-			case "weekly":
-				due = now.Sub(lastRun) >= 7*24*time.Hour
-			case "monthly":
-				due = now.Year() > lastRun.Year() || now.Month() > lastRun.Month()
-			}
+		now := time.Now().UTC()
+		lastRun := settings.GdriveLastRun.UTC()
+		switch frequency {
+		case "daily":
+			due = now.Sub(lastRun) >= 24*time.Hour
+		case "weekly":
+			due = now.Sub(lastRun) >= 7*24*time.Hour
+		case "monthly":
+			due = now.Year() > lastRun.Year() || now.Month() > lastRun.Month()
 		}
 	}
 
 	if !due {
 		return
 	}
+	log.Printf("Backup scheduler: starting %s backup", frequency)
 	if err := RunCloudBackup(db); err != nil {
-		log.Printf("Backup scheduler: %v", err)
+		log.Printf("Backup scheduler: backup failed: %v", err)
+	} else {
+		log.Printf("Backup scheduler: backup completed successfully")
 	}
 }
 
@@ -98,18 +100,20 @@ func RunCloudBackup(db *sql.DB) error {
 		keep = n
 	}
 
+	log.Printf("Backup scheduler: dumping database")
 	var buf bytes.Buffer
 	if err := MysqldumpToWriter(&buf); err != nil {
 		return fmt.Errorf("mysqldump: %w", err)
 	}
+	log.Printf("Backup scheduler: dump size %d bytes", buf.Len())
 
 	filename := fmt.Sprintf("backup_%s.sql", time.Now().UTC().Format("2006-01-02_15-04-05"))
+	log.Printf("Backup scheduler: uploading %s", filename)
 	if err := provider.Upload(filename, buf.Bytes()); err != nil {
 		return fmt.Errorf("upload: %w", err)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
-	db.Exec(`UPDATE backup_settings SET gdrive_last_run = ? WHERE id = 1`, now)
+	db.Exec(`UPDATE backup_settings SET gdrive_last_run = ? WHERE id = 1`, time.Now().UTC())
 
 	if err := provider.Prune(keep); err != nil {
 		log.Printf("Backup scheduler: prune failed: %v", err)

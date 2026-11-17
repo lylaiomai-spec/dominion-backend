@@ -12,18 +12,24 @@ import (
 )
 
 var I18nBundle *i18n.Bundle
+var i18nLocalesDir string
 
 func InitI18n(localesDir string) error {
+	i18nLocalesDir = localesDir
+	return ReloadI18n()
+}
+
+func ReloadI18n() error {
 	bundle := i18n.NewBundle(language.English)
 	bundle.RegisterUnmarshalFunc("json", json.Unmarshal)
 
-	entries, err := os.ReadDir(localesDir)
+	entries, err := os.ReadDir(i18nLocalesDir)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-			if _, err := bundle.LoadMessageFile(localesDir + "/" + entry.Name()); err != nil {
+			if _, err := bundle.LoadMessageFile(i18nLocalesDir + "/" + entry.Name()); err != nil {
 				fmt.Printf("[i18n] skipping %s: %v\n", entry.Name(), err)
 			}
 		}

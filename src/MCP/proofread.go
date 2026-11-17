@@ -105,7 +105,7 @@ func ProofreadText(text string, db *sql.DB) (*ProofreadResult, error) {
 		return nil, fmt.Errorf("AI is not configured")
 	}
 
-	client, err := pool.ClientForSimpleChat(Entities.AIModelSizeMedium, Entities.AIModelTypeText)
+	client, err := pool.ClientForSimpleChat(Entities.AIModelSizeSmall, Entities.AIModelTypeText)
 	if err != nil {
 		return nil, fmt.Errorf("no AI model available: %w", err)
 	}
@@ -116,7 +116,7 @@ func ProofreadText(text string, db *sql.DB) (*ProofreadResult, error) {
 	var result ProofreadResult
 	err = withModelRetryOpts(
 		pool,
-		Entities.AIModelSizeMedium, Entities.AIModelTypeText,
+		Entities.AIModelSizeSmall, Entities.AIModelTypeText,
 		client,
 		func(c AIClient) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -186,9 +186,9 @@ func ProofreadTextStream(
 		var client AIClient
 		var err error
 		if attempt == 0 {
-			client, err = pool.ClientForSimpleChat(Entities.AIModelSizeMedium, Entities.AIModelTypeText)
+			client, err = pool.ClientForSimpleChat(Entities.AIModelSizeSmall, Entities.AIModelTypeText)
 		} else {
-			client, err = pool.ClientExcludingForSimpleChat(Entities.AIModelSizeMedium, Entities.AIModelTypeText, excluded)
+			client, err = pool.ClientExcludingForSimpleChat(Entities.AIModelSizeSmall, Entities.AIModelTypeText, excluded)
 		}
 		if err != nil {
 			return fmt.Errorf("no AI model available: %w", err)

@@ -1,257 +1,236 @@
 package test
 
 import (
-	"bytes"
 	"cuento-backend/src/Controllers"
 	"cuento-backend/src/Entities"
-	"cuento-backend/src/Middlewares"
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"regexp"
 	"testing"
-	"time"
-
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/gin-gonic/gin"
 )
 
-func TestGetTopic(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
+func TestGetTopic_Access(t *testing.T) {
+	tests := []struct {
+		name     string
+		subforum func(f *fixture) int
+		listed   bool // add the viewer to private_subforum_users
+		viewer   func(f *fixture) int
+		want     int
+	}{
+		{"anonymous reads public subforum", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return 0 }, http.StatusOK},
+		{"member reads subforum with read permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, http.StatusOK},
+		{"member reads subforum without read permission", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return f.member }, http.StatusNotFound},
+		{"admin reads subforum B", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return f.admin }, http.StatusOK},
+		{"member not listed on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return f.member }, http.StatusNotFound},
+		{"member listed on private subforum", func(f *fixture) int { return f.subPrivate }, true, func(f *fixture) int { return f.member }, http.StatusOK},
+		{"anonymous on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return 0 }, http.StatusNotFound},
 	}
-	defer db.Close()
 
-	t.Run("Successful GetTopic", func(t *testing.T) {
-		topicID := 1
-		subforumID := 10
-		now := time.Now()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			sub := tt.subforum(f)
+			topicID := f.addTopic(t, sub, f.admin, Entities.GeneralTopic, "Crossroads")
+			viewer := tt.viewer(f)
+			if tt.listed {
+				f.exec(t, "INSERT INTO private_subforum_users (subforum_id, user_id) VALUES (?, ?)", sub, viewer)
+			}
 
-		mock.ExpectQuery("SELECT t.id, t.status, t.name, t.type, t.date_created, t.date_last_post, t.post_number, t.author_user_id, u.username, t.last_post_author_user_id, u2.username, t.subforum_id FROM topics t").
-			WithArgs(topicID).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "status", "name", "type", "date_created", "date_last_post", "post_number", "author_user_id", "username", "last_post_author_user_id", "username2", "subforum_id"}).
-				AddRow(topicID, 0, "Test Topic", 0, now, now, 1, 1, "author", 1, "author", subforumID))
-
-		// Mock CanEdit check
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM role_permission").
-			WithArgs(0, "subforum_edit_others_topic:10").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-		r := gin.New()
-		r.Use(Middlewares.ErrorMiddleware())
-		r.GET("/topic/:id", func(c *gin.Context) {
-			Controllers.GetTopic(c, db)
+			w := f.do(t, "GET", fmt.Sprintf("/topic/get/%d", topicID), viewer, nil)
+			expectStatus(t, w, tt.want)
+			if tt.want == http.StatusOK {
+				var topic Entities.Topic
+				if err := json.Unmarshal(w.Body.Bytes(), &topic); err != nil {
+					t.Fatalf("decoding topic: %v", err)
+				}
+				if topic.Name != "Crossroads" {
+					t.Errorf("expected topic name Crossroads, got %q", topic.Name)
+				}
+			}
 		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/topic/1", nil)
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
-		}
-
-		var response Entities.Topic
-		json.Unmarshal(w.Body.Bytes(), &response)
-		if response.Name != "Test Topic" {
-			t.Errorf("Expected topic name 'Test Topic', got %s", response.Name)
-		}
-	})
-}
-
-func TestCreatePost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
 	}
-	defer db.Close()
+}
 
-	t.Run("Successful CreatePost", func(t *testing.T) {
-		reqBody := Controllers.CreatePostRequest{
-			TopicID: 1,
-			Content: "New post content",
-		}
-		body, _ := json.Marshal(reqBody)
+func TestGetTopic_NotFound(t *testing.T) {
+	f := newFixture(t)
+	expectStatus(t, f.do(t, "GET", "/topic/get/999", f.member, nil), http.StatusNotFound)
+}
 
-		mock.ExpectBegin()
-		// The query has 5 placeholders. NOW() is not a placeholder.
-		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO posts (topic_id, author_user_id, content, date_created, use_character_profile, character_profile_id) VALUES (?, ?, ?, NOW(), ?, ?)")).
-			WithArgs(1, 1, "New post content", false, nil).
-			WillReturnResult(sqlmock.NewResult(100, 1))
-		mock.ExpectCommit()
+func TestCreatePost_Access(t *testing.T) {
+	tests := []struct {
+		name     string
+		subforum func(f *fixture) int
+		listed   bool
+		author   func(f *fixture) int
+		want     int
+	}{
+		{"member posts in subforum with post permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, http.StatusCreated},
+		{"member posts in subforum without post permission", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"anonymous posts in subforum without guest permission", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return 0 }, http.StatusForbidden},
+		{"member not listed on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"member listed on private subforum", func(f *fixture) int { return f.subPrivate }, true, func(f *fixture) int { return f.member }, http.StatusCreated},
+	}
 
-		// Mock Mentions check (none in this case)
-		// Mock Subforum/Topic fetch for event
-		mock.ExpectQuery("SELECT subforum_id, name FROM topics WHERE id = ?").
-			WithArgs(1).
-			WillReturnRows(sqlmock.NewRows([]string{"subforum_id", "name"}).AddRow(10, "Topic Name"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			sub := tt.subforum(f)
+			topicID := f.addTopic(t, sub, f.admin, Entities.GeneralTopic, "Crossroads")
+			author := tt.author(f)
+			if tt.listed {
+				f.exec(t, "INSERT INTO private_subforum_users (subforum_id, user_id) VALUES (?, ?)", sub, author)
+			}
 
-		// Mock GetPostById for event
-		mock.ExpectQuery("SELECT config FROM custom_field_config").WillReturnRows(sqlmock.NewRows([]string{"config"}).AddRow("[]"))
-		mock.ExpectQuery("SELECT p.id, p.topic_id, p.author_user_id").WillReturnRows(sqlmock.NewRows([]string{"id", "topic_id", "author_user_id", "date_created", "content", "use_character_profile", "username", "avatar", "character_profile_id", "character_id", "character_name", "character_avatar"}).
-			AddRow(100, 1, 1, "2023-01-01 00:00:00", "New post content", false, "user1", nil, nil, nil, nil, nil))
+			w := f.do(t, "POST", "/post/create", author, Controllers.CreatePostRequest{TopicID: topicID, Content: "Hello"})
+			expectStatus(t, w, tt.want)
 
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set("user_id", 1)
-			c.Next()
+			wantPosts := 0
+			if tt.want == http.StatusCreated {
+				wantPosts = 1
+			}
+			if got := f.count(t, "SELECT COUNT(*) FROM posts WHERE topic_id = ? AND content = 'Hello'", topicID); got != wantPosts {
+				t.Errorf("expected %d stored posts, got %d", wantPosts, got)
+			}
 		})
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/post", func(c *gin.Context) {
-			Controllers.CreatePost(c, db)
-		})
+	}
+}
 
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/post", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
+func TestCreatePost_TopicState(t *testing.T) {
+	t.Run("missing topic", func(t *testing.T) {
+		f := newFixture(t)
+		w := f.do(t, "POST", "/post/create", f.member, Controllers.CreatePostRequest{TopicID: 999, Content: "Hello"})
+		expectStatus(t, w, http.StatusNotFound)
+	})
 
-		if w.Code != http.StatusCreated {
-			t.Errorf("Expected status 201, got %d. Body: %s", w.Code, w.Body.String())
-		}
+	t.Run("full topic", func(t *testing.T) {
+		f := newFixture(t)
+		topicID := f.addTopic(t, f.subA, f.admin, Entities.GeneralTopic, "Crossroads")
+		f.exec(t, "UPDATE topics SET status = ? WHERE id = ?", Entities.FullTopic, topicID)
+		w := f.do(t, "POST", "/post/create", f.member, Controllers.CreatePostRequest{TopicID: topicID, Content: "Hello"})
+		expectStatus(t, w, http.StatusForbidden)
+	})
+
+	t.Run("invalid body", func(t *testing.T) {
+		f := newFixture(t)
+		w := f.do(t, "POST", "/post/create", f.member, "not an object")
+		expectStatus(t, w, http.StatusBadRequest)
 	})
 }
 
-func TestUpdatePost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestUpdatePost_Access(t *testing.T) {
+	tests := []struct {
+		name     string
+		subforum func(f *fixture) int
+		listed   bool
+		author   func(f *fixture) int // post author
+		editor   func(f *fixture) int
+		want     int
+	}{
+		{"unauthenticated", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return 0 }, http.StatusUnauthorized},
+		{"subforum permission but guest role only", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.guestUser }, func(f *fixture) int { return f.guestUser }, http.StatusForbidden},
+		{"author with edit-own permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusOK},
+		{"author without subforum permission", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"someone else's post without edit-others permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.admin }, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"author not listed on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"author listed on private subforum", func(f *fixture) int { return f.subPrivate }, true, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusOK},
+	}
 
-	t.Run("Successful UpdatePost", func(t *testing.T) {
-		db, mock, _ := sqlmock.New()
-		defer db.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			sub := tt.subforum(f)
+			author := tt.author(f)
+			topicID := f.addTopic(t, sub, author, Entities.GeneralTopic, "Crossroads")
+			postID := f.addPost(t, topicID, author, "Original")
+			editor := tt.editor(f)
+			if tt.listed {
+				f.exec(t, "INSERT INTO private_subforum_users (subforum_id, user_id) VALUES (?, ?)", sub, editor)
+			}
 
-		postID := 100
-		reqBody := Controllers.UpdatePostRequest{
-			Content: "Updated content",
-		}
-		body, _ := json.Marshal(reqBody)
+			w := f.do(t, "POST", fmt.Sprintf("/post/update/%d", postID), editor, Controllers.UpdatePostRequest{Content: "Edited"})
+			expectStatus(t, w, tt.want)
 
-		// 1. Fetch post details
-		mock.ExpectQuery("SELECT p.author_user_id, t.subforum_id FROM posts p").
-			WithArgs(postID).
-			WillReturnRows(sqlmock.NewRows([]string{"author_user_id", "subforum_id"}).AddRow(1, 10))
-
-		// 2. Check permissions (Edit own post)
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM role_permission").
-			WithArgs(1, "subforum_edit_own_post:10").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-		// 3. Update post
-		mock.ExpectExec(regexp.QuoteMeta("UPDATE posts SET content = ? WHERE id = ?")).
-			WithArgs("Updated content", postID).
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		// 4. Fetch updated post for event
-		mock.ExpectQuery("SELECT config FROM custom_field_config").WillReturnRows(sqlmock.NewRows([]string{"config"}).AddRow("[]"))
-		mock.ExpectQuery("SELECT p.id, p.topic_id, p.author_user_id").WillReturnRows(sqlmock.NewRows([]string{"id", "topic_id", "author_user_id", "date_created", "content", "use_character_profile", "username", "avatar", "character_profile_id", "character_id", "character_name", "character_avatar"}).
-			AddRow(postID, 1, 1, "2023-01-01 00:00:00", "Updated content", false, "user1", nil, nil, nil, nil, nil))
-
-		// 5. Fetch topicID for event
-		mock.ExpectQuery("SELECT topic_id FROM posts WHERE id = ?").
-			WithArgs(postID).
-			WillReturnRows(sqlmock.NewRows([]string{"topic_id"}).AddRow(1))
-
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set("user_id", 1)
-			c.Next()
+			wantContent := "Original"
+			if tt.want == http.StatusOK {
+				wantContent = "Edited"
+			}
+			var content string
+			if err := f.db.QueryRow("SELECT content FROM posts WHERE id = ?", postID).Scan(&content); err != nil {
+				t.Fatalf("reading post: %v", err)
+			}
+			if content != wantContent {
+				t.Errorf("expected content %q, got %q", wantContent, content)
+			}
 		})
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/post/update/:id", func(c *gin.Context) {
-			Controllers.UpdatePost(c, db)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/post/update/100", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
-		}
-	})
+	}
 }
 
-func TestUpdateTopic(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestUpdatePost_NotFound(t *testing.T) {
+	f := newFixture(t)
+	w := f.do(t, "POST", "/post/update/999", f.member, Controllers.UpdatePostRequest{Content: "Edited"})
+	expectStatus(t, w, http.StatusNotFound)
+}
 
-	t.Run("Successful UpdateTopic", func(t *testing.T) {
-		db, mock, _ := sqlmock.New()
-		defer db.Close()
+func TestUpdateTopic_Access(t *testing.T) {
+	tests := []struct {
+		name     string
+		subforum func(f *fixture) int
+		listed   bool
+		author   func(f *fixture) int
+		editor   func(f *fixture) int
+		want     int
+	}{
+		{"unauthenticated", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return 0 }, http.StatusUnauthorized},
+		{"subforum permission but guest role only", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.guestUser }, func(f *fixture) int { return f.guestUser }, http.StatusForbidden},
+		{"author with edit-own permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusOK},
+		{"author without subforum permission", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"someone else's topic without edit-others permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.admin }, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"author not listed on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"author listed on private subforum", func(f *fixture) int { return f.subPrivate }, true, func(f *fixture) int { return f.member }, func(f *fixture) int { return f.member }, http.StatusOK},
+	}
 
-		topicID := 1
-		reqBody := Controllers.UpdateTopicRequest{
-			Name: "Updated Topic Name",
-		}
-		body, _ := json.Marshal(reqBody)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			sub := tt.subforum(f)
+			topicID := f.addTopic(t, sub, tt.author(f), Entities.GeneralTopic, "Old name")
+			editor := tt.editor(f)
+			if tt.listed {
+				f.exec(t, "INSERT INTO private_subforum_users (subforum_id, user_id) VALUES (?, ?)", sub, editor)
+			}
 
-		// 1. Fetch topic details
-		mock.ExpectQuery("SELECT author_user_id, subforum_id, type FROM topics WHERE id = ?").
-			WithArgs(topicID).
-			WillReturnRows(sqlmock.NewRows([]string{"author_user_id", "subforum_id", "type"}).AddRow(1, 10, 0)) // 0 = GeneralTopic
+			name := "New name"
+			w := f.do(t, "POST", fmt.Sprintf("/topic/update/%d", topicID), editor, Controllers.UpdateTopicRequest{Name: &name})
+			expectStatus(t, w, tt.want)
 
-		// 2. Check permissions (Edit own topic)
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM role_permission").
-			WithArgs(1, "subforum_edit_own_topic:10").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-		// 3. Update topic
-		mock.ExpectExec(regexp.QuoteMeta("UPDATE topics SET name = ? WHERE id = ?")).
-			WithArgs("Updated Topic Name", topicID).
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set("user_id", 1)
-			c.Next()
+			wantName := "Old name"
+			if tt.want == http.StatusOK {
+				wantName = "New name"
+			}
+			var got string
+			if err := f.db.QueryRow("SELECT name FROM topics WHERE id = ?", topicID).Scan(&got); err != nil {
+				t.Fatalf("reading topic: %v", err)
+			}
+			if got != wantName {
+				t.Errorf("expected topic name %q, got %q", wantName, got)
+			}
 		})
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/topic/update/:id", func(c *gin.Context) {
-			Controllers.UpdateTopic(c, db)
-		})
+	}
+}
 
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/topic/update/1", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
-		}
+func TestUpdateTopic_Validation(t *testing.T) {
+	t.Run("episode topics are rejected", func(t *testing.T) {
+		f := newFixture(t)
+		topicID := f.addTopic(t, f.subA, f.member, Entities.EpisodeTopic, "Episode")
+		name := "New name"
+		w := f.do(t, "POST", fmt.Sprintf("/topic/update/%d", topicID), f.member, Controllers.UpdateTopicRequest{Name: &name})
+		expectStatus(t, w, http.StatusBadRequest)
 	})
 
-	t.Run("Update Non-General Topic", func(t *testing.T) {
-		db, mock, _ := sqlmock.New()
-		defer db.Close()
-
-		topicID := 2
-		reqBody := Controllers.UpdateTopicRequest{
-			Name: "Updated Topic Name",
-		}
-		body, _ := json.Marshal(reqBody)
-
-		// 1. Fetch topic details (EpisodeTopic = 1)
-		mock.ExpectQuery("SELECT author_user_id, subforum_id, type FROM topics WHERE id = ?").
-			WithArgs(topicID).
-			WillReturnRows(sqlmock.NewRows([]string{"author_user_id", "subforum_id", "type"}).AddRow(1, 10, 1))
-
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set("user_id", 1)
-			c.Next()
-		})
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/topic/update/:id", func(c *gin.Context) {
-			Controllers.UpdateTopic(c, db)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/topic/update/2", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d. Body: %s", w.Code, w.Body.String())
-		}
+	t.Run("missing topic", func(t *testing.T) {
+		f := newFixture(t)
+		name := "New name"
+		w := f.do(t, "POST", "/topic/update/999", f.member, Controllers.UpdateTopicRequest{Name: &name})
+		expectStatus(t, w, http.StatusNotFound)
 	})
 }

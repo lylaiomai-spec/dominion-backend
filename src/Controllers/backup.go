@@ -53,13 +53,24 @@ func RestoreDB(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Database restored successfully"})
 }
 
+type BackupFileResponse struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	CreatedTime         string `json:"created_time"`
+	CreatedTimeLocalized string `json:"created_time_localized,omitempty"`
+}
+
 type GDriveBackupSettings struct {
-	ServiceAccountKey string                `json:"service_account_key"`
-	Enabled           bool                  `json:"enabled"`
-	Frequency         string                `json:"frequency"`
-	Keep              int                   `json:"keep"`
-	LastRun           *time.Time            `json:"last_run"`
-	Backups           []Services.BackupFile `json:"backups"`
+	ClientID         string               `json:"client_id"`
+	ClientSecret     string               `json:"client_secret"`
+	RefreshToken     string               `json:"refresh_token"`
+	Enabled          bool                 `json:"enabled"`
+	Frequency        string               `json:"frequency"`
+	Keep             int                  `json:"keep"`
+	FolderID         string               `json:"folder_id"`
+	LastRun          *time.Time           `json:"last_run"`
+	LastRunLocalized *string              `json:"last_run_localized,omitempty"`
+	Backups          []BackupFileResponse `json:"backups"`
 }
 
 func GetGDriveBackupSettings(c *gin.Context, db *sql.DB) {
@@ -76,29 +87,49 @@ func GetGDriveBackupSettings(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	var backups []Services.BackupFile
-	if row.GdriveServiceAccountKey != "" {
-		backups, _ = Services.NewGDriveProvider(db).ListBackups()
+	var rawBackups []Services.BackupFile
+	if row.GdriveClientID != "" && row.GdriveRefreshToken != "" {
+		rawBackups, _ = Services.NewGDriveProvider(db).ListBackups()
 	}
-	if backups == nil {
-		backups = []Services.BackupFile{}
+
+	backups := make([]BackupFileResponse, 0, len(rawBackups))
+	for _, b := range rawBackups {
+		backups = append(backups, BackupFileResponse{
+			ID:                   b.ID,
+			Name:                 b.Name,
+			CreatedTime:          b.CreatedTime.UTC().Format(time.RFC3339),
+			CreatedTimeLocalized: Services.LocalizeTime(c, b.CreatedTime),
+		})
+	}
+
+	var lastRunLocalized *string
+	if row.GdriveLastRun != nil {
+		s := Services.LocalizeTime(c, *row.GdriveLastRun)
+		lastRunLocalized = &s
 	}
 
 	c.JSON(http.StatusOK, GDriveBackupSettings{
-		ServiceAccountKey: row.GdriveServiceAccountKey,
-		Enabled:           row.GdriveEnabled,
-		Frequency:         row.GdriveFrequency,
-		Keep:              row.GdriveKeep,
-		LastRun:           row.GdriveLastRun,
-		Backups:           backups,
+		ClientID:         row.GdriveClientID,
+		ClientSecret:     row.GdriveClientSecret,
+		RefreshToken:     row.GdriveRefreshToken,
+		Enabled:          row.GdriveEnabled,
+		Frequency:        row.GdriveFrequency,
+		Keep:             row.GdriveKeep,
+		FolderID:         row.GdriveFolderID,
+		LastRun:          row.GdriveLastRun,
+		LastRunLocalized: lastRunLocalized,
+		Backups:          backups,
 	})
 }
 
 type UpdateGDriveBackupSettingsRequest struct {
-	ServiceAccountKey string `json:"service_account_key"`
-	Enabled           bool   `json:"enabled"`
-	Frequency         string `json:"frequency"`
-	Keep              int    `json:"keep"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	RefreshToken string `json:"refresh_token"`
+	Enabled      bool   `json:"enabled"`
+	Frequency    string `json:"frequency"`
+	Keep         int    `json:"keep"`
+	FolderID     string `json:"folder_id"`
 }
 
 func UpdateGDriveBackupSettings(c *gin.Context, db *sql.DB) {
@@ -122,7 +153,7 @@ func UpdateGDriveBackupSettings(c *gin.Context, db *sql.DB) {
 		req.Keep = 1
 	}
 
-	if err := Services.SaveBackupSettings(req.ServiceAccountKey, req.Enabled, req.Frequency, req.Keep, db); err != nil {
+	if err := Services.SaveBackupSettings(req.Enabled, req.Frequency, req.Keep, req.FolderID, req.ClientID, req.ClientSecret, req.RefreshToken, db); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to save settings"})
 		c.Abort()
 		return

@@ -65,7 +65,6 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 		ReceiverKeyId         *int       `json:"receiver_key_id"`
 	}
 
-	userTimezone := Services.GetUserTimezone(userID, db)
 
 	scanRows := func(rows *sql.Rows) ([]Message, error) {
 		var msgs []Message
@@ -80,9 +79,9 @@ func GetLastMessages(c *gin.Context, db *sql.DB) {
 			} else {
 				msg.Key = keyReceiver
 			}
-			msg.DateSendLocalized = Services.LocalizeTime(msg.DateSend, userTimezone)
+			msg.DateSendLocalized = Services.LocalizeTime(c, msg.DateSend)
 			if msg.DateReceived != nil {
-				s := Services.LocalizeTime(*msg.DateReceived, userTimezone)
+				s := Services.LocalizeTime(c, *msg.DateReceived)
 				msg.DateReceivedLocalized = &s
 			}
 			msgs = append(msgs, msg)
@@ -275,7 +274,6 @@ func GetMessagesBefore(c *gin.Context, db *sql.DB) {
 		ReceiverKeyId         *int       `json:"receiver_key_id"`
 	}
 
-	userTimezone := Services.GetUserTimezone(userID, db)
 
 	var rows *sql.Rows
 	if blockedSince != nil {
@@ -318,9 +316,9 @@ func GetMessagesBefore(c *gin.Context, db *sql.DB) {
 		} else {
 			msg.Key = keyReceiver
 		}
-		msg.DateSendLocalized = Services.LocalizeTime(msg.DateSend, userTimezone)
+		msg.DateSendLocalized = Services.LocalizeTime(c, msg.DateSend)
 		if msg.DateReceived != nil {
-			s := Services.LocalizeTime(*msg.DateReceived, userTimezone)
+			s := Services.LocalizeTime(c, *msg.DateReceived)
 			msg.DateReceivedLocalized = &s
 		}
 		messages = append(messages, msg)
@@ -395,7 +393,6 @@ func GetMessagesAfter(c *gin.Context, db *sql.DB) {
 		ReceiverKeyId         *int       `json:"receiver_key_id"`
 	}
 
-	userTimezone := Services.GetUserTimezone(userID, db)
 
 	var rows *sql.Rows
 	if blockedSince != nil {
@@ -438,9 +435,9 @@ func GetMessagesAfter(c *gin.Context, db *sql.DB) {
 		} else {
 			msg.Key = keyReceiver
 		}
-		msg.DateSendLocalized = Services.LocalizeTime(msg.DateSend, userTimezone)
+		msg.DateSendLocalized = Services.LocalizeTime(c, msg.DateSend)
 		if msg.DateReceived != nil {
-			s := Services.LocalizeTime(*msg.DateReceived, userTimezone)
+			s := Services.LocalizeTime(c, *msg.DateReceived)
 			msg.DateReceivedLocalized = &s
 		}
 		messages = append(messages, msg)

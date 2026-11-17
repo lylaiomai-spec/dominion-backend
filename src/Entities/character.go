@@ -24,6 +24,7 @@ type EpisodeListItem struct {
 	TopicId                int               `json:"topic_id"`
 	Characters             []*ShortCharacter `json:"characters"`
 	DateLastPost           *time.Time        `json:"date_last_post"`
+	DateLastPostLocalized  *string           `json:"date_last_post_localized,omitempty"`
 	LastPostAuthorUsername *string           `json:"last_post_author_username"`
 }
 
@@ -54,7 +55,8 @@ type ClaimRecord struct {
 	IsGuest                        bool      `json:"is_guest"`
 	ClaimDate                      time.Time `json:"claim_date"`
 	ClaimExpirationDate            *time.Time `json:"claim_expiration_date"`
-	CharacterId                    *int      `json:"character_id"`
+	ClaimExpirationDateLocalized   *string    `json:"claim_expiration_date_localized,omitempty"`
+	CharacterId                    *int       `json:"character_id"`
 	ClaimCreatedWithCharacterSheet *bool     `json:"claim_created_with_character_sheet"`
 	ClaimAuthorId                  *int      `json:"claim_author_id"`
 	ClaimAuthorUsername            *string   `json:"claim_author_username"`
@@ -90,8 +92,9 @@ type WantedCharacter struct {
 	CustomFields          CustomFieldEntity     `json:"custom_fields" db:"-"`
 	Factions              []Faction             `json:"factions" db:"-"`
 	Relations             []ShortCharacter      `json:"relations" db:"-"`
-	ClaimRecord           *ClaimRecord          `json:"claim_record,omitempty" db:"-"`
-	ActiveClaimRecord     *time.Time            `json:"active_claim_record" db:"-"`
+	ClaimRecord                  *ClaimRecord          `json:"claim_record,omitempty" db:"-"`
+	ActiveClaimRecord            *time.Time            `json:"active_claim_record" db:"-"`
+	ActiveClaimRecordLocalized   *string               `json:"active_claim_record_localized,omitempty" db:"-"`
 	UserInfo              *UserInfo             `json:"user_info,omitempty" db:"-"`
 }
 

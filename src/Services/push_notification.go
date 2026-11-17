@@ -5,28 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 )
-
-var pushLogger *log.Logger
-
-func LogPush(format string, args ...interface{}) {
-	pushLogger.Printf(format, args...)
-}
-
-func init() {
-	if err := os.MkdirAll("logs", 0755); err == nil {
-		f, err := os.OpenFile("logs/push.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
-			pushLogger = log.New(f, "", log.LstdFlags)
-		}
-	}
-	if pushLogger == nil {
-		pushLogger = log.New(os.Stdout, "[push] ", log.LstdFlags)
-	}
-}
 
 const (
 	vapidPrivateKeySetting = "vapid_private_key"
@@ -59,12 +40,10 @@ func GetOrCreateVAPIDKeys(db *sql.DB) (public, private string, err error) {
 func SendPushToUser(db *sql.DB, userID int, notificationType, title, message string, data interface{}) {
 	privateKey, err := GetGlobalSetting(vapidPrivateKeySetting, db)
 	if err != nil || privateKey == "" {
-		pushLogger.Printf("[push] no VAPID private key for user %d\n", userID)
 		return
 	}
 	publicKey, err := GetGlobalSetting(vapidPublicKeySetting, db)
 	if err != nil || publicKey == "" {
-		pushLogger.Printf("[push] no VAPID public key for user %d\n", userID)
 		return
 	}
 	domain, _ := GetGlobalSetting("domain", db)
@@ -77,7 +56,7 @@ func SendPushToUser(db *sql.DB, userID int, notificationType, title, message str
 		"SELECT endpoint, p256dh, auth FROM user_push_subscriptions WHERE user_id = ?", userID,
 	)
 	if err != nil {
-		pushLogger.Printf("[push] DB query error for user %d: %v\n", userID, err)
+		log.Printf("SendPushToUser: loading subscriptions for user %d: %v", userID, err)
 		return
 	}
 	defer rows.Close()
@@ -91,7 +70,6 @@ func SendPushToUser(db *sql.DB, userID int, notificationType, title, message str
 	payloadBytes, _ := json.Marshal(pushPayload{Type: notificationType, Title: title, Message: message, Data: data})
 	payload := string(payloadBytes)
 
-	sent := 0
 	for rows.Next() {
 		var endpoint, p256dh, auth string
 		if err := rows.Scan(&endpoint, &p256dh, &auth); err != nil {
@@ -112,10 +90,9 @@ func SendPushToUser(db *sql.DB, userID int, notificationType, title, message str
 			Urgency:         webpush.UrgencyHigh,
 		})
 		if err != nil {
-			pushLogger.Printf("[push] send error for user %d endpoint %s: %v\n", userID, endpoint, err)
+			log.Printf("SendPushToUser: sending to user %d endpoint %s: %v", userID, endpoint, err)
 			continue
 		}
-		pushLogger.Printf("[push] sent to user %d, status %d, endpoint %s\n", userID, resp.StatusCode, endpoint)
 		resp.Body.Close()
 		// Remove expired/invalid subscriptions (410 Gone, 404 Not Found).
 		if resp.StatusCode == 410 || resp.StatusCode == 404 {
@@ -124,9 +101,5 @@ func SendPushToUser(db *sql.DB, userID int, notificationType, title, message str
 				userID, endpoint,
 			)
 		}
-		sent++
-	}
-	if sent == 0 {
-		pushLogger.Printf("[push] no subscriptions found for user %d\n", userID)
 	}
 }

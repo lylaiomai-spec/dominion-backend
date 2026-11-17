@@ -201,7 +201,7 @@ func RegisterEpisodeEventHandlers() {
 			Events.Publish(db, Events.NotificationCreated, Events.NotificationEvent{
 				UserID:  ownerID,
 				Type:    "game",
-				Message: fmt.Sprintf("Your character %s was added to a new episode: %s", charName, event.TopicName),
+				Message: fmt.Sprintf("Your character %s was added to a new scene: %s", charName, event.TopicName),
 				Data: Entities.NotificationGame{
 					TopicId:           int(event.TopicID),
 					TopicName:         event.TopicName,

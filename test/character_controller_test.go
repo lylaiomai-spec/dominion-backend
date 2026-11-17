@@ -1,155 +1,132 @@
 package test
 
 import (
-	"bytes"
 	"cuento-backend/src/Controllers"
 	"cuento-backend/src/Entities"
-	"cuento-backend/src/Middlewares"
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"testing"
-	"time"
-
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/gin-gonic/gin"
 )
 
-func TestGetCharacter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
+func TestGetCharacter_Access(t *testing.T) {
+	tests := []struct {
+		name     string
+		subforum func(f *fixture) int
+		listed   bool
+		viewer   func(f *fixture) int
+		want     int
+	}{
+		{"anonymous reads public subforum", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return 0 }, http.StatusOK},
+		{"member reads subforum with read permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, http.StatusOK},
+		{"member reads subforum without read permission", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return f.member }, http.StatusNotFound},
+		{"member not listed on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return f.member }, http.StatusNotFound},
+		{"member listed on private subforum", func(f *fixture) int { return f.subPrivate }, true, func(f *fixture) int { return f.member }, http.StatusOK},
+		{"anonymous on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return 0 }, http.StatusNotFound},
 	}
-	defer db.Close()
 
-	t.Run("Successful GetCharacter", func(t *testing.T) {
-		characterID := 1
-		now := time.Now()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			sub := tt.subforum(f)
+			characterID, _ := f.addCharacter(t, sub, f.admin, "Erzulie")
+			viewer := tt.viewer(f)
+			if tt.listed {
+				f.exec(t, "INSERT INTO private_subforum_users (subforum_id, user_id) VALUES (?, ?)", sub, viewer)
+			}
 
-		// Mock GetEntity (character)
-		mock.ExpectQuery("SELECT config FROM custom_field_config").
-			WillReturnRows(sqlmock.NewRows([]string{"config"}).AddRow("[]"))
-
-		mock.ExpectQuery("SELECT \\* FROM character_base").
-			WithArgs(int64(characterID)).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "name", "avatar", "character_status", "topic_id", "total_episodes"}).
-				AddRow(characterID, 1, "Test Character", nil, 0, 10, 5))
-
-		// Mock episodes fetch
-		mock.ExpectQuery("SELECT e.id, e.name, e.topic_id, t.date_last_post").
-			WithArgs(characterID).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "topic_id", "date_last_post", "last_post_author_username"}).
-				AddRow(1, "Episode 1", 11, &now, "author"))
-
-		// Mock characters for episode 1
-		mock.ExpectQuery("SELECT cb.id, cb.name FROM character_base").
-			WithArgs(1).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(characterID, "Test Character"))
-
-		// Mock factions fetch
-		mock.ExpectQuery("SELECT f.id").
-			WithArgs(characterID).
-			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-
-		mock.ExpectQuery("SELECT id, name, parent_id, level, description, icon, show_on_profile FROM factions").
-			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "level", "description", "icon", "show_on_profile"}).
-				AddRow(1, "Faction A", nil, 0, nil, nil, true))
-
-		// Mock CanEdit check
-		mock.ExpectQuery("SELECT subforum_id FROM topics WHERE id = ?").
-			WithArgs(10).
-			WillReturnRows(sqlmock.NewRows([]string{"subforum_id"}).AddRow(1))
-
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM role_permission").
-			WithArgs(0, "subforum_edit_others_topic:1").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-		mock.ExpectQuery("SELECT author_user_id FROM topics WHERE id = ?").
-			WithArgs(10).
-			WillReturnRows(sqlmock.NewRows([]string{"author_user_id"}).AddRow(1))
-
-		r := gin.New()
-		r.Use(Middlewares.ErrorMiddleware())
-		r.GET("/character/:id", func(c *gin.Context) {
-			Controllers.GetCharacter(c, db)
+			w := f.do(t, "GET", fmt.Sprintf("/character/get/%d", characterID), viewer, nil)
+			expectStatus(t, w, tt.want)
+			if tt.want == http.StatusOK {
+				var character Entities.Character
+				if err := json.Unmarshal(w.Body.Bytes(), &character); err != nil {
+					t.Fatalf("decoding character: %v", err)
+				}
+				if character.Name != "Erzulie" {
+					t.Errorf("expected character name Erzulie, got %q", character.Name)
+				}
+			}
 		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/character/1", nil)
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
-		}
-
-		var response Entities.Character
-		json.Unmarshal(w.Body.Bytes(), &response)
-		if response.Name != "Test Character" {
-			t.Errorf("Expected character name 'Test Character', got %s", response.Name)
-		}
-	})
+	}
 }
 
-func TestCreateCharacter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
+func TestGetCharacter_CanEdit(t *testing.T) {
+	tests := []struct {
+		name   string
+		viewer func(f *fixture) int
+		want   bool
+	}{
+		{"owner with edit-own permission", func(f *fixture) int { return f.member }, true},
+		{"other user without edit-others permission", func(f *fixture) int { return f.admin }, false},
+		{"anonymous", func(f *fixture) int { return 0 }, false},
 	}
-	defer db.Close()
 
-	t.Run("Successful CreateCharacter", func(t *testing.T) {
-		reqBody := Controllers.CreateCharacterRequest{
-			SubforumID: 1,
-			Name:       "New Character",
-			FactionIDs: []Entities.Faction{{Id: 1}},
-		}
-		body, _ := json.Marshal(reqBody)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			characterID, _ := f.addCharacter(t, f.subA, f.member, "Erzulie")
 
-		mock.ExpectBegin()
-		mock.ExpectExec("INSERT INTO topics").
-			WithArgs(1, "New Character", 1, Entities.CharacterSheetTopic, 1).
-			WillReturnResult(sqlmock.NewResult(10, 1))
-
-		mock.ExpectExec("INSERT INTO character_base").
-			WithArgs(1, "New Character", nil, 2, 10, 0). // 2 = PendingCharacter
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		// getColumnTypes is skipped because CustomFields is empty
-
-		// Mock GetEntity after create
-		mock.ExpectQuery("SELECT config FROM custom_field_config").
-			WillReturnRows(sqlmock.NewRows([]string{"config"}).AddRow("[]"))
-		mock.ExpectQuery("SELECT \\* FROM character_base").
-			WithArgs(int64(1)).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "name", "avatar", "character_status", "topic_id", "total_episodes"}).
-				AddRow(1, 1, "New Character", nil, 2, 10, 0))
-
-		mock.ExpectExec("INSERT INTO character_faction").
-			WithArgs(1, 1).
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		mock.ExpectCommit()
-
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set("user_id", 1)
-			c.Next()
+			w := f.do(t, "GET", fmt.Sprintf("/character/get/%d", characterID), tt.viewer(f), nil)
+			expectStatus(t, w, http.StatusOK)
+			var character Entities.Character
+			if err := json.Unmarshal(w.Body.Bytes(), &character); err != nil {
+				t.Fatalf("decoding character: %v", err)
+			}
+			if character.CanEdit == nil || *character.CanEdit != tt.want {
+				t.Errorf("expected can_edit=%v, got %v", tt.want, character.CanEdit)
+			}
 		})
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/character", func(c *gin.Context) {
-			Controllers.CreateCharacter(c, db)
+	}
+}
+
+func TestGetCharacter_NotFound(t *testing.T) {
+	f := newFixture(t)
+	expectStatus(t, f.do(t, "GET", "/character/get/999", f.member, nil), http.StatusNotFound)
+}
+
+func TestCreateCharacter_Access(t *testing.T) {
+	tests := []struct {
+		name     string
+		subforum func(f *fixture) int
+		listed   bool
+		creator  func(f *fixture) int
+		want     int
+	}{
+		{"unauthenticated", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return 0 }, http.StatusUnauthorized},
+		{"subforum permission but guest role only", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.guestUser }, http.StatusForbidden},
+		{"member in subforum with create permission", func(f *fixture) int { return f.subA }, false, func(f *fixture) int { return f.member }, http.StatusCreated},
+		{"member in subforum without create permission", func(f *fixture) int { return f.subB }, false, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"member not listed on private subforum", func(f *fixture) int { return f.subPrivate }, false, func(f *fixture) int { return f.member }, http.StatusForbidden},
+		{"member listed on private subforum", func(f *fixture) int { return f.subPrivate }, true, func(f *fixture) int { return f.member }, http.StatusCreated},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			sub := tt.subforum(f)
+			creator := tt.creator(f)
+			if tt.listed {
+				f.exec(t, "INSERT INTO private_subforum_users (subforum_id, user_id) VALUES (?, ?)", sub, creator)
+			}
+
+			w := f.do(t, "POST", "/character/create", creator, Controllers.CreateCharacterRequest{SubforumID: sub, Name: "Erzulie"})
+			expectStatus(t, w, tt.want)
+
+			wantRows := 0
+			if tt.want == http.StatusCreated {
+				wantRows = 1
+			}
+			got := f.count(t, `SELECT COUNT(*) FROM character_base cb JOIN topics t ON t.id = cb.topic_id
+				WHERE cb.name = 'Erzulie' AND cb.user_id = ? AND t.subforum_id = ? AND t.type = ?`, creator, sub, Entities.CharacterSheetTopic)
+			if got != wantRows {
+				t.Errorf("expected %d stored characters, got %d", wantRows, got)
+			}
 		})
+	}
+}
 
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/character", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusCreated {
-			t.Errorf("Expected status 201, got %d. Body: %s", w.Code, w.Body.String())
-		}
-	})
+func TestCreateCharacter_InvalidBody(t *testing.T) {
+	f := newFixture(t)
+	w := f.do(t, "POST", "/character/create", f.member, map[string]interface{}{"subforum_id": f.subA})
+	expectStatus(t, w, http.StatusBadRequest)
 }

@@ -45,12 +45,14 @@ func grantPostAbsenceImmunity(userID int, absenceEnd time.Time, db *sql.DB) {
 }
 
 type AbsentUserItem struct {
-	Id               int                       `json:"id"`
-	UserId           int                       `json:"user_id"`
-	Username         string                    `json:"username"`
-	AbsenceStartDate time.Time                 `json:"absence_start_date"`
-	AbsenceEndDate   time.Time                 `json:"absence_end_date"`
-	Characters       []Entities.ShortCharacter `json:"characters"`
+	Id                          int                       `json:"id"`
+	UserId                      int                       `json:"user_id"`
+	Username                    string                    `json:"username"`
+	AbsenceStartDate            time.Time                 `json:"absence_start_date"`
+	AbsenceEndDate              time.Time                 `json:"absence_end_date"`
+	AbsenceStartDateLocalized   string                    `json:"absence_start_date_localized,omitempty"`
+	AbsenceEndDateLocalized     string                    `json:"absence_end_date_localized,omitempty"`
+	Characters                  []Entities.ShortCharacter `json:"characters"`
 }
 
 func GetAbsentUsers(c *gin.Context, db *sql.DB) {
@@ -78,6 +80,8 @@ func GetAbsentUsers(c *gin.Context, db *sql.DB) {
 		}
 		u.AbsenceStartDate = u.AbsenceStartDate.In(time.Local)
 		u.AbsenceEndDate = u.AbsenceEndDate.In(time.Local)
+		u.AbsenceStartDateLocalized = Services.LocalizeDateOnly(c, u.AbsenceStartDate)
+		u.AbsenceEndDateLocalized = Services.LocalizeDateOnly(c, u.AbsenceEndDate)
 
 		u.Characters = []Entities.ShortCharacter{}
 		charRows, err := db.Query(
@@ -381,10 +385,12 @@ func AdminAddImmunity(c *gin.Context, db *sql.DB) {
 }
 
 type CharacterProtectionItem struct {
-	Type      string    `json:"type"`
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
-	Reason    *string   `json:"reason"`
+	Type               string    `json:"type"`
+	StartDate          time.Time `json:"start_date"`
+	EndDate            time.Time `json:"end_date"`
+	StartDateLocalized string    `json:"start_date_localized,omitempty"`
+	EndDateLocalized   string    `json:"end_date_localized,omitempty"`
+	Reason             *string   `json:"reason"`
 }
 
 func GetCharacterProtectionHistory(c *gin.Context, db *sql.DB) {
@@ -424,6 +430,8 @@ func GetCharacterProtectionHistory(c *gin.Context, db *sql.DB) {
 		}
 		item.StartDate = item.StartDate.In(time.Local)
 		item.EndDate = item.EndDate.In(time.Local)
+		item.StartDateLocalized = Services.LocalizeDateOnly(c, item.StartDate)
+		item.EndDateLocalized = Services.LocalizeDateOnly(c, item.EndDate)
 		items = append(items, item)
 	}
 
@@ -447,6 +455,8 @@ func GetCharacterProtectionHistory(c *gin.Context, db *sql.DB) {
 		}
 		item.StartDate = item.StartDate.In(time.Local)
 		item.EndDate = item.EndDate.In(time.Local)
+		item.StartDateLocalized = Services.LocalizeDateOnly(c, item.StartDate)
+		item.EndDateLocalized = Services.LocalizeDateOnly(c, item.EndDate)
 		item.Reason = &reason
 		items = append(items, item)
 	}

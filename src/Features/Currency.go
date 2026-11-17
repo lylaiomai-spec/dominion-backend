@@ -335,15 +335,13 @@ func GetUserCurrencyTransactionsHandler(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	tz := Services.GetUserTimezone(userID, db)
-
 	items := []CurrencyTransaction{}
 	for rows.Next() {
 		var t CurrencyTransaction
 		if err := rows.Scan(&t.Id, &t.UserID, &t.Type, &t.Amount, &t.Datetime, &t.Status, &t.IncomeTypeKey, &t.Metadata); err != nil {
 			continue
 		}
-		t.DatetimeLocalized = Services.LocalizeTime(t.Datetime, tz)
+		t.DatetimeLocalized = Services.LocalizeTime(c, t.Datetime)
 		items = append(items, t)
 	}
 

@@ -58,7 +58,7 @@ func RegisterDirectChatEventHandlers() {
 				key = event.KeyAuthor
 			}
 
-			tz := Services.GetUserTimezone(participantID, db)
+			locale := Services.GetUserLocale(participantID, db)
 			wsNotification := map[string]interface{}{
 				"type": "direct_message_created",
 				"data": map[string]interface{}{
@@ -68,7 +68,7 @@ func RegisterDirectChatEventHandlers() {
 					"username":            username,
 					"avatar":              avatar,
 					"date_send":           event.DateSend,
-					"date_send_localized": Services.LocalizeTime(event.DateSend, tz),
+					"date_send_localized": Services.LocalizeTimeForUser(event.DateSend, locale),
 					"date_received":       nil,
 					"ciphertext":          event.Ciphertext,
 					"iv":                  event.IV,

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -546,14 +547,15 @@ func canEditArc(userID, arcID int, db *sql.DB) bool {
 }
 
 type ArcEpisodeListItem struct {
-	ID             int                       `json:"id"`
-	TopicID        int                       `json:"topic_id"`
-	Title          string                    `json:"title"`
-	Status         int                       `json:"status"`
-	LastPostDate   string                    `json:"last_post_date"`
-	LastPostAuthor *Entities.ShortUser       `json:"last_post_author"`
-	Characters     []Entities.ShortCharacter `json:"characters"`
-	Factions       []Entities.FactionShort   `json:"factions"`
+	ID                    int                       `json:"id"`
+	TopicID               int                       `json:"topic_id"`
+	Title                 string                    `json:"title"`
+	Status                int                       `json:"status"`
+	LastPostDate          string                    `json:"last_post_date"`
+	LastPostDateLocalized string                    `json:"last_post_date_localized,omitempty"`
+	LastPostAuthor        *Entities.ShortUser       `json:"last_post_author"`
+	Characters            []Entities.ShortCharacter `json:"characters"`
+	Factions              []Entities.FactionShort   `json:"factions"`
 }
 
 func GetArcEpisodes(c *gin.Context, db *sql.DB) {
@@ -631,6 +633,9 @@ func GetArcEpisodes(c *gin.Context, db *sql.DB) {
 		}
 		if lastPostDate.Valid {
 			ep.LastPostDate = lastPostDate.String
+			if t, err := time.Parse("2006-01-02 15:04:05", lastPostDate.String); err == nil {
+				ep.LastPostDateLocalized = Services.LocalizeTime(c, t)
+			}
 		}
 		if authorID.Valid {
 			ep.LastPostAuthor = &Entities.ShortUser{Id: int(authorID.Int64), Username: authorUsername.String}

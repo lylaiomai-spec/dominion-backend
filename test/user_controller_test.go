@@ -1,137 +1,84 @@
 package test
 
 import (
-	"bytes"
 	"cuento-backend/src/Controllers"
 	"cuento-backend/src/Entities"
-	"cuento-backend/src/Middlewares"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
-
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/gin-gonic/gin"
 )
 
-func TestRegister(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestRegister_CreatesUserWithUserRole(t *testing.T) {
+	f := newFixture(t)
+	w := f.do(t, "POST", "/register", 0, Entities.User{Username: "newcomer", Password: "secret"})
+	expectStatus(t, w, http.StatusCreated)
 
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
+	var userID int
+	if err := f.db.QueryRow("SELECT id FROM users WHERE username = 'newcomer'").Scan(&userID); err != nil {
+		t.Fatalf("reading new user: %v", err)
 	}
-	defer db.Close()
+	if got := f.count(t, "SELECT COUNT(*) FROM user_role WHERE user_id = ? AND role_id = ?", userID, roleUser); got != 1 {
+		t.Errorf("expected the new user to get the user role, got %d rows", got)
+	}
+}
 
-	t.Run("Successful Registration", func(t *testing.T) {
-		user := Entities.User{
-			Username: "testuser",
-			Password: "hashedpassword",
+func TestRegister_Rejected(t *testing.T) {
+	t.Run("duplicate username", func(t *testing.T) {
+		f := newFixture(t)
+		w := f.do(t, "POST", "/register", 0, Entities.User{Username: "member", Password: "secret"})
+		if w.Code == http.StatusCreated {
+			t.Errorf("expected duplicate registration to fail, got 201")
 		}
-		body, _ := json.Marshal(user)
-
-		// Use sqlmock.AnyArg() for the password because it will be hashed
-		mock.ExpectExec("INSERT INTO users").
-			WithArgs(user.Username, sqlmock.AnyArg(), sqlmock.AnyArg()).
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		mock.ExpectQuery("SELECT id FROM roles WHERE name = ?").
-			WithArgs("user").
-			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-
-		mock.ExpectExec("INSERT INTO user_role").
-			WithArgs(1, 1).
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		r := gin.New()
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/register", func(c *gin.Context) {
-			Controllers.Register(c, db)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/register", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusCreated {
-			t.Errorf("Expected status 201, got %d. Body: %s", w.Code, w.Body.String())
+		if got := f.count(t, "SELECT COUNT(*) FROM users WHERE username = 'member'"); got != 1 {
+			t.Errorf("expected one user named member, got %d", got)
 		}
+	})
 
-		var response Entities.User
-		json.Unmarshal(w.Body.Bytes(), &response)
-		if response.Username != user.Username {
-			t.Errorf("Expected username %s, got %s", user.Username, response.Username)
-		}
+	t.Run("invalid body", func(t *testing.T) {
+		f := newFixture(t)
+		expectStatus(t, f.do(t, "POST", "/register", 0, "not an object"), http.StatusBadRequest)
 	})
 }
 
 func TestLogin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("Failed to create sqlmock: %v", err)
+	tests := []struct {
+		name     string
+		username string
+		password string
+		archived bool
+		want     int
+	}{
+		{"valid credentials", "member", fixturePassword, false, http.StatusOK},
+		{"wrong password", "member", "wrong", false, http.StatusUnauthorized},
+		{"unknown user", "nobody", fixturePassword, false, http.StatusUnauthorized},
+		{"archived user", "member", fixturePassword, true, http.StatusForbidden},
 	}
-	defer db.Close()
 
-	t.Run("Successful Login", func(t *testing.T) {
-		creds := Controllers.Credentials{
-			Username: "testuser",
-			Password: "hashedpassword",
-		}
-		body, _ := json.Marshal(creds)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tt.archived {
+				f.exec(t, "UPDATE users SET user_status = ? WHERE id = ?", Entities.ArchivedUser, f.member)
+			}
 
-		dummyUser := Entities.User{}
-		dummyUser.HashPassword("hashedpassword")
+			w := f.do(t, "POST", "/login", 0, Controllers.Credentials{Username: tt.username, Password: tt.password})
+			expectStatus(t, w, tt.want)
 
-		mock.ExpectQuery("SELECT id, username, avatar, password, interface_language, interface_timezone, user_status FROM users WHERE username = ?").
-			WithArgs(creds.Username).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "username", "avatar", "password", "interface_language", "interface_timezone", "user_status"}).
-				AddRow(1, "testuser", nil, dummyUser.Password, nil, nil, 0))
-
-		mock.ExpectQuery("SELECT r.id, r.name FROM roles r").
-			WithArgs(1).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "user"))
-
-		r := gin.New()
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/login", func(c *gin.Context) {
-			Controllers.Login(c, db)
+			if tt.want == http.StatusOK {
+				var response struct {
+					AccessToken string        `json:"access_token"`
+					User        Entities.User `json:"user"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+					t.Fatalf("decoding response: %v", err)
+				}
+				if response.AccessToken == "" {
+					t.Error("expected an access token")
+				}
+				if response.User.Id != f.member {
+					t.Errorf("expected user %d, got %d", f.member, response.User.Id)
+				}
+			}
 		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/login", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
-		}
-	})
-
-	t.Run("Blocked User Login", func(t *testing.T) {
-		creds := Controllers.Credentials{
-			Username: "blockeduser",
-			Password: "hashedpassword",
-		}
-		body, _ := json.Marshal(creds)
-
-		mock.ExpectQuery("SELECT id, username, avatar, password, interface_language, interface_timezone, user_status FROM users WHERE username = ?").
-			WithArgs(creds.Username).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "username", "avatar", "password", "interface_language", "interface_timezone", "user_status"}).
-				AddRow(2, "blockeduser", nil, "hashedpassword", nil, nil, 1)) // 1 = ArchivedUser
-
-		r := gin.New()
-		r.Use(Middlewares.ErrorMiddleware())
-		r.POST("/login", func(c *gin.Context) {
-			Controllers.Login(c, db)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/login", bytes.NewBuffer(body))
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusForbidden {
-			t.Errorf("Expected status 403, got %d. Body: %s", w.Code, w.Body.String())
-		}
-	})
+	}
 }

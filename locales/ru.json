@@ -1,4 +1,9 @@
 {
+  "date.format": "02.01.2006",
+  "date.usePm": "false",
+  "date.today": "Сегодня",
+  "date.yesterday": "Вчера",
+
   "currency_income_game_post.name": "Игровой пост",
   "currency_income_game_post.description": "Валюта за каждый игровой пост",
   "currency_income_wanted_character.name": "Разыскиваемый персонаж",

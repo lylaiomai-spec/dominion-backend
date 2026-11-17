@@ -347,7 +347,6 @@ func extractMatchingParagraphs(text, query string) string {
 	// even though the query string doesn't appear verbatim (e.g. Russian inflections).
 	// Return full content so the AI has access to the actual data.
 	return strings.TrimSpace(text)
-	return text
 }
 
 func scanFlattenedRowWithTopicID(rows *sql.Rows, cols []string) (id int64, topicID int64, topicName string, topicType int, doc string, err error) {

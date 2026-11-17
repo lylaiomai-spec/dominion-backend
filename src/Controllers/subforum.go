@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func scanCategoryRows(rows *sql.Rows, userTimezone *string) ([]Entities.Category, error) {
+func scanCategoryRows(rows *sql.Rows, locale Services.UserLocale) ([]Entities.Category, error) {
 	var categories []Entities.Category
 	for rows.Next() {
 		var sub Entities.Subform
@@ -61,7 +61,7 @@ func scanCategoryRows(rows *sql.Rows, userTimezone *string) ([]Entities.Category
 		if dateLastPost != nil {
 			raw := dateLastPost.Format(time.RFC3339)
 			sub.DateLastPost = &raw
-			localized := Services.LocalizeTime(*dateLastPost, userTimezone)
+			localized := Services.LocalizeTimeForUser(*dateLastPost, locale)
 			sub.DateLastPostLocalized = &localized
 		}
 		sub.DescriptionHtml = Services.ParseBBCode(sub.Description)
@@ -124,7 +124,7 @@ func GetHomeCategories(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	categories, err := scanCategoryRows(rows, Services.GetUserTimezone(userID, db))
+	categories, err := scanCategoryRows(rows, Services.GetUserLocaleFromContext(c))
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan category data: " + err.Error()})
 		c.Abort()
@@ -206,8 +206,7 @@ func GetAdminHomeCategories(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	userID := Services.GetUserIdFromContext(c)
-	categories, err := scanCategoryRows(rows, Services.GetUserTimezone(userID, db))
+	categories, err := scanCategoryRows(rows, Services.GetUserLocaleFromContext(c))
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan category data: " + err.Error()})
 		c.Abort()
@@ -569,7 +568,7 @@ func GetSubforum(c *gin.Context, db *sql.DB) {
 	if dateLastPost != nil {
 		raw := dateLastPost.UTC().Format("2006-01-02 15:04:05")
 		subforum.DateLastPost = &raw
-		localized := Services.LocalizeTime(*dateLastPost, Services.GetUserTimezone(userID, db))
+		localized := Services.LocalizeTime(c, *dateLastPost)
 		subforum.DateLastPostLocalized = &localized
 	}
 	if userID > 0 {

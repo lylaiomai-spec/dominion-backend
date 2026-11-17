@@ -16,10 +16,11 @@ import (
 )
 
 type SonicCursorItem struct {
-	Bucket       string     `json:"bucket"`
-	LastId       *int64     `json:"last_id"`
-	DateIngested *time.Time `json:"date_ingested"`
-	CurrentMaxId int64      `json:"current_max_id"`
+	Bucket               string     `json:"bucket"`
+	LastId               *int64     `json:"last_id"`
+	DateIngested         *time.Time `json:"date_ingested"`
+	DateIngestedLocalized *string   `json:"date_ingested_localized,omitempty"`
+	CurrentMaxId         int64      `json:"current_max_id"`
 }
 
 var allBuckets = Services.AllSonicBuckets
@@ -48,12 +49,17 @@ func GetSonicCursors(c *gin.Context, db *sql.DB) {
 		}
 	}
 
+
 	result := make([]SonicCursorItem, 0, len(allBuckets))
 	for _, bucket := range allBuckets {
 		item := SonicCursorItem{Bucket: bucket}
 		if existing, ok := cursorMap[bucket]; ok {
 			item.LastId = existing.LastId
 			item.DateIngested = existing.DateIngested
+			if existing.DateIngested != nil {
+				s := Services.LocalizeTime(c, *existing.DateIngested)
+				item.DateIngestedLocalized = &s
+			}
 		}
 		item.CurrentMaxId = getBucketMaxId(bucket, db)
 		result = append(result, item)

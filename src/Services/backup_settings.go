@@ -6,39 +6,50 @@ import (
 )
 
 type BackupSettingsRow struct {
-	GdriveServiceAccountKey string
-	GdriveEnabled           bool
-	GdriveFrequency         string
-	GdriveKeep              int
-	GdriveLastRun           *time.Time
+	GdriveEnabled      bool
+	GdriveFrequency    string
+	GdriveKeep         int
+	GdriveLastRun      *time.Time
+	GdriveFolderID     string
+	GdriveClientID     string
+	GdriveClientSecret string
+	GdriveRefreshToken string
 }
 
 func GetBackupSettings(db *sql.DB) (BackupSettingsRow, error) {
 	var row BackupSettingsRow
-	var key sql.NullString
+	var folderID, clientID, clientSecret, refreshToken sql.NullString
 	var lastRun sql.NullTime
 	err := db.QueryRow(`
-		SELECT gdrive_service_account_key, gdrive_enabled, gdrive_frequency, gdrive_keep, gdrive_last_run
+		SELECT gdrive_enabled, gdrive_frequency, gdrive_keep, gdrive_last_run,
+		       gdrive_folder_id, gdrive_client_id, gdrive_client_secret, gdrive_refresh_token
 		FROM backup_settings WHERE id = 1`).
-		Scan(&key, &row.GdriveEnabled, &row.GdriveFrequency, &row.GdriveKeep, &lastRun)
+		Scan(&row.GdriveEnabled, &row.GdriveFrequency, &row.GdriveKeep, &lastRun,
+			&folderID, &clientID, &clientSecret, &refreshToken)
 	if err != nil {
 		return row, err
 	}
-	row.GdriveServiceAccountKey = key.String
+	row.GdriveFolderID = folderID.String
+	row.GdriveClientID = clientID.String
+	row.GdriveClientSecret = clientSecret.String
+	row.GdriveRefreshToken = refreshToken.String
 	if lastRun.Valid {
 		row.GdriveLastRun = &lastRun.Time
 	}
 	return row, nil
 }
 
-func SaveBackupSettings(key string, enabled bool, frequency string, keep int, db *sql.DB) error {
+func SaveBackupSettings(enabled bool, frequency string, keep int, folderID, clientID, clientSecret, refreshToken string, db *sql.DB) error {
 	_, err := db.Exec(`
 		UPDATE backup_settings
-		SET gdrive_service_account_key = ?,
-		    gdrive_enabled             = ?,
-		    gdrive_frequency           = ?,
-		    gdrive_keep                = ?
-		WHERE id = 1`, key, enabled, frequency, keep)
+		SET gdrive_enabled       = ?,
+		    gdrive_frequency     = ?,
+		    gdrive_keep          = ?,
+		    gdrive_folder_id     = ?,
+		    gdrive_client_id     = ?,
+		    gdrive_client_secret = ?,
+		    gdrive_refresh_token = ?
+		WHERE id = 1`, enabled, frequency, keep, folderID, clientID, clientSecret, refreshToken)
 	return err
 }
 
@@ -56,16 +67,12 @@ func GetBackupSetting(name string, db *sql.DB) (string, error) {
 
 func backupSettingCol(name string) string {
 	switch name {
-	case "gdrive_service_account_key":
-		return "gdrive_service_account_key"
-	case "gdrive_backup_enabled":
-		return "gdrive_enabled"
 	case "gdrive_backup_frequency":
 		return "gdrive_frequency"
 	case "gdrive_backup_keep":
 		return "gdrive_keep"
-	case "gdrive_backup_last_run":
-		return "gdrive_last_run"
+	case "gdrive_folder_id":
+		return "gdrive_folder_id"
 	}
 	return ""
 }

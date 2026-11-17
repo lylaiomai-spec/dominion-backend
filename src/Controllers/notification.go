@@ -20,6 +20,7 @@ func GetUnreadNotifications(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+
 	rows, err := db.Query("SELECT id, type, title, message, data, date_created, is_read FROM notifications WHERE user_id = ? AND is_read = FALSE ORDER BY date_created DESC", userID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch notifications: " + err.Error()})
@@ -46,6 +47,7 @@ func GetUnreadNotifications(c *gin.Context, db *sql.DB) {
 			continue
 		}
 		base.UserId = userID
+		base.DateCreatedLocalized = Services.LocalizeTime(c, base.DateCreated)
 
 		var notification interface{}
 		switch base.Type {

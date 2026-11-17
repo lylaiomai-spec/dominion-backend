@@ -3,6 +3,7 @@ package Controllers
 import (
 	"cuento-backend/src/Events"
 	"cuento-backend/src/Middlewares"
+	"cuento-backend/src/Services"
 	"database/sql"
 	"fmt"
 	"io"
@@ -18,9 +19,10 @@ import (
 )
 
 type StaticFile struct {
-	FileName        string    `json:"file_name"`
-	FileCreatedDate time.Time `json:"file_created_date"`
-	FileType        string    `json:"file_type"`
+	FileName                string    `json:"file_name"`
+	FileCreatedDate         time.Time `json:"file_created_date"`
+	FileCreatedDateLocalized string   `json:"file_created_date_localized,omitempty"`
+	FileType                string    `json:"file_type"`
 }
 
 func GetStaticFileList(c *gin.Context, db *sql.DB) {
@@ -37,6 +39,7 @@ func GetStaticFileList(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
+
 	var files []StaticFile
 	for rows.Next() {
 		var f StaticFile
@@ -45,6 +48,7 @@ func GetStaticFileList(c *gin.Context, db *sql.DB) {
 			c.Abort()
 			return
 		}
+		f.FileCreatedDateLocalized = Services.LocalizeTime(c, f.FileCreatedDate)
 		files = append(files, f)
 	}
 
@@ -293,8 +297,9 @@ func AdminRevertStaticFile(c *gin.Context, db *sql.DB) {
 }
 
 type AssetFile struct {
-	Name    string `json:"name"`
-	ModTime string `json:"mod_time"`
+	Name             string `json:"name"`
+	ModTime          string `json:"mod_time"`
+	ModTimeLocalized string `json:"mod_time_localized,omitempty"`
 }
 
 const assetsSubdir = "assets"
@@ -329,13 +334,18 @@ func assetList(publicDir string) ([]AssetFile, error) {
 	return files, nil
 }
 
-func GetAssetList(c *gin.Context) {
+func GetAssetList(c *gin.Context, db *sql.DB) {
 	publicDir := "./../frontend"
 	files, err := assetList(publicDir)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to list assets: " + err.Error()})
 		c.Abort()
 		return
+	}
+	for i := range files {
+		if t, err := time.Parse(time.RFC3339, files[i].ModTime); err == nil {
+			files[i].ModTimeLocalized = Services.LocalizeTime(c, t)
+		}
 	}
 	c.JSON(http.StatusOK, files)
 }

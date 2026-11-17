@@ -58,6 +58,7 @@ func StartArchivingNotifier(db *sql.DB) {
 		}
 
 		time.Sleep(time.Until(next))
+		runAbsenceExpirationRecalculations(db)
 		runAutoArchiving(db)
 		runArchivingNotifications(db)
 		runAbsenceStartedNotifications(db)
@@ -65,11 +66,38 @@ func StartArchivingNotifier(db *sql.DB) {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
+			runAbsenceExpirationRecalculations(db)
 			runAutoArchiving(db)
 			runArchivingNotifications(db)
 			runAbsenceStartedNotifications(db)
 		}
 	}()
+}
+
+func runAbsenceExpirationRecalculations(db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT DISTINCT user_id FROM absent_users
+		WHERE is_deleted = 0
+		  AND absence_end_date < NOW()
+		  AND absence_end_date >= NOW() - INTERVAL 25 HOUR
+	`)
+	if err != nil {
+		log.Printf("Absence expiration recalculations: failed to query: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var userIDs []int
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			userIDs = append(userIDs, id)
+		}
+	}
+
+	for _, userID := range userIDs {
+		RecalculateAbsenceTimerStartForUser(userID, db)
+	}
 }
 
 func runAutoArchiving(db *sql.DB) {

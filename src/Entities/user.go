@@ -65,13 +65,15 @@ type PublicKey struct {
 }
 
 type UserInfo struct {
-	UserId           int        `json:"user_id"`
-	Username         string     `json:"username"`
-	UserStatus       UserStatus `json:"user_status"`
-	DateRegistered   time.Time  `json:"date_registered"`
-	DateLastVisit    *time.Time `json:"date_last_visit"`
-	TotalPosts       int        `json:"total_posts"`
-	ActiveCharacters int        `json:"active_characters"`
+	UserId                   int        `json:"user_id"`
+	Username                 string     `json:"username"`
+	UserStatus               UserStatus `json:"user_status"`
+	DateRegistered           time.Time  `json:"date_registered"`
+	DateRegisteredLocalized  *string    `json:"date_registered_localized,omitempty"`
+	DateLastVisit            *time.Time `json:"date_last_visit"`
+	DateLastVisitLocalized   *string    `json:"date_last_visit_localized,omitempty"`
+	TotalPosts               int        `json:"total_posts"`
+	ActiveCharacters         int        `json:"active_characters"`
 }
 
 func (u *User) HashPassword(password string) error {

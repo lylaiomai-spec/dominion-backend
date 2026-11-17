@@ -3,13 +3,14 @@ package Entities
 import "time"
 
 type NotificationBase struct {
-	Id          int       `json:"id"`
-	UserId      int       `json:"user_id"`
-	Type        string    `json:"type"`
-	Title       string    `json:"title"`
-	Message     string    `json:"message"`
-	DateCreated time.Time `json:"date_created"`
-	IsRead      bool      `json:"is_read"`
+	Id                   int       `json:"id"`
+	UserId               int       `json:"user_id"`
+	Type                 string    `json:"type"`
+	Title                string    `json:"title"`
+	Message              string    `json:"message"`
+	DateCreated          time.Time `json:"date_created"`
+	DateCreatedLocalized string    `json:"date_created_localized,omitempty"`
+	IsRead               bool      `json:"is_read"`
 }
 
 type MentionNotification struct {

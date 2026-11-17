@@ -17,6 +17,7 @@ create table users
     total_posts        int default 0 not null,
     total_general_posts int default 0 not null,
     signature          text         null,
+    bio                text         null,
     editor_type        int          not null default 0,
     do_not_blur        tinyint(1)   not null default 0,
     constraint users_pk_2
@@ -72,12 +73,15 @@ CREATE TABLE global_settings
 
 CREATE TABLE backup_settings
 (
-    id                         INT          NOT NULL DEFAULT 1,
-    gdrive_service_account_key TEXT,
-    gdrive_enabled             TINYINT(1)   NOT NULL DEFAULT 0,
-    gdrive_frequency           VARCHAR(20)  NOT NULL DEFAULT 'daily',
-    gdrive_keep                INT          NOT NULL DEFAULT 5,
-    gdrive_last_run            DATETIME,
+    id                  INT          NOT NULL DEFAULT 1,
+    gdrive_enabled      TINYINT(1)   NOT NULL DEFAULT 0,
+    gdrive_frequency    VARCHAR(20)  NOT NULL DEFAULT 'daily',
+    gdrive_keep         INT          NOT NULL DEFAULT 5,
+    gdrive_last_run     DATETIME,
+    gdrive_folder_id    VARCHAR(255) NOT NULL DEFAULT '',
+    gdrive_client_id    VARCHAR(255) NOT NULL DEFAULT '',
+    gdrive_client_secret VARCHAR(255) NOT NULL DEFAULT '',
+    gdrive_refresh_token TEXT,
     PRIMARY KEY (id)
 );
 
@@ -1228,7 +1232,8 @@ CREATE TABLE locales
     front_end_file_name VARCHAR(100) NOT NULL,
     back_end_file_name  VARCHAR(100) NOT NULL,
     is_installed        TINYINT(1)   NOT NULL DEFAULT 0,
-    installed_file_size_fe BIGINT NULL DEFAULT NULL
+    installed_file_size_fe BIGINT NULL DEFAULT NULL,
+    installed_file_size_be BIGINT NULL DEFAULT NULL
 );
 
 INSERT IGNORE INTO locales (human_name, code, front_end_file_name, back_end_file_name, is_installed) VALUES

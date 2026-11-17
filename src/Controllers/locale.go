@@ -31,12 +31,13 @@ type LocaleItem struct {
 	BackEndFileName     string `json:"back_end_file_name"`
 	IsInstalled         bool   `json:"is_installed"`
 	InstalledFileSizeFe *int64 `json:"installed_file_size_fe"`
+	InstalledFileSizeBe *int64 `json:"installed_file_size_be"`
 	FileSizeFe          *int64 `json:"file_size_fe"`
 	FileSizeBe          *int64 `json:"file_size_be"`
 }
 
 func GetLocales(c *gin.Context, db *sql.DB) {
-	rows, err := db.Query("SELECT id, human_name, code, front_end_file_name, back_end_file_name, is_installed, installed_file_size_fe FROM locales ORDER BY id ASC")
+	rows, err := db.Query("SELECT id, human_name, code, front_end_file_name, back_end_file_name, is_installed, installed_file_size_fe, installed_file_size_be FROM locales ORDER BY id ASC")
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get locales: " + err.Error()})
 		c.Abort()
@@ -47,7 +48,7 @@ func GetLocales(c *gin.Context, db *sql.DB) {
 	locales := []LocaleItem{}
 	for rows.Next() {
 		var l LocaleItem
-		if err := rows.Scan(&l.Id, &l.HumanName, &l.Code, &l.FrontEndFileName, &l.BackEndFileName, &l.IsInstalled, &l.InstalledFileSizeFe); err != nil {
+		if err := rows.Scan(&l.Id, &l.HumanName, &l.Code, &l.FrontEndFileName, &l.BackEndFileName, &l.IsInstalled, &l.InstalledFileSizeFe, &l.InstalledFileSizeBe); err != nil {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan locale: " + err.Error()})
 			c.Abort()
 			return
@@ -326,8 +327,18 @@ func InstallLocale(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	fileSize := int64(len(tsContent))
-	_, _ = db.Exec("UPDATE locales SET is_installed = 1, installed_file_size_fe = ? WHERE id = ?", fileSize, id)
+	fileSizeFe := int64(len(tsContent))
+	var fileSizeBe *int64
+	if info, err := os.Stat(filepath.Join(backendLocaleDir, filepath.Base(locale.BackEndFileName))); err == nil {
+		sz := info.Size()
+		fileSizeBe = &sz
+	}
+	_, _ = db.Exec("UPDATE locales SET is_installed = 1, installed_file_size_fe = ?, installed_file_size_be = ? WHERE id = ?", fileSizeFe, fileSizeBe, id)
+
+	if err := Services.ReloadI18n(); err != nil {
+		fmt.Printf("[i18n] reload after locale install failed: %v\n", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"installed": locale.Code})
 }
 

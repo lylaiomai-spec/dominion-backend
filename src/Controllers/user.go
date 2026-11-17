@@ -49,23 +49,25 @@ type UserProfileResponse struct {
 
 // MaskProfileListItem is a summary of a mask shown on the user profile page.
 type MaskProfileListItem struct {
-	Id            int        `json:"id"`
-	Name          *string    `json:"name"`
-	Avatar        *string    `json:"avatar"`
-	TotalEpisodes int        `json:"total_episodes"`
-	TotalPosts    int        `json:"total_posts"`
-	DateLastPost  *time.Time `json:"date_last_post"`
+	Id                   int        `json:"id"`
+	Name                 *string    `json:"name"`
+	Avatar               *string    `json:"avatar"`
+	TotalEpisodes        int        `json:"total_episodes"`
+	TotalPosts           int        `json:"total_posts"`
+	DateLastPost         *time.Time `json:"date_last_post"`
+	DateLastPostLocalized *string   `json:"date_last_post_localized,omitempty"`
 }
 
 // CharacterProfileListItem is a summary of a character shown on the user profile page.
 type CharacterProfileListItem struct {
-	Id              int                      `json:"id"`
-	Name            string                   `json:"name"`
-	TotalEpisodes   int                      `json:"total_episodes"`
-	TotalPosts      int                      `json:"total_posts"`
-	LastPostDate    *time.Time               `json:"last_post_date"`
-	CharacterStatus Entities.CharacterStatus `json:"character_status"`
-	Factions        []Entities.Faction       `json:"factions"`
+	Id                    int                      `json:"id"`
+	Name                  string                   `json:"name"`
+	TotalEpisodes         int                      `json:"total_episodes"`
+	TotalPosts            int                      `json:"total_posts"`
+	LastPostDate          *time.Time               `json:"last_post_date"`
+	LastPostDateLocalized *string                  `json:"last_post_date_localized,omitempty"`
+	CharacterStatus       Entities.CharacterStatus `json:"character_status"`
+	Factions              []Entities.Faction       `json:"factions"`
 }
 
 // UpdateSettingsRequest is the payload for the user settings update endpoint.
@@ -507,9 +509,7 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	currentUserID := Services.GetUserIdFromContext(c)
-	viewerTimezone := Services.GetUserTimezone(currentUserID, db)
-	profile.RegistrationDateLocalized = Services.LocalizeTime(profile.RegistrationDate, viewerTimezone)
+	profile.RegistrationDateLocalized = Services.LocalizeDateOnly(c, profile.RegistrationDate)
 
 	charRows, err := db.Query("SELECT cb.id, cb.name, cb.total_episodes, cb.total_posts, cb.date_last_post, cb.character_status FROM character_base cb LEFT JOIN topics t ON cb.topic_id = t.id WHERE cb.user_id = ? AND (cb.topic_id IS NULL OR t.status != ?)", userID, Entities.DeletedTopic)
 	if err != nil {
@@ -523,6 +523,10 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 		var char CharacterProfileListItem
 		if err := charRows.Scan(&char.Id, &char.Name, &char.TotalEpisodes, &char.TotalPosts, &char.LastPostDate, &char.CharacterStatus); err != nil {
 			continue
+		}
+		if char.LastPostDate != nil {
+			s := Services.LocalizeTime(c, *char.LastPostDate)
+			char.LastPostDateLocalized = &s
 		}
 
 		factionRows, err := db.Query("SELECT f.id, f.name FROM factions f JOIN character_faction cf ON f.id = cf.faction_id WHERE cf.character_id = ? AND f.level = 0", char.Id)
@@ -573,6 +577,10 @@ func GetUserProfile(c *gin.Context, db *sql.DB) {
 		var mask MaskProfileListItem
 		if err := maskRows.Scan(&mask.Id, &mask.Name, &mask.Avatar, &mask.TotalEpisodes, &mask.TotalPosts, &mask.DateLastPost); err != nil {
 			continue
+		}
+		if mask.DateLastPost != nil {
+			s := Services.LocalizeTime(c, *mask.DateLastPost)
+			mask.DateLastPostLocalized = &s
 		}
 		profile.Masks = append(profile.Masks, mask)
 	}
@@ -781,15 +789,18 @@ func SetDoNotBlur(c *gin.Context, db *sql.DB) {
 
 // AdminUserListItem is a user entry in the admin user list, including activity stats.
 type AdminUserListItem struct {
-	Id               int        `json:"id"`
-	Username         string     `json:"username"`
-	UserStatus       int        `json:"user_status"`
-	DateRegistered   *time.Time `json:"date_registered"`
-	DateLastVisit    *time.Time `json:"date_last_visit"`
-	CharacterCount   int        `json:"character_count"`
-	LastGamePostDate *time.Time `json:"last_game_post_date"`
-	ArchiveDate      *time.Time `json:"archive_date"`
-	ArchiveReason    *string    `json:"archive_reason"`
+	Id                      int        `json:"id"`
+	Username                string     `json:"username"`
+	UserStatus              int        `json:"user_status"`
+	DateRegistered          *time.Time `json:"date_registered"`
+	DateLastVisit           *time.Time `json:"date_last_visit"`
+	CharacterCount          int        `json:"character_count"`
+	LastGamePostDate        *time.Time `json:"last_game_post_date"`
+	ArchiveDate             *time.Time `json:"archive_date"`
+	ArchiveReason           *string    `json:"archive_reason"`
+	DateRegisteredLocalized   *string  `json:"date_registered_localized,omitempty"`
+	DateLastVisitLocalized    *string  `json:"date_last_visit_localized,omitempty"`
+	LastGamePostDateLocalized *string  `json:"last_game_post_date_localized,omitempty"`
 }
 
 // GetAdminUserList returns all users with registration date, last visit, character count,
@@ -819,6 +830,7 @@ func GetAdminUserList(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
+
 	users := []AdminUserListItem{}
 	for rows.Next() {
 		var u AdminUserListItem
@@ -826,6 +838,18 @@ func GetAdminUserList(c *gin.Context, db *sql.DB) {
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan user: " + err.Error()})
 			c.Abort()
 			return
+		}
+		if u.DateRegistered != nil {
+			s := Services.LocalizeTime(c, *u.DateRegistered)
+			u.DateRegisteredLocalized = &s
+		}
+		if u.DateLastVisit != nil {
+			s := Services.LocalizeTime(c, *u.DateLastVisit)
+			u.DateLastVisitLocalized = &s
+		}
+		if u.LastGamePostDate != nil {
+			s := Services.LocalizeTime(c, *u.LastGamePostDate)
+			u.LastGamePostDateLocalized = &s
 		}
 		users = append(users, u)
 	}
@@ -944,7 +968,7 @@ type ActiveUserInfo struct {
 // visibility rules so users cannot see who is reading subforums they cannot access.
 // Topic names are only included when the viewer has read access to that subforum.
 func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
-	timezone := Services.GetUserTimezone(forUserID, db)
+	locale := Services.GetUserLocale(forUserID, db)
 	activeUsers := Services.ActivityStorage.GetActiveUsers()
 	result := make([]ActiveUserInfo, 0, len(activeUsers))
 
@@ -959,7 +983,7 @@ func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
 			UserID:              u.UserID,
 			Username:            u.Username,
 			CurrentPageType:     u.CurrentPageType,
-			LastActiveLocalized: Services.LocalizeTime(u.LastActive, timezone),
+			LastActiveLocalized: Services.LocalizeTimeForUser(u.LastActive, locale),
 		}
 
 		switch u.CurrentPageType {
@@ -985,7 +1009,7 @@ func buildActiveUserActivity(forUserID int, db *sql.DB) []ActiveUserInfo {
 			IsGuest:             true,
 			Username:            "Guest#" + g.ShortID,
 			CurrentPageType:     g.CurrentPageType,
-			LastActiveLocalized: Services.LocalizeTime(g.LastActive, timezone),
+			LastActiveLocalized: Services.LocalizeTimeForUser(g.LastActive, locale),
 		}
 		if g.CurrentPageType == "topic" && g.CurrentPageId != "" {
 			var subforumID int

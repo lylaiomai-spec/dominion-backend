@@ -21,6 +21,7 @@ const (
 )
 
 type UserCharacterMapEntry struct {
+	Key              string  `json:"key"`
 	OriginalUserId   string  `json:"original_user_id"`
 	OriginalUserName string  `json:"original_user_name"`
 	CharacterId      *int    `json:"character_id"`
@@ -29,18 +30,19 @@ type UserCharacterMapEntry struct {
 }
 
 type UserDataProcessingResponse struct {
-	Id                 int                               `json:"id"`
-	DateCreated        time.Time                         `json:"date_created"`
-	UserId             int                               `json:"user_id"`
-	Status             int                               `json:"status"`
-	OriginalTopicId    *string                           `json:"original_topic_id"`
-	OriginalTopicTitle *string                           `json:"original_topic_title"`
-	NewTopicId         *int                              `json:"new_topic_id"`
-	OriginalPostCount  *int                              `json:"original_post_count"`
-	ParsedPostCount    *int                              `json:"parsed_post_count"`
-	ForumDomain        *string                           `json:"forum_domain"`
-	DataExtractionUrls []string                          `json:"data_extraction_urls"`
-	UserCharacterMap   map[string]UserCharacterMapEntry  `json:"user_character_map"`
+	Id                   int                              `json:"id"`
+	DateCreated          time.Time                        `json:"date_created"`
+	DateCreatedLocalized string                           `json:"date_created_localized,omitempty"`
+	UserId               int                              `json:"user_id"`
+	Status               int                              `json:"status"`
+	OriginalTopicId      *string                          `json:"original_topic_id"`
+	OriginalTopicTitle   *string                          `json:"original_topic_title"`
+	NewTopicId           *int                             `json:"new_topic_id"`
+	OriginalPostCount    *int                             `json:"original_post_count"`
+	ParsedPostCount      *int                             `json:"parsed_post_count"`
+	ForumDomain          *string                          `json:"forum_domain"`
+	DataExtractionUrls   []string                         `json:"data_extraction_urls"`
+	UserCharacterMap     map[string]UserCharacterMapEntry `json:"user_character_map"`
 }
 
 type CreateUserDataProcessingRequest struct {
@@ -66,10 +68,10 @@ type ProcessMybbTopicRequest struct {
 }
 
 type ProcessingResultResponse struct {
-	FoundPosts        int                      `json:"found_posts"`
-	SkippedDuplicates int                      `json:"skipped_duplicates"`
-	AllParsed         bool                     `json:"all_parsed"`
-	FoundUsers        []UserCharacterMapEntry  `json:"found_users"`
+	FoundPosts        int                     `json:"found_posts"`
+	SkippedDuplicates int                     `json:"skipped_duplicates"`
+	AllParsed         bool                    `json:"all_parsed"`
+	FoundUsers        []UserCharacterMapEntry `json:"found_users"`
 }
 
 type PublishUserDataProcessingRequest struct {
@@ -122,12 +124,13 @@ func GetUserDataProcessingList(c *gin.Context, db *sql.DB) {
 		if urlsJSON != nil {
 			_ = json.Unmarshal([]byte(*urlsJSON), &r.DataExtractionUrls)
 		}
-		if charMapJSON != nil {
-			_ = json.Unmarshal([]byte(*charMapJSON), &r.UserCharacterMap)
+		r.UserCharacterMap, err = DecodeUserCharacterMap(charMapJSON)
+		if err != nil {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to decode character map of processing %d: %s", r.Id, err.Error())})
+			c.Abort()
+			return
 		}
-		if r.UserCharacterMap == nil {
-			r.UserCharacterMap = map[string]UserCharacterMapEntry{}
-		}
+		r.DateCreatedLocalized = Services.LocalizeTime(c, r.DateCreated)
 		result = append(result, r)
 	}
 
@@ -177,12 +180,13 @@ func GetUserDataProcessing(c *gin.Context, db *sql.DB) {
 	if urlsJSON != nil {
 		_ = json.Unmarshal([]byte(*urlsJSON), &r.DataExtractionUrls)
 	}
-	if charMapJSON != nil {
-		_ = json.Unmarshal([]byte(*charMapJSON), &r.UserCharacterMap)
+	r.UserCharacterMap, err = DecodeUserCharacterMap(charMapJSON)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to decode character map: " + err.Error()})
+		c.Abort()
+		return
 	}
-	if r.UserCharacterMap == nil {
-		r.UserCharacterMap = map[string]UserCharacterMapEntry{}
-	}
+	r.DateCreatedLocalized = Services.LocalizeTime(c, r.DateCreated)
 
 	c.JSON(http.StatusOK, r)
 }
@@ -286,7 +290,7 @@ func ProcessMybbTopicJson(c *gin.Context, db *sql.DB) {
 	posts := apiResponse.Response
 
 	now := time.Now()
-	usersSeen := map[string]string{}
+	usersSeen := map[string]UserCharacterMapEntry{}
 	savedCount := 0
 	skippedCount := 0
 
@@ -302,7 +306,7 @@ func ProcessMybbTopicJson(c *gin.Context, db *sql.DB) {
 		).Scan(&existing)
 		if existing > 0 {
 			skippedCount++
-			usersSeen[post.UserId] = post.Username
+			usersSeen[MybbUserKey(post.UserId, post.Username)] = UserCharacterMapEntry{OriginalUserId: post.UserId, OriginalUserName: post.Username}
 			continue
 		}
 
@@ -322,7 +326,7 @@ func ProcessMybbTopicJson(c *gin.Context, db *sql.DB) {
 			c.Abort()
 			return
 		}
-		usersSeen[post.UserId] = post.Username
+		usersSeen[MybbUserKey(post.UserId, post.Username)] = UserCharacterMapEntry{OriginalUserId: post.UserId, OriginalUserName: post.Username}
 		savedCount++
 	}
 
@@ -332,16 +336,16 @@ func ProcessMybbTopicJson(c *gin.Context, db *sql.DB) {
 	// Merge newly seen users into user_character_map (add missing keys, never overwrite)
 	var existingMapJSON *string
 	_ = db.QueryRow("SELECT user_character_map FROM user_data_processing WHERE id = ?", req.ProcessingId).Scan(&existingMapJSON)
-	charMap := map[string]UserCharacterMapEntry{}
-	if existingMapJSON != nil {
-		_ = json.Unmarshal([]byte(*existingMapJSON), &charMap)
+	charMap, err := DecodeUserCharacterMap(existingMapJSON)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to decode character map: " + err.Error()})
+		c.Abort()
+		return
 	}
-	for uid, uname := range usersSeen {
-		if _, exists := charMap[uid]; !exists {
-			charMap[uid] = UserCharacterMapEntry{
-				OriginalUserId:   uid,
-				OriginalUserName: uname,
-			}
+	for key, seen := range usersSeen {
+		if _, exists := charMap[key]; !exists {
+			seen.Key = key
+			charMap[key] = seen
 		}
 	}
 	charMapJSON, _ := json.Marshal(charMap)
@@ -360,8 +364,8 @@ func ProcessMybbTopicJson(c *gin.Context, db *sql.DB) {
 	}
 
 	foundUsers := make([]UserCharacterMapEntry, 0, len(usersSeen))
-	for uid := range usersSeen {
-		foundUsers = append(foundUsers, charMap[uid])
+	for key := range usersSeen {
+		foundUsers = append(foundUsers, charMap[key])
 	}
 
 	c.JSON(http.StatusOK, ProcessingResultResponse{
@@ -498,7 +502,7 @@ func UserDataProcessingPublish(c *gin.Context, db *sql.DB) {
 
 	// Fetch all unpublished rows for this processing in original post order
 	rows, err := db.Query(`
-		SELECT id, original_post_id, original_user_id, COALESCE(post_content_bb_parsed, original_post_content_html, '')
+		SELECT id, original_post_id, COALESCE(original_user_id, ''), COALESCE(original_user_name, ''), COALESCE(post_content_bb_parsed, original_post_content_html, '')
 		FROM user_data_migration
 		WHERE processing_id = ? AND is_published = 0
 		ORDER BY CAST(original_post_id AS UNSIGNED) ASC`,
@@ -514,12 +518,13 @@ func UserDataProcessingPublish(c *gin.Context, db *sql.DB) {
 		migrationId    int
 		originalPostId string
 		originalUserId string
+		originalName   string
 		content        string
 	}
 	var pending []pendingRow
 	for rows.Next() {
 		var r pendingRow
-		if err := rows.Scan(&r.migrationId, &r.originalPostId, &r.originalUserId, &r.content); err != nil {
+		if err := rows.Scan(&r.migrationId, &r.originalPostId, &r.originalUserId, &r.originalName, &r.content); err != nil {
 			rows.Close()
 			_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to scan migration row: " + err.Error()})
 			c.Abort()
@@ -539,7 +544,7 @@ func UserDataProcessingPublish(c *gin.Context, db *sql.DB) {
 			continue
 		}
 		firstPost = false
-		charID, mapped := req.UserMap[row.originalUserId]
+		charID, mapped := req.UserMap[MybbUserKey(row.originalUserId, row.originalName)]
 		if !mapped {
 			skippedCount++
 			continue
@@ -700,12 +705,20 @@ func UpdateUserCharacterMap(c *gin.Context, db *sql.DB) {
 
 	var existingMapJSON *string
 	_ = db.QueryRow("SELECT user_character_map FROM user_data_processing WHERE id = ?", req.ProcessingId).Scan(&existingMapJSON)
-	charMap := map[string]UserCharacterMapEntry{}
-	if existingMapJSON != nil {
-		_ = json.Unmarshal([]byte(*existingMapJSON), &charMap)
+	charMap, err := DecodeUserCharacterMap(existingMapJSON)
+	if err != nil {
+		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to decode character map: " + err.Error()})
+		c.Abort()
+		return
 	}
 
-	for uid, charID := range req.UserMap {
+	for key, charID := range req.UserMap {
+		existing, known := charMap[key]
+		if !known {
+			_ = c.Error(&Middlewares.AppError{Code: http.StatusBadRequest, Message: fmt.Sprintf("Unknown original user %q", key)})
+			c.Abort()
+			return
+		}
 		var charName string
 		var charUserID int
 		err := db.QueryRow("SELECT name, user_id FROM character_base WHERE id = ?", charID).Scan(&charName, &charUserID)
@@ -720,8 +733,8 @@ func UpdateUserCharacterMap(c *gin.Context, db *sql.DB) {
 			return
 		}
 		id := charID
-		existing := charMap[uid]
-		charMap[uid] = UserCharacterMapEntry{
+		charMap[key] = UserCharacterMapEntry{
+			Key:              key,
 			OriginalUserId:   existing.OriginalUserId,
 			OriginalUserName: existing.OriginalUserName,
 			CharacterId:      &id,
@@ -739,6 +752,30 @@ func UpdateUserCharacterMap(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"user_character_map": charMap})
+}
+
+// MybbUserKey identifies an original MyBB user. The id alone is not enough:
+// MyBB reports every deleted user as id 1, while usernames stay unique.
+func MybbUserKey(userId, username string) string {
+	return userId + ":" + username
+}
+
+// DecodeUserCharacterMap parses a stored user_character_map and keys every entry
+// by MybbUserKey, which also upgrades maps saved when keys were plain user ids.
+func DecodeUserCharacterMap(raw *string) (map[string]UserCharacterMapEntry, error) {
+	charMap := map[string]UserCharacterMapEntry{}
+	if raw == nil {
+		return charMap, nil
+	}
+	stored := map[string]UserCharacterMapEntry{}
+	if err := json.Unmarshal([]byte(*raw), &stored); err != nil {
+		return nil, err
+	}
+	for _, entry := range stored {
+		entry.Key = MybbUserKey(entry.OriginalUserId, entry.OriginalUserName)
+		charMap[entry.Key] = entry
+	}
+	return charMap, nil
 }
 
 func generateExtractionUrls(domain, topicId string, postCount int) []string {

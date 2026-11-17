@@ -107,7 +107,6 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	userTimezone := Services.GetUserTimezone(userID, db)
 
 	// If the user has opted out of tracking new posts for this subforum, suppress the not_viewed marker.
 	notViewedUserID := userID
@@ -177,7 +176,7 @@ func GetTopicsBySubforum(c *gin.Context, db *sql.DB) {
 			return
 		}
 		if topic.DateLastPost != nil {
-			localized := Services.LocalizeTime(*topic.DateLastPost, userTimezone)
+			localized := Services.LocalizeTime(c, *topic.DateLastPost)
 			topic.DateLastPostLocalized = &localized
 		}
 		topics = append(topics, topic)
@@ -411,7 +410,6 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 	cols, _ := rows.Columns()
 	posts := make([]Entities.Post, 0) // Initialize slice
 
-	userTimezone := Services.GetUserTimezone(currentUserID, db)
 	var subforumID int
 
 	// Find date_created column index to scan it directly into time.Time
@@ -459,7 +457,7 @@ func GetPostsByTopic(c *gin.Context, db *sql.DB) {
 			post.AuthorUserName = username.(string)
 		}
 		post.DateCreated = dateCreated
-		post.DateCreatedLocalized = Services.LocalizeTime(post.DateCreated, userTimezone)
+		post.DateCreatedLocalized = Services.LocalizeTime(c, post.DateCreated)
 		post.Content = rowMap["content"].(string)
 		post.ContentHtml = Services.ProcessHideBlocks(Services.LinkifyURLs(Services.ResolveNPCPlaceholders(Services.ParseBBCode(post.Content), db), domain, db), currentUserID, topicID, db)
 		post.UseCharacterProfile, _ = strconv.ParseBool(rowMap["use_character_profile"].(string))
@@ -736,7 +734,7 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 		c.Abort()
 		return
 	}
-	topic.DateLastPostLocalized = Services.LocalizeTime(topic.DateLastPost, Services.GetUserTimezone(currentUserID, db))
+	topic.DateLastPostLocalized = Services.LocalizeTime(c, topic.DateLastPost)
 
 	// Get all permissions for this user in this subforum context
 	userPerms, err := Services.GetSubforumPermissions(currentUserID, topic.SubforumId, db)
@@ -888,10 +886,14 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 					LIMIT 1
 				`, characterID).Scan(&cr.Id, &cr.ClaimId, &cr.UserId, &cr.GuestHash, &cr.IsGuest, &cr.ClaimDate, &cr.ClaimExpirationDate, &cr.CharacterId, &cr.ClaimCreatedWithCharacterSheet)
 				if err == nil {
+					if cr.ClaimExpirationDate != nil {
+						s := Services.LocalizeTime(c, *cr.ClaimExpirationDate)
+						cr.ClaimExpirationDateLocalized = &s
+					}
 					character.ClaimRecord = &cr
 				}
 
-				character.UserInfo = fetchUserInfo(character.UserId, db)
+				character.UserInfo = fetchUserInfo(character.UserId, db, Services.GetUserLocaleFromContext(c))
 				topic.Character = character
 			}
 		}
@@ -913,9 +915,17 @@ func GetTopic(c *gin.Context, db *sql.DB) {
 					wc.ClaimRecord = fetchActiveClaimRecord(*wc.CharacterClaimId, db)
 					if wc.ClaimRecord != nil {
 						wc.ActiveClaimRecord = wc.ClaimRecord.ClaimExpirationDate
+						if wc.ActiveClaimRecord != nil {
+							s := Services.LocalizeTime(c, *wc.ActiveClaimRecord)
+							wc.ActiveClaimRecordLocalized = &s
+						}
+						if wc.ClaimRecord.ClaimExpirationDate != nil {
+							s := Services.LocalizeTime(c, *wc.ClaimRecord.ClaimExpirationDate)
+							wc.ClaimRecord.ClaimExpirationDateLocalized = &s
+						}
 					}
 				}
-				wc.UserInfo = fetchUserInfo(wc.AuthorUserId, db)
+				wc.UserInfo = fetchUserInfo(wc.AuthorUserId, db, Services.GetUserLocaleFromContext(c))
 				wc.Relations = fetchWantedCharacterRelations(wc.Id, db)
 				topic.WantedCharacter = wc
 			}
@@ -1046,7 +1056,7 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 				}
 
 				if memberCount == 0 {
-					c.JSON(http.StatusForbidden, gin.H{"error": "This character is not a participant in this episode"})
+					c.JSON(http.StatusForbidden, gin.H{"error": "This character is not a participant in this scene"})
 					return
 				}
 			}
@@ -1069,7 +1079,7 @@ func CreatePost(c *gin.Context, db *sql.DB) {
 			}
 		}
 		if isGmPost == nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You are not a game master of the arc this episode belongs to"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "You are not a game master of the arc this scene belongs to"})
 			return
 		}
 	}
@@ -1473,7 +1483,7 @@ func UpdatePost(c *gin.Context, db *sql.DB) {
 							episodeID, characterID.Int64).Scan(&memberCount)
 					}
 					if memberCount == 0 {
-						_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "This character is not a participant in this episode"})
+						_ = c.Error(&Middlewares.AppError{Code: http.StatusForbidden, Message: "This character is not a participant in this scene"})
 						c.Abort()
 						return
 					}
@@ -1974,7 +1984,6 @@ func GetActiveTopics(c *gin.Context, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	userTimezone := Services.GetUserTimezone(userID, db)
 
 	var topics []ViewforumRow
 	for rows.Next() {
@@ -1999,7 +2008,7 @@ func GetActiveTopics(c *gin.Context, db *sql.DB) {
 			continue
 		}
 		if topic.DateLastPost != nil {
-			localized := Services.LocalizeTime(*topic.DateLastPost, userTimezone)
+			localized := Services.LocalizeTime(c, *topic.DateLastPost)
 			topic.DateLastPostLocalized = &localized
 		}
 		topics = append(topics, topic)
@@ -2019,7 +2028,6 @@ func GetUserSubscribedTopics(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	userTimezone := Services.GetUserTimezone(userID, db)
 
 	query := `
 		SELECT t.id, t.status, t.name, t.type, t.date_last_post, t.post_number,
@@ -2070,7 +2078,7 @@ func GetUserSubscribedTopics(c *gin.Context, db *sql.DB) {
 			continue
 		}
 		if topic.DateLastPost != nil {
-			localized := Services.LocalizeTime(*topic.DateLastPost, userTimezone)
+			localized := Services.LocalizeTime(c, *topic.DateLastPost)
 			topic.DateLastPostLocalized = &localized
 		}
 		topics = append(topics, topic)
@@ -2426,7 +2434,7 @@ func GetPostById(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	post.DateCreatedLocalized = Services.LocalizeTime(post.DateCreated, Services.GetUserTimezone(userID, db))
+	post.DateCreatedLocalized = Services.LocalizeTime(c, post.DateCreated)
 
 	c.JSON(http.StatusOK, post)
 }
