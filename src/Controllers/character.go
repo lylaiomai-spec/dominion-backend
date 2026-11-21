@@ -2460,6 +2460,7 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 			LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
 				AND aai.end_date >= NOW()
+				AND aai.start_date <= DATE_ADD(ats.start_date, INTERVAL ? + ats.extra_days DAY)
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND DATEDIFF(NOW(), ats.start_date) - ats.extra_days >= ?
@@ -2490,11 +2491,11 @@ func GetArchivingWarnings(c *gin.Context, db *sql.DB) {
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND DATEDIFF(aai_exp.end_date, NOW()) <= 10
-			AND ? - DATEDIFF(aai_exp.end_date, ats.start_date) <= 0
+			AND ? - (DATEDIFF(aai_exp.end_date, ats.start_date) - ats.extra_days) <= 0
 			AND au.id IS NULL
 		)
 		ORDER BY days_left ASC
-	`, autoArchivingDays, autoArchivingDays, Entities.ActiveCharacter, Entities.ActiveUser, warningThreshold,
+	`, autoArchivingDays, autoArchivingDays, autoArchivingDays, Entities.ActiveCharacter, Entities.ActiveUser, warningThreshold,
 		Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to get archiving warnings: " + err.Error()})

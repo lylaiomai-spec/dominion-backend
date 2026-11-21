@@ -15,5 +15,6 @@ type AIChatMessage struct {
 	Role        string     `json:"role"` // "user" or "assistant"
 	Content     string     `json:"content"`
 	Sources     []AISource `json:"sources,omitempty"`
-	DateCreated time.Time  `json:"date_created"`
+	DateCreated time.Time  `json:"-"`
+	Date        string     `json:"date"` // DateCreated localized for the recipient
 }

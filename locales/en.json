@@ -62,5 +62,7 @@
 
   "auto_archiving.deactivated": "Your character {{.Name}} has been automatically deactivated due to inactivity.",
 
-  "absence.started_notification": "{{.Username}} has started an absence until {{.EndDate}}."
+  "absence.started_notification": "{{.Username}} has started an absence until {{.EndDate}}.",
+
+  "ai.message_notification": "You have a message from AI."
 }

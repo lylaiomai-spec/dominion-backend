@@ -5,7 +5,6 @@ import (
 	"cuento-backend/src/Middlewares"
 	"cuento-backend/src/Services"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -20,7 +19,6 @@ func GetUnreadNotifications(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-
 	rows, err := db.Query("SELECT id, type, title, message, data, date_created, is_read FROM notifications WHERE user_id = ? AND is_read = FALSE ORDER BY date_created DESC", userID)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to fetch notifications: " + err.Error()})
@@ -30,14 +28,16 @@ func GetUnreadNotifications(c *gin.Context, db *sql.DB) {
 	defer rows.Close()
 
 	result := map[string][]interface{}{
-		"system":               {},
-		"game":                 {},
-		"mention":              {},
-		"account_update":       {},
-		"direct_message":       {},
-		"reaction":             {},
-		"topic_subscriptions":  {},
-		"absence_started":      {},
+		"system":                {},
+		"game":                  {},
+		"mention":               {},
+		"account_update":        {},
+		"direct_message":        {},
+		"reaction":              {},
+		"topic_subscriptions":   {},
+		"absence_started":       {},
+		"episode_status_change": {},
+		"ai_message":            {},
 	}
 
 	for rows.Next() {
@@ -49,43 +49,7 @@ func GetUnreadNotifications(c *gin.Context, db *sql.DB) {
 		base.UserId = userID
 		base.DateCreatedLocalized = Services.LocalizeTime(c, base.DateCreated)
 
-		var notification interface{}
-		switch base.Type {
-		case "mention":
-			n := Entities.MentionNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		case "game":
-			n := Entities.GameNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		case "system":
-			n := Entities.SystemNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		case "account_update":
-			n := Entities.AccountUpdateNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		case "direct_message":
-			n := Entities.DirectMessageNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		case "reaction":
-			n := Entities.ReactionNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		case "topic_subscriptions":
-			n := Entities.TopicSubscriptionNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		case "absence_started":
-			n := Entities.AbsenceStartedNotification{NotificationBase: base}
-			json.Unmarshal(dataJSON, &n.Data)
-			notification = n
-		default:
-			notification = base
-		}
+		notification := Entities.TypedNotification(base, dataJSON)
 
 		if _, ok := result[base.Type]; ok {
 			result[base.Type] = append(result[base.Type], notification)
@@ -106,6 +70,7 @@ func GetNotificationTypes(c *gin.Context) {
 		"direct_message",
 		"reaction",
 		"topic_subscriptions",
+		"ai_message",
 	}
 	c.JSON(http.StatusOK, types)
 }
@@ -140,7 +105,7 @@ func GetNotificationSettings(c *gin.Context, db *sql.DB) {
 		saved[s.NotificationType] = s
 	}
 
-	allTypes := []string{"system", "game", "mention", "account_update", "direct_message", "reaction", "topic_subscriptions"}
+	allTypes := []string{"system", "game", "mention", "account_update", "direct_message", "reaction", "topic_subscriptions", "ai_message"}
 	settings := make([]Entities.UserNotificationSetting, 0, len(allTypes))
 	for _, t := range allTypes {
 		if s, ok := saved[t]; ok {

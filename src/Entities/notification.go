@@ -1,6 +1,9 @@
 package Entities
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type NotificationBase struct {
 	Id                   int       `json:"id"`
@@ -120,11 +123,11 @@ type NotificationPageChanged struct {
 }
 
 type NotificationEpisodeStatusChange struct {
-	EpisodeId    int            `json:"episode_id"`
-	EpisodeName  string         `json:"episode_name"`
-	NewStatus    int            `json:"new_status"`
-	InitiatorId  int            `json:"initiator_id"`
-	InitiatorName string        `json:"initiator_name"`
+	EpisodeId     int    `json:"episode_id"`
+	EpisodeName   string `json:"episode_name"`
+	NewStatus     int    `json:"new_status"`
+	InitiatorId   int    `json:"initiator_id"`
+	InitiatorName string `json:"initiator_name"`
 }
 
 type EpisodeStatusChangeNotification struct {
@@ -144,13 +147,72 @@ type TopicSubscriptionNotification struct {
 }
 
 type NotificationAbsenceStarted struct {
-	UserId          int      `json:"user_id"`
-	Username        string   `json:"username"`
-	AbsenceEndDate  string   `json:"absence_end_date"`
-	Characters      []string `json:"characters"`
+	UserId         int      `json:"user_id"`
+	Username       string   `json:"username"`
+	AbsenceEndDate string   `json:"absence_end_date"`
+	Characters     []string `json:"characters"`
 }
 
 type AbsenceStartedNotification struct {
 	NotificationBase
 	Data NotificationAbsenceStarted `json:"data"`
+}
+
+type NotificationAIMessage struct {
+	MessageId int `json:"message_id"`
+}
+
+type AIMessageNotification struct {
+	NotificationBase
+	Data NotificationAIMessage `json:"data"`
+}
+
+// TypedNotification decodes the stored data JSON into the struct for the
+// notification's type. Unknown types and undecodable data return the bare base.
+func TypedNotification(base NotificationBase, dataJSON []byte) interface{} {
+	var n, data interface{}
+	switch base.Type {
+	case "mention":
+		t := &MentionNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "game":
+		t := &GameNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "system":
+		t := &SystemNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "auto_archiving":
+		t := &AutoArchivingNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "account_update":
+		t := &AccountUpdateNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "direct_message":
+		t := &DirectMessageNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "reaction":
+		t := &ReactionNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "episode_status_change":
+		t := &EpisodeStatusChangeNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "topic_subscriptions":
+		t := &TopicSubscriptionNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "absence_started":
+		t := &AbsenceStartedNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	case "ai_message":
+		t := &AIMessageNotification{NotificationBase: base}
+		n, data = t, &t.Data
+	default:
+		return base
+	}
+	if len(dataJSON) == 0 {
+		return n
+	}
+	if err := json.Unmarshal(dataJSON, data); err != nil {
+		return base
+	}
+	return n
 }

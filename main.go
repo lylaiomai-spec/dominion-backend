@@ -1027,7 +1027,7 @@ protectedRouter.POST("/category/create", "Create a new category", func(c *gin.Co
 		MCP.GetAvailableModels(c, Services.DB)
 	})
 	protectedRouter.POST("/ai-chat/clear", "Clear AI chat context for the current user", func(c *gin.Context) {
-		MCP.ClearAIContext(c, Services.DB)
+		MCP.ClearAIContext(c)
 	})
 
 	// Fraction settings routes

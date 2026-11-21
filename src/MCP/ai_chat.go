@@ -105,7 +105,7 @@ func executeChatTask(db *sql.DB, taskID, userID int) {
 	)
 	if err != nil {
 		markFailed(db, taskID, userID, err.Error())
-		pushError(userID, err.Error())
+		pushError(db, userID, err.Error())
 		notifyQueuePositions(db, taskID)
 		return
 	}
@@ -153,12 +153,12 @@ func executeChatTask(db *sql.DB, taskID, userID int) {
 		}
 	}
 	msg := Entities.AIChatMessage{
-		Id:          int(replyID),
-		UserId:      userID,
-		Role:        "assistant",
-		Content:     replyText,
-		Sources:     entitySources,
-		DateCreated: time.Now(),
+		Id:      int(replyID),
+		UserId:  userID,
+		Role:    "assistant",
+		Content: replyText,
+		Sources: entitySources,
+		Date:    Services.LocalizeTimeForUser(time.Now(), Services.GetUserLocale(userID, db)),
 	}
 
 	// Notify subscribers and determine how to deliver the reply.

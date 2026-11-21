@@ -6,6 +6,7 @@ import (
 	"cuento-backend/src/Services"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -360,13 +361,40 @@ func AddUserCurrencyTransactionHandler(c *gin.Context, db *sql.DB) {
 	}
 
 	var req struct {
-		Type     CurrencyTransactionType `json:"type" binding:"required"`
-		Amount   int                     `json:"amount" binding:"required"`
-		Comment  *string                 `json:"comment"`
-		Metadata *json.RawMessage        `json:"metadata"`
+		Type          CurrencyTransactionType `json:"type" binding:"required"`
+		Amount        int                     `json:"amount" binding:"required"`
+		IncomeTypeKey *string                 `json:"income_type_key"`
+		Metadata      *json.RawMessage        `json:"metadata"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+	if req.Type != CurrencyTransactionIncome && req.Type != CurrencyTransactionSpend {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid transaction type"})
+		return
+	}
+	if req.Amount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Amount must be positive"})
+		return
+	}
+	var note struct {
+		Note *string `json:"note"`
+	}
+	if req.Metadata != nil {
+		if err := json.Unmarshal(*req.Metadata, &note); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid metadata"})
+			return
+		}
+	}
+
+	incomeTypeKey, err := resolveManualTransactionKey(db, req.Type, req.IncomeTypeKey)
+	if errors.Is(err, errUnknownTransactionKey) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check transaction type"})
 		return
 	}
 
@@ -385,11 +413,6 @@ func AddUserCurrencyTransactionHandler(c *gin.Context, db *sql.DB) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update currency account"})
 		return
-	}
-
-	incomeTypeKey := "currency_income_manual_transaction"
-	if req.Type == CurrencyTransactionSpend {
-		incomeTypeKey = "currency_spend_manual_transaction"
 	}
 
 	_, err = tx.Exec(
@@ -424,9 +447,35 @@ func AddUserCurrencyTransactionHandler(c *gin.Context, db *sql.DB) {
 			IncomeTypeKey: incomeTypeKey,
 			Amount:        req.Amount,
 			TotalAmount:   newTotal,
-			Comment:       req.Comment,
+			Comment:       note.Note,
 		},
 	})
+}
+
+var errUnknownTransactionKey = errors.New("unknown transaction type key")
+
+// resolveManualTransactionKey returns the key to store for a manually added transaction:
+// the chosen income/spend type when it exists for that direction, otherwise the manual key.
+func resolveManualTransactionKey(db *sql.DB, txType CurrencyTransactionType, chosen *string) (string, error) {
+	if chosen == nil || *chosen == "" {
+		if txType == CurrencyTransactionSpend {
+			return "currency_spend_manual_transaction", nil
+		}
+		return "currency_income_manual_transaction", nil
+	}
+
+	query := "SELECT COUNT(*) FROM currency_income_types WHERE `key` = ?"
+	if txType == CurrencyTransactionSpend {
+		query = "SELECT COUNT(*) FROM currency_spend_types WHERE `key` = ?"
+	}
+	var n int
+	if err := db.QueryRow(query, *chosen).Scan(&n); err != nil {
+		return "", fmt.Errorf("checking transaction key %q: %w", *chosen, err)
+	}
+	if n == 0 {
+		return "", fmt.Errorf("%w: %s", errUnknownTransactionKey, *chosen)
+	}
+	return *chosen, nil
 }
 
 func GetUserCurrencyAmountHandler(c *gin.Context, db *sql.DB) {

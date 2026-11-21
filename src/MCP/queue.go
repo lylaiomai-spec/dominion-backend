@@ -128,10 +128,13 @@ func markFailed(db *sql.DB, taskID, userID int, errMsg string) {
 }
 
 // pushError sends an error notification to the user over WebSocket.
-func pushError(userID int, errMsg string) {
+func pushError(db *sql.DB, userID int, errMsg string) {
 	Websockets.MainHub.SendNotification(userID, map[string]interface{}{
-		"type":  "ai_error",
-		"error": errMsg,
+		"type": "ai_error",
+		"data": map[string]string{
+			"error": errMsg,
+			"date":  Services.LocalizeTimeForUser(time.Now(), Services.GetUserLocale(userID, db)),
+		},
 	})
 }
 

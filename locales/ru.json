@@ -66,5 +66,7 @@
 
   "auto_archiving.deactivated": "Ваш персонаж {{.Name}} был автоматически деактивирован из-за неактивности.",
 
-  "absence.started_notification": "{{.Username}} ушёл в отсутствие до {{.EndDate}}."
+  "absence.started_notification": "{{.Username}} ушёл в отсутствие до {{.EndDate}}.",
+
+  "ai.message_notification": "У вас сообщение от ИИ."
 }

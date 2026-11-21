@@ -49,8 +49,16 @@ func runAbsenceStartedNotifications(db *sql.DB) {
 
 var archivingWarningThresholds = []int{10, 5, 3, 2, 1}
 
+// absenceRecalculationLookbackDays covers absences that ended while daily runs were missed;
+// recalculating an already-correct timer is harmless.
+const absenceRecalculationLookbackDays = 7
+
+// StartArchivingNotifier runs the daily jobs once at startup, so a restart catches up on a
+// missed run, and then every day at 09:00 UTC. Every job is safe to repeat on the same day.
 func StartArchivingNotifier(db *sql.DB) {
 	go func() {
+		RunDailyArchivingJobs(db)
+
 		now := time.Now().UTC()
 		next := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, time.UTC)
 		if !next.After(now) {
@@ -58,20 +66,23 @@ func StartArchivingNotifier(db *sql.DB) {
 		}
 
 		time.Sleep(time.Until(next))
-		runAbsenceExpirationRecalculations(db)
-		runAutoArchiving(db)
-		runArchivingNotifications(db)
-		runAbsenceStartedNotifications(db)
+		RunDailyArchivingJobs(db)
 
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			runAbsenceExpirationRecalculations(db)
-			runAutoArchiving(db)
-			runArchivingNotifications(db)
-			runAbsenceStartedNotifications(db)
+			RunDailyArchivingJobs(db)
 		}
 	}()
+}
+
+// RunDailyArchivingJobs recalculates absence credit before anything reads it, then archives,
+// warns, and announces absences that start today.
+func RunDailyArchivingJobs(db *sql.DB) {
+	runAbsenceExpirationRecalculations(db)
+	runAutoArchiving(db)
+	runArchivingNotifications(db)
+	runAbsenceStartedNotifications(db)
 }
 
 func runAbsenceExpirationRecalculations(db *sql.DB) {
@@ -79,8 +90,8 @@ func runAbsenceExpirationRecalculations(db *sql.DB) {
 		SELECT DISTINCT user_id FROM absent_users
 		WHERE is_deleted = 0
 		  AND absence_end_date < NOW()
-		  AND absence_end_date >= NOW() - INTERVAL 25 HOUR
-	`)
+		  AND absence_end_date >= NOW() - INTERVAL ? DAY
+	`, absenceRecalculationLookbackDays)
 	if err != nil {
 		log.Printf("Absence expiration recalculations: failed to query: %v", err)
 		return
@@ -213,7 +224,7 @@ func runArchivingNotifications(db *sql.DB) {
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND DATEDIFF(aai_exp.end_date, NOW()) = ?
-			AND ? - DATEDIFF(aai_exp.end_date, ats.start_date) <= 0
+			AND ? - (DATEDIFF(aai_exp.end_date, ats.start_date) - ats.extra_days) <= 0
 			AND au.id IS NULL
 		`, Entities.ActiveCharacter, Entities.ActiveUser, threshold, autoArchivingDays)
 		if err != nil {
@@ -225,7 +236,7 @@ func runArchivingNotifications(db *sql.DB) {
 			id       int
 			name     string
 			userID   int
-			baseDate string
+			baseDate time.Time
 		}
 
 		var chars []charRow
@@ -285,13 +296,14 @@ func runArchivingNotifications(db *sql.DB) {
 			LEFT JOIN absent_users au ON au.user_id = cb.user_id
 				AND au.absence_start_date <= NOW() AND au.absence_end_date >= NOW() AND au.is_deleted = 0
 			LEFT JOIN auto_archiving_immunity aai ON aai.character_id = cb.id
-				AND aai.start_date <= NOW() AND aai.end_date >= NOW()
+				AND aai.end_date >= NOW()
+				AND aai.start_date <= DATE_ADD(ats.start_date, INTERVAL ? + ats.extra_days DAY)
 			WHERE cb.character_status = ?
 			AND u.user_status = ?
 			AND ? - (DATEDIFF(NOW(), ats.start_date) - ats.extra_days) = ?
 			AND au.id IS NULL
 			AND aai.id IS NULL
-		`, Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays, threshold)
+		`, autoArchivingDays, Entities.ActiveCharacter, Entities.ActiveUser, autoArchivingDays, threshold)
 		if err != nil {
 			log.Printf("Archiving notifier: failed to query characters for threshold %d: %v", threshold, err)
 			continue
@@ -301,7 +313,7 @@ func runArchivingNotifications(db *sql.DB) {
 			id       int
 			name     string
 			userID   int
-			baseDate string
+			baseDate time.Time
 		}
 
 		var chars []charRow

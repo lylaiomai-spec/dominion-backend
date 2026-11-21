@@ -7,7 +7,6 @@ import (
 	"cuento-backend/src/Services"
 	"database/sql"
 	"fmt"
-	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -100,12 +99,9 @@ func ExternalAppPost(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	// Escape raw HTML before storing; BB codes use [] so they are unaffected
-	content := html.EscapeString(req.Content)
-
 	res, err := db.Exec(
 		"INSERT INTO posts (topic_id, author_user_id, content, date_created, use_character_profile) VALUES (?, ?, ?, NOW(), false)",
-		req.TopicId, userId, content,
+		req.TopicId, userId, req.Content,
 	)
 	if err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to create post: " + err.Error()})
@@ -243,8 +239,7 @@ func ExternalAppUpdatePost(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	content := html.EscapeString(req.Content)
-	if _, err := db.Exec("UPDATE posts SET content = ? WHERE id = ?", content, postId); err != nil {
+	if _, err := db.Exec("UPDATE posts SET content = ? WHERE id = ?", req.Content, postId); err != nil {
 		_ = c.Error(&Middlewares.AppError{Code: http.StatusInternalServerError, Message: "Failed to update post"})
 		c.Abort()
 		return
